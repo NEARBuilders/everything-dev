@@ -30,10 +30,10 @@ export function computeManifestSri(text: string): string {
  * resolution error, …). */
 export async function fetchVerifiedManifest(input: {
   base: string;
-  pin: ManifestPin;
+  digest: ManifestPin;
   fetchImpl?: typeof fetch;
 }): Promise<VerifiedManifest> {
-  const manifestUrl = manifestDocumentUrl(input.base, input.pin.manifest);
+  const manifestUrl = manifestDocumentUrl(input.base, input.digest.manifest);
   let response: Response;
   try {
     response = await (input.fetchImpl ?? fetch)(manifestUrl);
@@ -48,10 +48,10 @@ export async function fetchVerifiedManifest(input: {
   }
   const text = await response.text();
   const computed = computeManifestSri(text);
-  if (computed !== input.pin.integrity) {
+  if (computed !== input.digest.integrity) {
     return {
       ok: false,
-      reason: `integrity mismatch for ${manifestUrl} (expected ${input.pin.integrity}, computed ${computed})`,
+      reason: `integrity mismatch for ${manifestUrl} (expected ${input.digest.integrity}, computed ${computed})`,
     };
   }
   return { ok: true, text };

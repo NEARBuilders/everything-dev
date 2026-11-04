@@ -3,7 +3,7 @@ import everythingDevApp from "../../../../bos.app";
 import { App, Plugin } from "../../src/descriptor/constructors";
 import { resolveApp } from "../../src/descriptor/resolve";
 
-const PIPELINE_FIELDS = ["production", "integrity", "ssr", "ssrIntegrity", "pin"] as const;
+const PIPELINE_FIELDS = ["production", "integrity", "ssr", "ssrIntegrity", "digest"] as const;
 
 function stripPipeline(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripPipeline);

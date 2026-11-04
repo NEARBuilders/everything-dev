@@ -427,7 +427,7 @@ describe("publishToFastKv preflight ordering", () => {
     expect(uploadBundleMock).toHaveBeenCalledTimes(1);
     expect(platformUrlDeployEntriesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        pin: {
+        digest: {
           file: expect.stringMatching(/^versions\/[0-9a-f]{16}\.json$/),
           integrity: "sha384-manifest",
           storage: "s3",

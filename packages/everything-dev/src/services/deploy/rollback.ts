@@ -28,7 +28,7 @@ export interface RollbackVerification {
 
 interface PinnedSlotRef {
   production?: unknown;
-  pin?: { manifest?: unknown; integrity?: unknown };
+  digest?: { manifest?: unknown; integrity?: unknown };
 }
 
 function collectPinnedSlots(config: BosConfigInput): Array<{ slot: string; ref: PinnedSlotRef }> {
@@ -39,26 +39,26 @@ function collectPinnedSlots(config: BosConfigInput): Array<{ slot: string; ref: 
   return slots;
 }
 
-function pinOf(ref: PinnedSlotRef): { manifest: string; integrity: string } | null {
-  const manifest = typeof ref.pin?.manifest === "string" ? ref.pin.manifest : undefined;
-  const integrity = typeof ref.pin?.integrity === "string" ? ref.pin.integrity : undefined;
+function digestOf(ref: PinnedSlotRef): { manifest: string; integrity: string } | null {
+  const manifest = typeof ref.digest?.manifest === "string" ? ref.digest.manifest : undefined;
+  const integrity = typeof ref.digest?.integrity === "string" ? ref.digest.integrity : undefined;
   return manifest && integrity ? { manifest, integrity } : null;
 }
 
 export interface RemoteDescriptor {
   slot: string;
-  /** the slot's production base URL (…/bundles/<account>/<gateway>/<workspace>/) */
+  /** the remote's production base URL (…/bundles/<account>/<gateway>/<workspace>/) */
   base: string;
-  pin: { manifest: string; integrity: string };
+  digest: { manifest: string; integrity: string };
 }
 
 /** Every pinned slot with both a production base and a verifiable pin. */
 export function collectRemoteDescriptors(config: BosConfigInput): RemoteDescriptor[] {
   return collectPinnedSlots(config)
     .map(({ slot, ref }) => {
-      const pin = pinOf(ref);
+      const digest = digestOf(ref);
       const base = typeof ref.production === "string" ? ref.production : undefined;
-      return pin && base ? { slot, base, pin } : null;
+      return digest && base ? { slot, base, digest } : null;
     })
     .filter((entry): entry is RemoteDescriptor => entry !== null);
 }
@@ -69,14 +69,18 @@ async function verifySlot(
   fetchImpl: typeof fetch,
 ): Promise<RollbackSlotCheck> {
   const base = typeof ref.production === "string" ? ref.production : undefined;
-  const pin = pinOf(ref);
-  if (!pin) return { slot, ok: true };
-  const { manifest, integrity } = pin;
+  const digest = digestOf(ref);
+  if (!digest) return { slot, ok: true };
+  const { manifest, integrity } = digest;
 
   if (!base)
     return { slot, manifest, ok: false, reason: "no production URL to fetch the manifest from" };
 
-  const verified = await fetchVerifiedManifest({ base, pin: { manifest, integrity }, fetchImpl });
+  const verified = await fetchVerifiedManifest({
+    base,
+    digest: { manifest, integrity },
+    fetchImpl,
+  });
   if (!verified.ok) {
     return { slot, manifest, ok: false, reason: verified.reason };
   }
@@ -88,7 +92,7 @@ export async function verifyRollbackSnapshot(
   opts?: { fetchImpl?: typeof fetch },
 ): Promise<RollbackVerification> {
   const fetchImpl = opts?.fetchImpl ?? fetch;
-  const pinned = collectPinnedSlots(config).filter((entry) => pinOf(entry.ref) !== null);
+  const pinned = collectPinnedSlots(config).filter((entry) => digestOf(entry.ref) !== null);
 
   if (pinned.length === 0) {
     return { verifiable: false, ok: false, slots: [] };
@@ -103,8 +107,8 @@ export async function verifyRollbackSnapshot(
 export function summarizeSlotPins(config: BosConfigInput): string {
   const pinned = collectPinnedSlots(config)
     .map((entry) => {
-      const pin = pinOf(entry.ref);
-      return pin ? `${entry.slot}=${pin.manifest}` : null;
+      const digest = digestOf(entry.ref);
+      return digest ? `${entry.slot}=${digest.manifest}` : null;
     })
     .filter(Boolean) as string[];
   return pinned.length > 0 ? pinned.join(" ") : "no version pins (pre-pin snapshot)";

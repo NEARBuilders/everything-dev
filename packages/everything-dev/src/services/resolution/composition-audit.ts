@@ -27,13 +27,13 @@ export const auditSessionComposition = (
   options?: { fetchImpl?: typeof fetch },
 ): Promise<CompositionAuditLine[]> =>
   auditReleaseComposition({
-    slots: collectRemoteDescriptors((session.config ?? {}) as BosConfigInput),
+    remotes: collectRemoteDescriptors((session.config ?? {}) as BosConfigInput),
     authoredPaths: authoredRemoteKeys((session.rawConfig ?? {}) as Record<string, unknown>),
     localVersionOf: (name) =>
       readInstalledFrameworkVersion(findWorkspaceRoot(session.root)?.dir ?? session.root, name),
     provisionedRemotes: session.releaseComposition?.omitted,
     configRemotePaths: configRemotePathsOf(session.config),
-    manifestRemotePaths: Object.keys(session.releaseManifest?.slots ?? {}),
+    manifestRemotePaths: Object.keys(session.releaseManifest?.remotes ?? {}),
     pinnedReleaseVersion: session.releaseManifest?.frameworkVersion,
     ...(options?.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });

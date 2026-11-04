@@ -39,10 +39,10 @@ export { type Manifest, ManifestSchema } from "./manifest-schema";
 
 import { type Manifest, ManifestSchema } from "./manifest-schema";
 
-/** One recorded release slot (see {@link ManifestSchema.slots}). */
+/** One recorded release remote (see {@link ManifestSchema.remotes}). */
 export interface RemoteRecord {
   base: string;
-  pin: { manifest: string; integrity: string };
+  digest: { manifest: string; integrity: string };
 }
 
 export interface TemplateInventoryEntry {
@@ -118,10 +118,10 @@ export interface ComposePlatformReleaseManifestInputs {
   catalog: Record<string, string>;
   templateInventory: TemplateInventoryEntry[];
   compatMinChild: string;
-  /** The release's own slot-pin map — sorted here so identical payloads
+  /** The release's own remote-record map — sorted here so identical payloads
    * compose identical manifest bytes across machines (the burned-version
    * guard compares serialized bytes). */
-  slots?: Record<string, RemoteRecord>;
+  remotes?: Record<string, RemoteRecord>;
 }
 
 export function composePlatformReleaseManifest(
@@ -138,8 +138,8 @@ export function composePlatformReleaseManifest(
         `v${semver.major}.${semver.minor}.${semver.patch}${semver.prerelease ? `-${semver.prerelease}` : ""}`,
       ]
     : [];
-  const slots = inputs.slots
-    ? Object.fromEntries(Object.entries(inputs.slots).sort(([a], [b]) => (a < b ? -1 : 1)))
+  const remotes = inputs.remotes
+    ? Object.fromEntries(Object.entries(inputs.remotes).sort(([a], [b]) => (a < b ? -1 : 1)))
     : undefined;
   return ManifestSchema.parse({
     schemaVersion: 1,
@@ -152,7 +152,7 @@ export function composePlatformReleaseManifest(
     sharedDeps: composeSharedDepsFromCatalog(inputs.catalog),
     templateInventory: inputs.templateInventory,
     compat: { minChild: inputs.compatMinChild },
-    ...(slots ? { slots } : {}),
+    ...(remotes ? { remotes } : {}),
   });
 }
 

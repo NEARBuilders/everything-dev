@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { JsonObjectSchema, SharedDepMapSchema, SlotPinSchema } from "../types";
+import { JsonObjectSchema, RemoteDigestSchema, SharedDepMapSchema } from "../types";
 
 /** Pipeline-owned fields — never authored; injected from the deploy map. */
 export const PipelineFieldsSchema = z.object({
@@ -7,7 +7,7 @@ export const PipelineFieldsSchema = z.object({
   integrity: z.string().optional(),
   ssr: z.string().optional(),
   ssrIntegrity: z.string().optional(),
-  pin: SlotPinSchema.optional(),
+  digest: RemoteDigestSchema.optional(),
 });
 export type PipelineFields = z.infer<typeof PipelineFieldsSchema>;
 
@@ -40,7 +40,7 @@ export const AttachmentRefSchema = DevelopmentRefSchema.extend({
           path: z.string().optional(),
           development: z.string().optional(),
           integrity: z.string().optional(),
-          pin: SlotPinSchema.optional(),
+          digest: RemoteDigestSchema.optional(),
         })
         .strict(),
       z.literal(false),

@@ -91,7 +91,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
   });
   const slot = (path: string) => ({
     base: `${serverUrl}/${path}`,
-    pin: { manifest: `${serverUrl}/${path}/mf-manifest.json`, integrity: sriOf(BUILT_SHARED) },
+    digest: { manifest: `${serverUrl}/${path}/mf-manifest.json`, integrity: sriOf(BUILT_SHARED) },
   });
   const manifest = {
     schemaVersion: 1,
@@ -103,7 +103,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
     sharedDeps: {},
     templateInventory: [],
     compat: { minChild: "2.0.0-rc.26" },
-    slots: {
+    remotes: {
       "app.ui": slot("app.ui"),
       "app.api": slot("app.api"),
       "app.auth": slot("app.auth"),
@@ -134,12 +134,18 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
       ui: {
         ...rawConfig.app.ui,
         production: `${serverUrl}/app.ui`,
-        pin: { manifest: `${serverUrl}/app.ui/mf-manifest.json`, integrity: sriOf(BUILT_SHARED) },
+        digest: {
+          manifest: `${serverUrl}/app.ui/mf-manifest.json`,
+          integrity: sriOf(BUILT_SHARED),
+        },
       },
       api: {
         ...rawConfig.app.api,
         production: `${serverUrl}/app.api`,
-        pin: { manifest: `${serverUrl}/app.api/mf-manifest.json`, integrity: sriOf(BUILT_SHARED) },
+        digest: {
+          manifest: `${serverUrl}/app.api/mf-manifest.json`,
+          integrity: sriOf(BUILT_SHARED),
+        },
       },
       auth: { name: "auth" },
     },

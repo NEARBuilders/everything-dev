@@ -26,19 +26,19 @@ const resolvedConfig = {
       development: "local:host",
       production: "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/host/",
       integrity: "sha384-Vky0MKce",
-      pin: { manifest: "versions/06256e721e1b0e70.json", integrity: "sha384-Vky0MKce" },
+      digest: { manifest: "versions/06256e721e1b0e70.json", integrity: "sha384-Vky0MKce" },
     },
     ui: {
       development: "local:ui",
       production: "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/ui/",
-      pin: { manifest: "versions/79920069a180af1d.json", integrity: "sha384-n9HmaBE8" },
+      digest: { manifest: "versions/79920069a180af1d.json", integrity: "sha384-n9HmaBE8" },
     },
     api: {
       development: "local:api",
       production: "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/api/",
       variables: { gatewayDomains: "everything.dev,dev.everything.dev" },
       secrets: ["API_DATABASE_URL", "BETTER_AUTH_SECRET"],
-      pin: { manifest: "versions/bf70b2bbad772fa3.json", integrity: "sha384-T+g03rDE" },
+      digest: { manifest: "versions/bf70b2bbad772fa3.json", integrity: "sha384-T+g03rDE" },
     },
     auth: {
       name: "@everything-dev/auth-plugin",
@@ -53,9 +53,9 @@ const resolvedConfig = {
         development: "local:plugins/auth/ui",
         production:
           "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/auth-ui/",
-        pin: { manifest: "versions/69fab2be8064da4b.json", integrity: "sha384-14fk6yR8" },
+        digest: { manifest: "versions/69fab2be8064da4b.json", integrity: "sha384-14fk6yR8" },
       },
-      pin: { manifest: "versions/3a2b87c163e265a0.json", integrity: "sha384-0k+YJ4YM" },
+      digest: { manifest: "versions/3a2b87c163e265a0.json", integrity: "sha384-0k+YJ4YM" },
     },
   },
   plugins: {
@@ -64,7 +64,7 @@ const resolvedConfig = {
       development: "local:plugins/registry",
       production: "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/registry/",
       variables: { registryNamespace: "dev.everything.near" },
-      pin: { manifest: "versions/be30ab507a99a19a.json", integrity: "sha384-ioD5yc8O" },
+      digest: { manifest: "versions/be30ab507a99a19a.json", integrity: "sha384-ioD5yc8O" },
     },
   },
 } as const;

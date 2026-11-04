@@ -5,7 +5,14 @@
  * resolution machine live in `platform/manifest.ts` and
  * `registry/resolution.ts` respectively; this file holds only the schema.
  */
+import { createHash } from "node:crypto";
 import { z } from "zod";
+
+/** The release that cut the registry wire over (ticket 10): extends targets
+ * still publishing the pre-cutover composition must redeploy on this
+ * version or newer — resolution rejects their tags with exactly that
+ * instruction. */
+export const CUTOVER_RELEASE = "2.0.0-rc.37";
 
 export const ManifestSchema = z.object({
   schemaVersion: z.literal(1),
@@ -39,21 +46,21 @@ export const ManifestSchema = z.object({
   ),
   compat: z.object({ minChild: z.string().min(1) }),
   /**
-   * The release's own slot-pin map (ADR 0034 amendment — release-scoped
-   * extends inheritance): each entry records the immutable version-manifest
-   * pointer the release published for a config slot (dotted config path, e.g.
-   * `app.auth`, `app.auth.ui`, `plugins.votes.ui`) — the son of the store, so
-   * children pinned to this release can re-point inherited slots at THESE
-   * bytes instead of the parent's live config whenever the parent publishes.
-   * Optional: releases composed before the field carry no slots, and old
-   * readers strip unknown keys.
+   * The release's remote-record map (ADR 0034 amendment — release-scoped
+   * extends inheritance): each entry records the immutable descriptor the
+   * release published for a config remote (dotted config path, e.g.
+   * `app.auth`, `app.auth.ui`, `plugins.votes.ui`) — children authored to
+   * this release re-point inherited remotes at THESE bytes instead of the
+   * parent's live config whenever the parent publishes. Optional: releases
+   * composed before the field carry no remotes, and old readers strip
+   * unknown keys.
    */
-  slots: z
+  remotes: z
     .record(
       z.string(),
       z.object({
         base: z.string().min(1),
-        pin: z.object({
+        digest: z.object({
           manifest: z.string().min(1),
           integrity: z.string().min(1),
         }),
@@ -62,3 +69,29 @@ export const ManifestSchema = z.object({
     .optional(),
 });
 export type Manifest = z.infer<typeof ManifestSchema>;
+
+/** The thin tag — the manifest.json home carries `{ schemaVersion, version,
+ * digest }` and nothing else; the full manifest lives at the immutable
+ * `versions/<v>.json` and the digest pins its exact bytes. */
+export const ManifestTagSchema = z.object({
+  schemaVersion: z.literal(1),
+  version: z.string().min(1),
+  digest: z.string().min(1),
+});
+export type ManifestTag = z.infer<typeof ManifestTagSchema>;
+
+/** The digest of a manifest's serialized bytes — the train hashes the exact
+ * string it publishes; the resolution machine re-serializes the fetched
+ * record and verifies (JSON preserves key order, so the bytes round-trip). */
+export function digestOfManifest(serialized: string): string {
+  return createHash("sha256").update(serialized).digest("hex");
+}
+
+/** The thin tag for a composed manifest, over its serialized record bytes. */
+export function manifestTagOf(manifest: Manifest, serialized: string): ManifestTag {
+  return {
+    schemaVersion: 1,
+    version: manifest.frameworkVersion,
+    digest: digestOfManifest(serialized),
+  };
+}

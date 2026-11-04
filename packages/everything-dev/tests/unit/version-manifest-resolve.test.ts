@@ -31,7 +31,7 @@ const okFetch = async (input: string | URL) => {
 
 const slot = {
   base: manifestBase,
-  pin: {
+  digest: {
     manifest: "versions/8f3ac1d2feedbeef.json",
     integrity: sri(manifestJson),
   },
@@ -51,7 +51,7 @@ describe("resolveSlotVersion", () => {
     expect(resolved.ssrIntegrity).toBe("sha384-ssr");
   });
 
-  it("caches per pin: the same slot pin fetches the manifest exactly once", async () => {
+  it("caches per digest: the same remote digest fetches the manifest exactly once", async () => {
     clearSlotVersionCache();
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
     await resolveSlotVersion({ ...slot, fetchImpl });
@@ -63,7 +63,11 @@ describe("resolveSlotVersion", () => {
     clearSlotVersionCache();
     const fetchImpl = (async () => new Response(manifestJson, { status: 200 })) as typeof fetch;
     await expect(
-      resolveSlotVersion({ ...slot, pin: { ...slot.pin, integrity: "sha384-wrong" }, fetchImpl }),
+      resolveSlotVersion({
+        ...slot,
+        digest: { ...slot.digest, integrity: "sha384-wrong" },
+        fetchImpl,
+      }),
     ).rejects.toThrow(/Integrity/i);
   });
 
@@ -113,7 +117,7 @@ describe("resolveSlotVersion — staged namespace preference", () => {
 
     const resolved = await resolveSlotVersion({
       ...slot,
-      pin: { manifest: "versions/stale-old-pin.json", integrity: sri(stagedManifestJson) },
+      digest: { manifest: "versions/stale-old-pin.json", integrity: sri(stagedManifestJson) },
       fetchImpl,
     });
 
@@ -168,7 +172,7 @@ describe("resolveSlotVersion — staged namespace preference", () => {
 
     const resolved = await resolveSlotVersion({
       ...slot,
-      pin: { manifest: "versions/stale-old-pin.json", integrity: sri(stagedManifestJson) },
+      digest: { manifest: "versions/stale-old-pin.json", integrity: sri(stagedManifestJson) },
       fetchImpl,
     });
 

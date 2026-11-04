@@ -75,7 +75,7 @@ export function stampRemotesFromRelease(input: {
   const outcome = stampInheritedRemotes({
     config: input.payload,
     authoredConfig: input.authoredConfig,
-    slots: input.manifest.slots,
+    remotes: input.manifest.remotes,
     mode: "payload",
   });
   return { stamped: outcome.stamped };
@@ -92,9 +92,9 @@ export interface CompositionGateInput {
   resolvedShape: Record<string, unknown>;
   resolvedRelease: Manifest | null;
   /**
-   * The slot names the leaf-payload pin verification leg proved servable;
-   * an unresolvable merged-shape pin outside this set is reported as a
-   * violation instead of skipped-silently (inherited pins are not covered
+   * The remote names the leaf-payload verification leg proved servable;
+   * an unresolvable merged-shape remote outside this set is reported as a
+   * violation instead of skipped-silently (inherited stamps are not covered
    * by that leg).
    */
   verifiedSlots?: ReadonlySet<string>;
@@ -143,11 +143,11 @@ export async function compositionSkewViolations(
   const violations: string[] = [];
 
   await Promise.all(
-    uiSlots.map(async ({ slot, base, pin }) => {
+    uiSlots.map(async ({ slot, base, digest }) => {
       try {
         const resolved = await resolveSlotVersion({
           base,
-          pin,
+          digest,
           ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
         });
         for (const [name, version] of Object.entries(resolved.sharedVersions ?? {})) {
@@ -159,7 +159,7 @@ export async function compositionSkewViolations(
         if (opts.verifiedSlots?.has(slot)) return;
         const reason = error instanceof Error ? error.message : String(error);
         violations.push(
-          `Pinned UI slot "${slot}" version manifest does not serve at its production URL (${reason}) — ` +
+          `Pinned UI remote "${slot}" version manifest does not serve at its production URL (${reason}) — ` +
             `a consumer boot cannot derive its shared singletons; investigate the storage origin or redeploy the bundle.`,
         );
       }

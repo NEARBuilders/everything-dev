@@ -21,14 +21,14 @@ import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegat
 import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
-import { type Manifest, ManifestSchema } from "../platform/manifest";
-import { confirmPublish, describeConfirmTimeout } from "../registry/confirm";
+import type { Manifest } from "../platform/manifest";
+import { ManifestTagSchema } from "../platform/manifest-schema";
+import { type ConfirmLeg, confirmPublish, describeConfirmTimeout } from "../registry/confirm";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
 import {
   deployAuditKeyOf,
-  getManifestKey,
   getVersionKey,
   readManifestTag,
   readVersionRecord,
@@ -331,7 +331,7 @@ export async function runPublishTrain(
       kind: ws.kind,
       integrity: outcome.entryIntegrity,
       ssrIntegrity: outcome.ssrEntryIntegrity,
-      pin: outcome.pin,
+      digest: outcome.pin,
     });
 
     // Folder-form plugin ui: the workspace build also produces <plugin>/ui/dist
@@ -348,7 +348,7 @@ export async function runPublishTrain(
       const uiName = resolveUiRuntimeName(rawUi, join(ws.path, "ui"), key);
       let uiIntegrity: string | undefined;
       let uiSsrIntegrity: string | undefined;
-      let uiPin: (typeof outcome)["pin"] | undefined;
+      let uiDigest: (typeof outcome)["pin"] | undefined;
       if (existsSync(uiDistDir)) {
         const uiOutcome = await uploadWorkspaceBundle({
           account,
@@ -384,7 +384,7 @@ export async function runPublishTrain(
         }
         uiIntegrity = uiOutcome.entryIntegrity;
         uiSsrIntegrity = uiOutcome.ssrEntryIntegrity;
-        uiPin = uiOutcome.pin;
+        uiDigest = uiOutcome.pin;
         uiOutcomeShared = uiOutcome.shared;
       } else {
         console.log(
@@ -402,7 +402,7 @@ export async function runPublishTrain(
           integrity: uiIntegrity,
           ssrIntegrity: uiSsrIntegrity,
           name: uiName,
-          pin: uiPin,
+          digest: uiDigest,
         }),
       );
     }
@@ -827,11 +827,11 @@ export async function runPublishTrain(
   // ADR 0034 + #573: the platform release manifest rides the same atomic
   // write as the config. The truth gate (shared-singleton cross-check) runs
   // on every production build deploy — but only the **release leg** writes
-  // keys: the immutable `platform-versions/<version>` slot plus the
-  // `platform.json` pointer flip. Non-release deploys write no manifest
+  // keys: the immutable `versions/<version>.json` record plus the
+  // `manifest.json` thin-tag flip. Non-release deploys write no manifest
   // keys at all. The preflight npm gate guarantees npm is published before
   // the build (npmOwed is impossible in-train until #575 moves the npm leg
-  // in), so the release classifier is the pointer alone — and its read MUST
+  // in), so the release classifier is the tag alone — and its read MUST
   // succeed: an unknown state must never silently classify a release as
   // non-release (the skip path is deleted, #573). Satellites keep
   // independent npm releases and are not gating for the platform; the
@@ -840,10 +840,12 @@ export async function runPublishTrain(
   // a version.
   let platformManifest: PlatformManifestPublishEntry | null = null;
   if (!isStaging && input.build) {
-    let pointer: Manifest | null;
+    let pointerVersion: string | null;
     try {
-      const pointerBytes = await readManifestTag<unknown>(account, gateway, input.registry);
-      pointer = pointerBytes ? ManifestSchema.parse(pointerBytes) : null;
+      // The tag home serves the thin `{ schemaVersion, version, digest }`
+      // pointer post-cutover — the classifier reads only its version.
+      const tagBytes = await readManifestTag<unknown>(account, gateway, input.registry);
+      pointerVersion = tagBytes ? ManifestTagSchema.parse(tagBytes).version : null;
     } catch (error) {
       throw new PublishTrainError({
         kind: "platform-manifest",
@@ -857,8 +859,8 @@ export async function runPublishTrain(
       });
     }
     const owed = computeOwedWork({
-      pointer: pointer
-        ? { state: "present", frameworkVersion: pointer.frameworkVersion }
+      pointer: pointerVersion
+        ? { state: "present", frameworkVersion: pointerVersion }
         : { state: "absent" },
       localFrameworkVersion: readFrameworkVersion(configDir),
     });
@@ -866,7 +868,7 @@ export async function runPublishTrain(
     console.log(
       releaseLeg
         ? colors.cyan(
-            `  Release leg: the platform pointer (${owed.detail.pointerFrameworkVersion ?? "unset"}) trails the repo (${owed.detail.localFrameworkVersion}) — the release manifest moves`,
+            `  Release leg: the platform tag (${owed.detail.pointerFrameworkVersion ?? "unset"}) trails the repo (${owed.detail.localFrameworkVersion}) — the release manifest moves`,
           )
         : colors.dim("  No release work owed — the platform manifest stays put"),
     );
@@ -875,7 +877,7 @@ export async function runPublishTrain(
       configDir,
       account,
       gateway,
-      previousFrameworkVersion: pointer?.frameworkVersion,
+      previousFrameworkVersion: pointerVersion ?? undefined,
       gitSha,
       publishPayload: publishPayload as Record<string, unknown>,
     });
@@ -899,7 +901,26 @@ export async function runPublishTrain(
         });
       }
       if (!releaseLeg) {
-        const windowViolations = compatWindowViolations(pointer?.sharedDeps, sharedByWorkspace);
+        // The published sharedDeps come from the live version record the tag
+        // names — a non-release deploy compares against the bytes children
+        // actually resolve.
+        let publishedSharedDeps: Record<string, { version: string }> | undefined;
+        if (pointerVersion) {
+          try {
+            const record = await readVersionRecord<unknown>(
+              account,
+              gateway,
+              pointerVersion,
+              input.registry,
+            );
+            publishedSharedDeps = record
+              ? (record as { sharedDeps?: Record<string, { version: string }> }).sharedDeps
+              : undefined;
+          } catch {
+            publishedSharedDeps = undefined;
+          }
+        }
+        const windowViolations = compatWindowViolations(publishedSharedDeps, sharedByWorkspace);
         if (windowViolations.length > 0) {
           throw new PublishTrainError({
             kind: "compat-window",
@@ -916,7 +937,7 @@ export async function runPublishTrain(
       }
       if (releaseLeg) {
         const frameworkVersion = composed.manifest.frameworkVersion;
-        const slotKey = getVersionKey(account, gateway, frameworkVersion);
+        const recordKey = getVersionKey(account, gateway, frameworkVersion);
         let existingSlot: unknown;
         try {
           existingSlot = await readVersionRecord<unknown>(
@@ -932,29 +953,29 @@ export async function runPublishTrain(
             built,
             skipped,
             deployResults,
-            error: `the release leg could not verify the version slot's immutability (${slotKey}): ${error instanceof Error ? error.message : String(error)}`,
+            error: `the release leg could not verify the version record's immutability (${recordKey}): ${error instanceof Error ? error.message : String(error)}`,
           });
         }
         if (existingSlot !== null) {
           const existingValue =
             typeof existingSlot === "string" ? existingSlot : JSON.stringify(existingSlot);
-          if (existingValue !== composed.value) {
+          if (existingValue !== composed.record.value) {
             throw new PublishTrainError({
               kind: "platform-manifest",
               registryUrl,
               built,
               skipped,
               deployResults,
-              error: `version ${frameworkVersion} is burned — the immutable slot ${slotKey} already holds different bytes. Bump the version and cut a fresh release; never reuse a burned one.`,
+              error: `version ${frameworkVersion} is burned — the immutable record ${recordKey} already holds different bytes. Bump the version and cut a fresh release; never reuse a burned one.`,
             });
           }
           console.log(
             colors.dim(
-              `  version slot ${frameworkVersion} already holds identical bytes — idempotent republish`,
+              `  version record ${frameworkVersion} already holds identical bytes — idempotent republish`,
             ),
           );
         }
-        platformManifest = { ...composed, key: slotKey };
+        platformManifest = composed;
       }
     }
   }
@@ -967,18 +988,19 @@ export async function runPublishTrain(
     ...(platformManifest
       ? {
           platformManifest: {
-            file: platformManifest.key,
-            integrity: platformManifest.integrity,
             version: platformManifest.manifest.frameworkVersion,
-            pointer: getManifestKey(account, gateway),
+            tag: platformManifest.tag.key,
+            tagIntegrity: platformManifest.tag.integrity,
+            record: platformManifest.record.key,
+            integrity: platformManifest.record.integrity,
           },
         }
       : {}),
   });
   if (platformManifest) {
-    // One atomic write (#573): the immutable version slot + the pointer flip.
-    registryEntries[platformManifest.key] = platformManifest.value;
-    registryEntries[getManifestKey(account, gateway)] = platformManifest.value;
+    // One atomic write (#573): the immutable version record + the thin-tag flip.
+    registryEntries[platformManifest.record.key] = platformManifest.record.value;
+    registryEntries[platformManifest.tag.key] = platformManifest.tag.value;
   }
   if (input.exactPayload && input.restorePlatformPointer) {
     registryEntries[input.restorePlatformPointer.key] = input.restorePlatformPointer.value;
@@ -1099,27 +1121,46 @@ export async function runPublishTrain(
 
     console.log("  Waiting for publish confirmation...");
     try {
-      const confirmLegs = [
+      const confirmLegs: ConfirmLeg[] = [
         {
-          kind: "runtimeConfig" as const,
+          kind: "runtimeConfig",
           key: {
-            kind: "runtimeConfig" as const,
+            kind: "runtimeConfig",
             ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
           },
           expected: publishPayload,
         },
-        // The release leg's pointer flip is a written leg like any other —
-        // it reads back through the pre-cutover transport until it serves
-        // the manifest this train just published (the Nov-03 smoke caught
-        // these reads resolving a double-prefixed key; a leg that never
-        // verified is how a broken read hides).
+        // The release legs' writes verify like any other — the thin tag and
+        // the immutable version record read back byte-equal through the
+        // pointer transports before the publish counts (the Nov-03 smoke
+        // caught these reads resolving a double-prefixed key; a leg that
+        // never verified is how a broken read hides).
         ...(platformManifest
           ? [
               {
-                kind: "platformPointer" as const,
-                wireKey: getManifestKey(account, gateway),
-                expected: platformManifest.manifest,
+                kind: "manifest" as const,
+                key: {
+                  kind: "manifest" as const,
+                  ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+                },
+                expected: JSON.parse(platformManifest.tag.value) as unknown,
                 read: () => readManifestTag<unknown>(account, gateway, input.registry),
+              },
+              {
+                kind: "version" as const,
+                key: {
+                  kind: "version" as const,
+                  ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+                  version: platformManifest.manifest.frameworkVersion,
+                },
+                expected: JSON.parse(platformManifest.record.value) as unknown,
+                read: () =>
+                  readVersionRecord<unknown>(
+                    account,
+                    gateway,
+                    platformManifest!.manifest.frameworkVersion,
+                    input.registry,
+                  ),
               },
             ]
           : []),

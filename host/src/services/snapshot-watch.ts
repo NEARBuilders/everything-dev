@@ -229,7 +229,7 @@ async function verifyCurrentEntries(config: RuntimeConfig): Promise<void> {
         // upstream republish surfaces as an integrity failure
         const resolved = await resolveSlotVersion({
           base: typeof parentSlot?.production === "string" ? parentSlot.production : "",
-          pin: parentPin,
+          digest: parentPin,
         });
         await verifySriForUrl(target.url, resolved.entryIntegrity, { resolveEntryUrl: false });
       } else if (parentSlot && typeof parentSlot.integrity === "string") {

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type Manifest, ManifestSchema } from "../../src/services/platform/manifest-schema";
+import {
+  type Manifest,
+  ManifestSchema,
+  manifestTagOf,
+} from "../../src/services/platform/manifest-schema";
 import {
   type ResolutionQuery,
   type ResolutionSeams,
@@ -241,8 +245,47 @@ describe("resolveRelease — the resolution state machine (ticket 03)", () => {
     });
   });
 
-  it("a full (pre-cutover) tag serves Latest → Resolved(from: manifest), tagServes full", async () => {
+  it("a full (pre-cutover) tag → strict rejection: Unresolved(absent) naming the redeploy floor", async () => {
     const h = harness({ tag: manifest("1.5.0") });
+    const outcome = await resolveRelease({
+      query: { kind: "Latest" },
+      localConfig: h.localConfig,
+      seams: h.seams,
+    });
+    expect(outcome).toMatchObject({
+      state: "Unresolved",
+      reason: "absent",
+      detail:
+        "the runtime you extend publishes a pre-cutover composition — it must redeploy on ≥ 2.0.0-rc.37",
+      context: { tagServes: "full" },
+    });
+  });
+
+  it("a thin tag whose digest mismatches the record's bytes → Unresolved(integrityFailure)", async () => {
+    const record = manifest("2.0.0-rc.37");
+    const h = harness({
+      tag: { schemaVersion: 1, version: "2.0.0-rc.37", digest: "deadbeef" },
+      records: { "2.0.0-rc.37": record },
+    });
+    const outcome = await resolveRelease({
+      query: { kind: "Latest" },
+      localConfig: h.localConfig,
+      seams: h.seams,
+    });
+    expect(outcome).toMatchObject({
+      state: "Unresolved",
+      reason: "integrityFailure",
+      context: { tagServes: "thin" },
+    });
+  });
+
+  it("a thin tag + byte-identical record → Resolved through the digest chain", async () => {
+    const record = manifest("2.0.0-rc.37");
+    const tag = manifestTagOf(record, JSON.stringify(record));
+    const h = harness({
+      tag,
+      records: { "2.0.0-rc.37": record },
+    });
     const outcome = await resolveRelease({
       query: { kind: "Latest" },
       localConfig: h.localConfig,
@@ -254,6 +297,6 @@ describe("resolveRelease — the resolution state machine (ticket 03)", () => {
       provenance: "pointer",
       fromCache: false,
     });
-    expect(outcome.state === "Resolved" && outcome.manifest.frameworkVersion).toBe("1.5.0");
+    expect(outcome.state === "Resolved" && outcome.manifest.frameworkVersion).toBe("2.0.0-rc.37");
   });
 });

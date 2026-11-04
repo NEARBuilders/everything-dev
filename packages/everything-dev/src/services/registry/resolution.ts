@@ -23,7 +23,7 @@
  */
 import { createHash } from "node:crypto";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
-import { type Manifest, ManifestSchema } from "../platform/manifest-schema";
+import { CUTOVER_RELEASE, type Manifest, ManifestSchema } from "../platform/manifest-schema";
 import { fetchParentConfig } from "../resolution/init-source";
 import {
   MANIFEST_CACHE_TTL_MS,
@@ -34,6 +34,7 @@ import {
 } from "./cache";
 import { fetchConfigHistory, fetchRegistryKey, fetchRegistryKeyOrNull } from "./fastkv";
 import { parseRuntimeRef, type RuntimeRef, runtimeRefOf } from "./keys";
+import { getVersionKey, getVersionRelKey, MANIFEST_TAG_REL_KEY } from "./pointer";
 
 export interface ExtendsChainNode {
   account: string;
@@ -165,7 +166,9 @@ export interface ResolutionSeams {
    * the machine records it as unreachable. */
   parseManifest(value: unknown): Manifest;
   fetchParent(account: string, gateway: string): Promise<Record<string, unknown> | null>;
-  cacheRead(pin?: string): ManifestCacheRead;
+  /** The offline-dev cache lookup; `release` is the pin-match key when the
+   * query is pinned. */
+  cacheRead(release?: string): ManifestCacheRead;
   cacheWrite(record: ManifestCacheRecord): void;
   /** Best-effort last-write date for the dead-end diagnostic — failures are
    * swallowed (the field is simply omitted). */
@@ -224,7 +227,7 @@ export async function resolveRelease(input: {
   now?: () => number;
 }): Promise<ResolutionOutcome> {
   const now = input.now ?? Date.now;
-  const defaults = preCutoverSeams(input.configDir ?? process.cwd(), now);
+  const defaults = productionSeams(input.configDir ?? process.cwd(), now);
   const seams: ResolutionSeams = { ...defaults, ...input.seams };
   const { chain } = await walkExtendsChain({
     localConfig: input.localConfig,
@@ -389,26 +392,15 @@ export async function resolveRelease(input: {
         fromCache: false,
       };
     }
-    // full manifest tag (pre-cutover pointer)
+    // Strict cutover (ticket 10): a full manifest at the tag home is the
+    // pre-cutover pointer. NO dual-read, NO legacy parser — refuse with the
+    // redeploy instruction.
     tagServes = "full";
-    let manifest: Manifest;
-    try {
-      manifest = seams.parseManifest(tag);
-    } catch (error) {
-      unreachable = {
-        detail: error instanceof Error ? error.message : String(error),
-        node,
-      };
-      break;
-    }
-    writeCache(manifest, node, "pointer");
     return {
-      state: "Resolved",
-      manifest,
-      source: { account: node.account, gateway: node.gateway },
-      from: "manifest",
-      provenance: "pointer",
-      fromCache: false,
+      state: "Unresolved",
+      reason: "absent",
+      detail: `the runtime you extend publishes a pre-cutover composition — it must redeploy on ≥ ${CUTOVER_RELEASE}`,
+      context: { chain: chainRefs, tagServes },
     };
   }
 
@@ -445,26 +437,15 @@ export async function resolveRelease(input: {
 }
 
 // ---------------------------------------------------------------------------
-// the production seams — the pre-cutover transport
+// the production seams — the cutover wire (`manifest.json` thin tag +
+// `versions/<v>.json` immutable records, derived through pointer.ts so the
+// key model stays one file).
 
-// TODO(cutover): the train still writes `platform.json` and
-// `platform-versions/<v>.json` (ticket 10 flips the wire to `manifest.json` /
-// `versions/<v>.json`). This transport and the two inline key templates read
-// the current wire and are deleted at the cutover — the machine itself
-// speaks only in RuntimeRef terms.
-function tagKeyOf(account: string, gateway: string): string {
-  return `apps/${account}/${gateway}/platform.json`;
-}
-
-function versionKeyOf(account: string, gateway: string, version: string): string {
-  return `apps/${account}/${gateway}/platform-versions/${version}.json`;
-}
-
-function preCutoverSeams(configDir: string, now: () => number): ResolutionSeams {
+function productionSeams(configDir: string, now: () => number): ResolutionSeams {
   return {
     async readManifestTag(ref) {
       const { accountId, gatewayId } = parseRuntimeRef(ref);
-      const raw = await fetchRegistryKeyOrNull<unknown>(accountId, gatewayId, "platform.json");
+      const raw = await fetchRegistryKeyOrNull<unknown>(accountId, gatewayId, MANIFEST_TAG_REL_KEY);
       return raw ?? null;
     },
     async readVersionRecord(ref, release) {
@@ -475,11 +456,7 @@ function preCutoverSeams(configDir: string, now: () => number): ResolutionSeams 
       // SEGMENT relative to `apps/<account>/<gateway>/` — fetchRegistryKey
       // owns the prefix; a full key here double-prefixes and reads absent
       // forever (the stranded-pin incident).
-      const raw = await fetchRegistryKey<unknown>(
-        accountId,
-        gatewayId,
-        `platform-versions/${release}.json`,
-      );
+      const raw = await fetchRegistryKey<unknown>(accountId, gatewayId, getVersionRelKey(release));
       return raw === null ? null : JSON.stringify(raw);
     },
     parseManifest(value) {
@@ -490,10 +467,10 @@ function preCutoverSeams(configDir: string, now: () => number): ResolutionSeams 
         .then((config) => config as Record<string, unknown>)
         .catch(() => null);
     },
-    cacheRead(pin) {
+    cacheRead(release) {
       return readManifestCache({
         configDir,
-        ...(pin !== undefined ? { pin } : {}),
+        ...(release !== undefined ? { pin: release } : {}),
         now,
       });
     },
@@ -507,7 +484,7 @@ function preCutoverSeams(configDir: string, now: () => number): ResolutionSeams 
           accountId,
           gatewayId,
           limit: 1,
-          keyPath: tagKeyOf(accountId, gatewayId),
+          keyPath: MANIFEST_TAG_REL_KEY,
         });
         const ns = entries[0]?.blockTimestampNs;
         if (!ns) return undefined;
@@ -540,7 +517,9 @@ export type PlatformManifestCache = ManifestCacheRecord;
 export interface ResolvePlatformManifestOptions {
   configDir: string;
   localConfig: Record<string, unknown>;
-  fetchManifest?: (account: string, gateway: string) => Promise<Manifest | null>;
+  /** The thin-tag read (#574) — the moving `manifest.json` home. Null =
+   * absent; the machine rejects a full (pre-cutover) tag loud. */
+  fetchTag?: (account: string, gateway: string) => Promise<unknown>;
   /** The immutable version-record read (#574) — an exact pin's target.
    * Throws on read failure (distinct from a clean absent record). */
   fetchSlot?: (account: string, gateway: string, version: string) => Promise<unknown>;
@@ -562,10 +541,10 @@ export async function resolvePlatformManifest(
       : undefined;
 
   const overrides: Partial<ResolutionSeams> = {};
-  if (opts.fetchManifest) {
+  if (opts.fetchTag) {
     overrides.readManifestTag = async (ref) => {
       const { accountId, gatewayId } = parseRuntimeRef(ref);
-      return opts.fetchManifest!(accountId, gatewayId);
+      return opts.fetchTag!(accountId, gatewayId);
     };
   }
   if (opts.fetchSlot) {
@@ -576,14 +555,14 @@ export async function resolvePlatformManifest(
     };
   }
   if (opts.cacheRead) {
-    overrides.cacheRead = (pinKey) => {
+    overrides.cacheRead = (release) => {
       const record = opts.cacheRead?.();
       if (!record) return { state: "miss" };
       const now = (opts.now ?? Date.now)();
       const ttl = opts.cacheTtlMs ?? MANIFEST_CACHE_TTL_MS;
       const resolvedAt = Date.parse(record.resolvedAt);
       if (Number.isNaN(resolvedAt) || now - resolvedAt > ttl) return { state: "stale", record };
-      if (pinKey !== undefined && record.manifest.frameworkVersion !== pinKey) {
+      if (release !== undefined && record.manifest.frameworkVersion !== release) {
         return { state: "stale", record };
       }
       return { state: "hit", record };
@@ -618,18 +597,18 @@ export async function resolvePlatformManifest(
   if (outcome.reason === "unreachable") {
     if (pin) {
       const node = outcome.context.failureAt;
-      const slotKey = node
-        ? versionKeyOf(node.account, node.gateway, pin)
-        : `platform-versions/${pin}.json`;
+      const recordKey = node
+        ? getVersionKey(node.account, node.gateway, pin)
+        : getVersionRelKey(pin);
       throw new Error(
-        `platform pin ${pin}: the version slot read failed (${slotKey}): ${outcome.detail}`,
+        `platform pin ${pin}: the version record read failed (${recordKey}): ${outcome.detail}`,
       );
     }
     throw new Error(outcome.detail ?? "the manifest tag read failed");
   }
   if (pin) {
     throw new Error(
-      `platform pin ${pin}: no version slot in the extends chain` +
+      `platform pin ${pin}: no version record in the extends chain` +
         (chainUrls ? ` (${chainUrls})` : "") +
         ` — the release's manifest leg never published it; re-run the release deploy (or \`bos upgrade\` to re-pin)`,
     );

@@ -101,7 +101,7 @@ export function digestsFromPublishedConfig(
     const workspace = workspaceKeyOfBase(ref.base);
     const nsMatch = BUNDLE_BASE_PATTERN.exec(`${ref.base.replace(/\/$/, "")}/`);
     if (!workspace || !nsMatch || nsMatch[1] !== account || nsMatch[2] !== gateway) continue;
-    pins[workspace] = ref.pin;
+    pins[workspace] = ref.digest;
   }
   return pins;
 }

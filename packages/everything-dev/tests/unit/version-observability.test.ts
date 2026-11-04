@@ -21,13 +21,13 @@ describe("fetchDeployManifests", () => {
               {
                 block_height: 300,
                 block_timestamp: "1700000100000000000",
-                key: "apps/a.near/gw/manifests/2026-01-02T00-00-00-000z.json",
+                key: "apps/a.near/gw/deploys/2026-01-02T00-00-00-000z.json",
                 value: JSON.stringify({ publishedAt: "2026-01-02T00:00:00.000Z" }),
               },
               {
                 block_height: 200,
                 block_timestamp: "1700000000000000000",
-                key: "apps/a.near/gw/manifests/2026-01-01T00-00-00-000z.json",
+                key: "apps/a.near/gw/deploys/2026-01-01T00-00-00-000z.json",
                 value: JSON.stringify({ publishedAt: "2026-01-01T00:00:00.000Z" }),
               },
             ],
@@ -40,7 +40,7 @@ describe("fetchDeployManifests", () => {
     const manifests = await fetchDeployManifests({ accountId: "a.near", gatewayId: "gw" });
 
     expect(manifests).toHaveLength(2);
-    expect(manifests[0]?.key).toContain("manifests/2026-01-02");
+    expect(manifests[0]?.key).toContain("deploys/2026-01-02");
     expect(manifests[0]?.value).toEqual({ publishedAt: "2026-01-02T00:00:00.000Z" });
   });
 });

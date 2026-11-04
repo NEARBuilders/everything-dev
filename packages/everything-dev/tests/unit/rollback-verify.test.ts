@@ -41,7 +41,7 @@ describe("verifyRollbackSnapshot", () => {
       ui: {
         development: "local:ui",
         production: "https://cdn/ui/",
-        pin: { manifest: "versions/aaa.json", integrity: sriFor(manifestBody) },
+        digest: { manifest: "versions/aaa.json", integrity: sriFor(manifestBody) },
       },
     });
 
@@ -58,7 +58,7 @@ describe("verifyRollbackSnapshot", () => {
       ui: {
         development: "local:ui",
         production: "https://cdn/ui/",
-        pin: { manifest: "versions/gone.json", integrity: sriFor(manifestBody) },
+        digest: { manifest: "versions/gone.json", integrity: sriFor(manifestBody) },
       },
     });
 
@@ -75,7 +75,7 @@ describe("verifyRollbackSnapshot", () => {
       ui: {
         development: "local:ui",
         production: "https://cdn/ui/",
-        pin: { manifest: "versions/aaa.json", integrity: "sha384-doesnotmatch" },
+        digest: { manifest: "versions/aaa.json", integrity: "sha384-doesnotmatch" },
       },
     });
 
@@ -94,7 +94,7 @@ describe("verifyRollbackSnapshot", () => {
           ui: {
             development: "local:ui",
             production: "https://cdn/ui/",
-            pin: { manifest: "versions/aaa.json" },
+            digest: { manifest: "versions/aaa.json" },
           },
         },
       }),
@@ -109,7 +109,7 @@ describe("verifyRollbackSnapshot", () => {
         ui: {
           development: "local:ui",
           production: "https://cdn/ui/",
-          pin: { manifest: "versions/aaa.json" },
+          digest: { manifest: "versions/aaa.json" },
         },
       },
     } as BosConfigInput;
@@ -137,14 +137,14 @@ describe("verifyRollbackSnapshot", () => {
       ui: {
         development: "local:ui",
         production: "https://cdn/ui/",
-        pin: { manifest: "versions/gone.json", integrity: sriFor(manifestBody) },
+        digest: { manifest: "versions/gone.json", integrity: sriFor(manifestBody) },
       },
       plugins: {
         auth: {
           name: "auth",
           development: "local:plugins/auth",
           production: "https://cdn/auth/",
-          pin: { manifest: "versions/gone2.json", integrity: sriFor(manifestBody) },
+          digest: { manifest: "versions/gone2.json", integrity: sriFor(manifestBody) },
         },
       },
     });
@@ -200,7 +200,7 @@ describe("rollback dedup guard", () => {
         host: {
           development: "local:host",
           production: "https://cdn/host/",
-          pin: { manifest: "versions/old.json", integrity: "sha384-old-pin" },
+          digest: { manifest: "versions/old.json", integrity: "sha384-old-pin" },
         },
         ui: { development: "local:ui", production: "https://cdn/ui/" },
         api: { development: "local:api", production: "https://cdn/api/" },

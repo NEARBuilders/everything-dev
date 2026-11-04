@@ -546,24 +546,24 @@ describe("loadConfig plugin runtime filtering", () => {
               host: {
                 development: "http://localhost:3000",
                 production: "https://host.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               ui: {
                 name: "ui",
                 development: "http://localhost:3003",
                 production: "https://ui.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               api: {
                 name: "api",
                 development: "http://localhost:3001",
                 production: "https://api.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               auth: {
                 name: "auth",
                 production: "https://auth.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
                 variables: {
                   baseUrl: "https://auth.everything.near",
                   trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
@@ -587,7 +587,7 @@ describe("loadConfig plugin runtime filtering", () => {
             plugins: {
               example: {
                 production: "https://example.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
                 variables: {
                   sections: ["profile", "security"],
                   featureFlags: {
@@ -756,30 +756,30 @@ describe("loadConfig plugin runtime filtering", () => {
               host: {
                 development: "local:host",
                 production: "https://host.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               ui: {
                 name: "ui",
                 development: "local:ui",
                 production: "https://ui.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               api: {
                 name: "api",
                 development: "local:api",
                 production: "https://api.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               auth: {
                 name: "auth",
                 development: "local:plugins/auth",
                 production: "https://auth.example.com",
-                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
                 ui: {
                   name: "_everything_dev_auth_plugin",
                   development: "local:plugins/auth/ui",
                   production: "https://auth-ui.example.com",
-                  pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                  digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
                 },
               },
             },

@@ -102,10 +102,10 @@ export function gatewayForAccount(
 
 export interface TenantUiOverride {
   production: string;
-  /** direct entry SRI — only for genuinely fixed-name bundles without a pin */
+  /** direct entry SRI — only for genuinely fixed-name bundles without a digest */
   integrity?: string;
-  /** version-manifest pin — the deploy unit for hashed, atomic deploys */
-  pin?: { manifest: string; integrity: string };
+  /** version-manifest digest — the deploy unit for hashed, atomic deploys */
+  digest?: { manifest: string; integrity: string };
   ssr?: string;
   ssrIntegrity?: string;
 }
@@ -153,7 +153,7 @@ export function createTenantConfigDraftSchema(
       uiProduction: optionalUrl,
       uiIntegrity: optionalIntegrity,
       uiManifest: optionalManifestName,
-      uiPinIntegrity: optionalIntegrity,
+      uiDigestIntegrity: optionalIntegrity,
       ssrUrl: optionalUrl,
       ssrIntegrity: optionalIntegrity,
     })
@@ -165,9 +165,9 @@ export function createTenantConfigDraftSchema(
       message: copy.integrityMode,
       path: ["uiManifest"],
     })
-    .refine((draft) => !!draft.uiManifest === !!draft.uiPinIntegrity, {
+    .refine((draft) => !!draft.uiManifest === !!draft.uiDigestIntegrity, {
       message: copy.pinPair,
-      path: ["uiPinIntegrity"],
+      path: ["uiDigestIntegrity"],
     })
     .refine((draft) => !!draft.ssrUrl === !!draft.ssrIntegrity, {
       message: copy.ssrPair,
@@ -185,7 +185,7 @@ export const emptyTenantConfigDraft: TenantConfigDraft = {
   uiProduction: "",
   uiIntegrity: "",
   uiManifest: "",
-  uiPinIntegrity: "",
+  uiDigestIntegrity: "",
   ssrUrl: "",
   ssrIntegrity: "",
 };
@@ -193,7 +193,7 @@ export const emptyTenantConfigDraft: TenantConfigDraft = {
 interface ResolvedUiConfig {
   production?: unknown;
   integrity?: unknown;
-  pin?: { manifest?: unknown; integrity?: unknown };
+  digest?: { manifest?: unknown; integrity?: unknown };
   ssr?: unknown;
   ssrIntegrity?: unknown;
 }
@@ -217,8 +217,8 @@ export function buildDraftFromResolvedConfig(
     repository: asString(resolvedConfig?.repository),
     uiProduction: asString(ui.production),
     uiIntegrity: asString(ui.integrity),
-    uiManifest: asString(ui.pin?.manifest),
-    uiPinIntegrity: asString(ui.pin?.integrity),
+    uiManifest: asString(ui.digest?.manifest),
+    uiDigestIntegrity: asString(ui.digest?.integrity),
     ssrUrl: asString(ui.ssr),
     ssrIntegrity: asString(ui.ssrIntegrity),
   };
@@ -241,8 +241,8 @@ export function diffDraft(
     ["repository", asString(resolvedConfig?.repository), draft.repository],
     ["ui bundle", asString(ui.production), draft.uiProduction],
     ["ui integrity", asString(ui.integrity), draft.uiIntegrity],
-    ["ui manifest pin", asString(ui.pin?.manifest), draft.uiManifest],
-    ["ui pin integrity", asString(ui.pin?.integrity), draft.uiPinIntegrity],
+    ["ui manifest digest", asString(ui.digest?.manifest), draft.uiManifest],
+    ["ui digest integrity", asString(ui.digest?.integrity), draft.uiDigestIntegrity],
     ["ssr bundle", asString(ui.ssr), draft.ssrUrl],
     ["ssr integrity", asString(ui.ssrIntegrity), draft.ssrIntegrity],
   ];
@@ -254,11 +254,11 @@ export function diffDraft(
 /** The `app` block for the published config, or undefined when no UI override is set. */
 export function draftUiOverride(draft: TenantConfigDraft): { ui: TenantUiOverride } | undefined {
   if (!draft.uiProduction) return undefined;
-  if (draft.uiManifest && draft.uiPinIntegrity) {
+  if (draft.uiManifest && draft.uiDigestIntegrity) {
     return {
       ui: {
         production: normalizeBundleBaseUrl(draft.uiProduction),
-        pin: { manifest: draft.uiManifest, integrity: draft.uiPinIntegrity },
+        digest: { manifest: draft.uiManifest, integrity: draft.uiDigestIntegrity },
         ...(draft.ssrUrl && draft.ssrIntegrity
           ? { ssr: normalizeBundleBaseUrl(draft.ssrUrl), ssrIntegrity: draft.ssrIntegrity }
           : {}),
@@ -354,12 +354,12 @@ export async function verifyUiIntegrity(
  * against the pin — the manifest's own `entryIntegrity` covers the entry bytes
  * at serve time.
  */
-export async function verifyUiPin(
+export async function verifyUiDigest(
   baseUrl: string,
-  pin: { manifest: string; integrity: string },
+  digest: { manifest: string; integrity: string },
 ): Promise<IntegrityCheckResult> {
-  const manifestUrl = `${baseUrl.trim().replace(/\/$/, "")}/${pin.manifest.replace(/^\//, "")}`;
-  return verifyEntryIntegrity(manifestUrl, pin.integrity);
+  const manifestUrl = `${baseUrl.trim().replace(/\/$/, "")}/${digest.manifest.replace(/^\//, "")}`;
+  return verifyEntryIntegrity(manifestUrl, digest.integrity);
 }
 
 export async function verifySsrIntegrity(

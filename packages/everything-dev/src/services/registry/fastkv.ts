@@ -238,9 +238,8 @@ export interface DeployManifestEntry {
 
 /**
  * The per-deploy audit trail (atomic-deploys 03/12): every publish writes
- * `apps/<account>/<gateway>/manifests/<ts>.json` atomically with the pointer
- * swap — this lists that key family newest-first via the history-by-prefix
- * endpoint.
+ * `apps/<account>/<gateway>/deploys/<ts>.json` atomically with the tag swap —
+ * this lists that key family newest-first via the history-by-prefix endpoint.
  */
 export async function fetchDeployManifests(opts: {
   accountId: string;
@@ -249,7 +248,7 @@ export async function fetchDeployManifests(opts: {
   limit?: number;
 }): Promise<DeployManifestEntry[]> {
   const keyPrefix = encodeURIComponent(
-    `${getRegistryConfigKey(opts.accountId, opts.gatewayId).replace(/bos\.config\.json$/, "")}manifests/`,
+    `${getRegistryConfigKey(opts.accountId, opts.gatewayId).replace(/bos\.config\.json$/, "")}deploys/`,
   );
   const url = `${registryBaseUrlForNetwork(networkIdForAccount(opts.accountId))}/v0/history/${encodeURIComponent(getRegistryNamespaceForAccount(opts.accountId, opts.registry))}/${encodeURIComponent(opts.accountId)}`;
   const payload = await fetchJson<FastKvHistoryResponse>(url, {

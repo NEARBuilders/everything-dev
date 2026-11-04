@@ -13,19 +13,19 @@ const configWithPins = {
     host: {
       development: "local:host",
       production: "https://cdn/host/",
-      pin: { manifest: "versions/aaa.json", integrity: "sha384-host-manifest-sri" },
+      digest: { manifest: "versions/aaa.json", integrity: "sha384-host-manifest-sri" },
     },
     ui: {
       development: "local:ui",
       production: "https://cdn/ui/",
-      pin: { manifest: "versions/bbb.json", integrity: "sha384-manifest-sri" },
+      digest: { manifest: "versions/bbb.json", integrity: "sha384-manifest-sri" },
       ssr: "https://cdn/ui/ssr/",
       ssrIntegrity: "sha384-ssr-sri",
     },
     api: {
       development: "local:api",
       production: "https://cdn/api/",
-      pin: { manifest: "versions/ccc.json", integrity: "sha384-api-manifest-sri" },
+      digest: { manifest: "versions/ccc.json", integrity: "sha384-api-manifest-sri" },
     },
   },
   plugins: {
@@ -33,12 +33,12 @@ const configWithPins = {
       name: "@everything-dev/auth-plugin",
       development: "local:plugins/auth",
       production: "https://cdn/auth/",
-      pin: { manifest: "versions/ddd.json", integrity: "sha384-auth-manifest-sri" },
+      digest: { manifest: "versions/ddd.json", integrity: "sha384-auth-manifest-sri" },
       ui: {
         name: "auth-ui",
         development: "local:plugins/auth/ui",
         production: "https://cdn/auth-ui/",
-        pin: { manifest: "versions/eee.json", integrity: "sha384-auth-ui-manifest-sri" },
+        digest: { manifest: "versions/eee.json", integrity: "sha384-auth-ui-manifest-sri" },
       },
     },
   },
@@ -47,11 +47,11 @@ const configWithPins = {
 describe("config slot `pin`", () => {
   it("survives BosConfigSchema.parse on every slot kind", () => {
     const parsed = BosConfigSchema.parse(configWithPins);
-    expect(parsed.app.ui.pin?.manifest).toBe("versions/bbb.json");
-    expect(parsed.app.host.pin?.manifest).toBe("versions/aaa.json");
-    expect(parsed.app.api.pin?.manifest).toBe("versions/ccc.json");
-    expect(parsed.plugins?.auth?.pin?.manifest).toBe("versions/ddd.json");
-    expect(parsed.plugins?.auth?.ui?.pin?.manifest).toBe("versions/eee.json");
+    expect(parsed.app.ui.digest?.manifest).toBe("versions/bbb.json");
+    expect(parsed.app.host.digest?.manifest).toBe("versions/aaa.json");
+    expect(parsed.app.api.digest?.manifest).toBe("versions/ccc.json");
+    expect(parsed.plugins?.auth?.digest?.manifest).toBe("versions/ddd.json");
+    expect(parsed.plugins?.auth?.ui?.digest?.manifest).toBe("versions/eee.json");
   });
 
   it("keeps a slot without a pin valid (direct entry SRI)", () => {
@@ -63,13 +63,13 @@ describe("config slot `pin`", () => {
         api: { development: "local:api", production: "https://cdn/api/" },
       },
     });
-    expect(parsed.app.ui.pin).toBeUndefined();
+    expect(parsed.app.ui.digest).toBeUndefined();
   });
 
   it("survives the descriptor roundtrip (ui slots carry it like integrity)", () => {
     const descriptor = configInputToDescriptor(configWithPins);
     const authored = toConfigInput(descriptor as never) as typeof configWithPins;
-    expect(authored.plugins?.auth?.ui?.pin).toEqual({
+    expect(authored.plugins?.auth?.ui?.digest).toEqual({
       manifest: "versions/eee.json",
       integrity: "sha384-auth-ui-manifest-sri",
     });
@@ -83,7 +83,7 @@ describe("config slot `pin`", () => {
         ui: {
           development: "local:ui",
           production: "https://cdn.everything.dev/ui/",
-          pin: { manifest: "versions/parent-ui.json", integrity: "sha384-parent-pin" },
+          digest: { manifest: "versions/parent-ui.json", integrity: "sha384-parent-pin" },
         },
       },
     };
@@ -93,7 +93,7 @@ describe("config slot `pin`", () => {
       app: {
         ui: {
           development: "local:ui",
-          pin: { manifest: "versions/child-ui.json", integrity: "sha384-child-pin" },
+          digest: { manifest: "versions/child-ui.json", integrity: "sha384-child-pin" },
         },
       },
     };
@@ -103,11 +103,11 @@ describe("config slot `pin`", () => {
       app: { ui: { development: "local:ui" } },
     };
     // child pin replaces the parent's ATOMICALLY — no half-mixed manifest/integrity
-    expect(mergeBosConfigWithExtends(parent, childOverride).app?.ui?.pin).toEqual({
+    expect(mergeBosConfigWithExtends(parent, childOverride).app?.ui?.digest).toEqual({
       manifest: "versions/child-ui.json",
       integrity: "sha384-child-pin",
     });
-    expect(mergeBosConfigWithExtends(parent, childInherit).app?.ui?.pin).toEqual({
+    expect(mergeBosConfigWithExtends(parent, childInherit).app?.ui?.digest).toEqual({
       manifest: "versions/parent-ui.json",
       integrity: "sha384-parent-pin",
     });
@@ -119,9 +119,9 @@ describe("config slot `pin`", () => {
       plugins: {
         auth: {
           name: "@everything-dev/auth-plugin",
-          pin: { manifest: "versions/parent-auth.json", integrity: "sha384-parent-auth" },
+          digest: { manifest: "versions/parent-auth.json", integrity: "sha384-parent-auth" },
         },
-        apps: { name: "apps", pin: { manifest: "versions/parent-apps.json", integrity: "x" } },
+        apps: { name: "apps", digest: { manifest: "versions/parent-apps.json", integrity: "x" } },
       },
     };
     const child = {
@@ -131,7 +131,7 @@ describe("config slot `pin`", () => {
       },
     };
     const merged = mergeBosConfigWithExtends(parent, child);
-    expect(merged.plugins?.auth?.pin).toBeUndefined();
+    expect(merged.plugins?.auth?.digest).toBeUndefined();
     expect(merged.plugins?.apps).toBeUndefined();
   });
 });
@@ -170,7 +170,7 @@ describe("auth mirror version-manifest derivation", () => {
       host: {
         development: "local:host",
         production: `${slots.host.base}/`,
-        pin: {
+        digest: {
           manifest: `versions/${slots.host.entry}.json`,
           integrity: sri(bodies.get(`${slots.host.base}/versions/${slots.host.entry}.json`)!),
         },
@@ -178,7 +178,7 @@ describe("auth mirror version-manifest derivation", () => {
       ui: {
         development: "local:ui",
         production: `${slots.ui.base}/`,
-        pin: {
+        digest: {
           manifest: `versions/${slots.ui.entry}.json`,
           integrity: sri(bodies.get(`${slots.ui.base}/versions/${slots.ui.entry}.json`)!),
         },
@@ -186,7 +186,7 @@ describe("auth mirror version-manifest derivation", () => {
       api: {
         development: "local:api",
         production: `${slots.api.base}/`,
-        pin: {
+        digest: {
           manifest: `versions/${slots.api.entry}.json`,
           integrity: sri(bodies.get(`${slots.api.base}/versions/${slots.api.entry}.json`)!),
         },
@@ -195,7 +195,7 @@ describe("auth mirror version-manifest derivation", () => {
         name: "@everything-dev/auth-plugin",
         development: "local:plugins/auth",
         production: `${slots.auth.base}/`,
-        pin: {
+        digest: {
           manifest: `versions/${slots.auth.entry}.json`,
           integrity: sri(bodies.get(`${slots.auth.base}/versions/${slots.auth.entry}.json`)!),
         },
@@ -203,7 +203,7 @@ describe("auth mirror version-manifest derivation", () => {
           name: "auth-ui",
           development: "local:plugins/auth/ui",
           production: `${slots.authUi.base}/`,
-          pin: {
+          digest: {
             manifest: `versions/${slots.authUi.entry}.json`,
             integrity: sri(bodies.get(`${slots.authUi.base}/versions/${slots.authUi.entry}.json`)!),
           },
@@ -285,7 +285,7 @@ describe("dev-env version-manifest derivation", () => {
       production: base,
       ...(opts.withPin === false
         ? {}
-        : { pin: { manifest: pinManifest, integrity: sri(bodies.get(bodyKey)!) } }),
+        : { digest: { manifest: pinManifest, integrity: sri(bodies.get(bodyKey)!) } }),
     };
     return ref;
   };
@@ -363,7 +363,7 @@ describe("dev-env version-manifest derivation", () => {
 
   it("still throws loudly on an unpinned remote slot in production", async () => {
     await expect(buildRuntimeConfig(unpinnedConfig, process.cwd(), "production")).rejects.toThrow(
-      /pins no version manifest/,
+      /carries no version-manifest digest/,
     );
   });
 });

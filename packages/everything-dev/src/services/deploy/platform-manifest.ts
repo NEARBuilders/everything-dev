@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { satisfiesConstraint } from "../../utils/semver";
+import { compareSemver, satisfiesConstraint } from "../../utils/semver";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
@@ -16,7 +16,8 @@ import {
   resolvePlatformManifest,
   serializePlatformReleaseManifest,
 } from "../platform/manifest";
-import { getManifestKey } from "../registry/pointer";
+import { CUTOVER_RELEASE, manifestTagOf } from "../platform/manifest-schema";
+import { getManifestKey, getVersionKey } from "../registry/pointer";
 import { walkRemotes } from "../remotes";
 import { readWorkspaceCatalog } from "../workspace/catalog";
 import { readFrameworkVersion } from "./image";
@@ -42,11 +43,11 @@ export function collectReleaseSlotPins(config: Record<string, unknown>): Release
   walkRemotes(config, ({ slot, entry }) => {
     if (typeof entry !== "object" || entry === null) return;
     const base = typeof entry.production === "string" ? entry.production : undefined;
-    const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
-    const manifest = typeof pin?.manifest === "string" ? pin.manifest : undefined;
-    const integrity = typeof pin?.integrity === "string" ? pin.integrity : undefined;
+    const digest = entry.digest as { manifest?: unknown; integrity?: unknown } | undefined;
+    const manifest = typeof digest?.manifest === "string" ? digest.manifest : undefined;
+    const integrity = typeof digest?.integrity === "string" ? digest.integrity : undefined;
     if (base && manifest && integrity) {
-      slots.push({ slot, base, pin: { manifest, integrity } });
+      slots.push({ slot, base, digest: { manifest, integrity } });
     }
   });
   return slots;
@@ -55,7 +56,7 @@ export function collectReleaseSlotPins(config: Record<string, unknown>): Release
 /** The `Record<slot, RemoteRecord>` shape the manifest schema stores. */
 export function releaseSlotMap(config: Record<string, unknown>): Record<string, RemoteRecord> {
   return Object.fromEntries(
-    collectReleaseSlotPins(config).map(({ slot, base, pin }) => [slot, { base, pin }]),
+    collectReleaseSlotPins(config).map(({ slot, base, digest }) => [slot, { base, digest }]),
   );
 }
 
@@ -152,10 +153,18 @@ export function resolveExactCatalog(configDir: string): Record<string, string> {
   return resolved;
 }
 
-export interface PlatformManifestPublishEntry {
+export interface PlatformManifestPublishHome {
   key: string;
   value: string;
   integrity: string;
+}
+
+export interface PlatformManifestPublishEntry {
+  /** The thin tag at `manifest.json` — the moving pointer; its digest pins
+   * the record's exact bytes. */
+  tag: PlatformManifestPublishHome;
+  /** The full manifest at `versions/<v>.json` — the immutable record. */
+  record: PlatformManifestPublishHome;
   manifest: Manifest;
 }
 
@@ -176,6 +185,14 @@ export function composePlatformManifestPublishEntry(opts: {
   const everyPluginVersion = readEveryPluginVersion(opts.configDir);
   if (!frameworkVersion || !everyPluginVersion) return null;
 
+  // The compat floor never sits below the cutover release (ticket 10): a
+  // pre-cutover child cannot parse the wire, so declaring it supported would
+  // trade a resolution rejection for a confusing boot skew. Above the floor
+  // keeps the rolling previous-release window.
+  const previousFloor = opts.previousFrameworkVersion ?? frameworkVersion;
+  const compatMinChild =
+    compareSemver(CUTOVER_RELEASE, previousFloor) > 0 ? CUTOVER_RELEASE : previousFloor;
+
   const manifest = composePlatformReleaseManifest({
     frameworkVersion,
     everyPluginVersion,
@@ -183,14 +200,22 @@ export function composePlatformManifestPublishEntry(opts: {
     imageRef: opts.imageRef ?? PLATFORM_IMAGE_REF,
     catalog: resolveExactCatalog(opts.configDir),
     templateInventory: computeTemplateInventory(opts.configDir),
-    compatMinChild: opts.previousFrameworkVersion ?? frameworkVersion,
-    ...(opts.publishPayload ? { slots: releaseSlotMap(opts.publishPayload) } : {}),
+    compatMinChild,
+    ...(opts.publishPayload ? { remotes: releaseSlotMap(opts.publishPayload) } : {}),
   });
   const value = serializePlatformReleaseManifest(manifest);
+  const tag = manifestTagOf(manifest, value);
   return {
-    key: getManifestKey(opts.account, opts.gateway),
-    value,
-    integrity: computeSriHash(value),
+    tag: {
+      key: getManifestKey(opts.account, opts.gateway),
+      value: JSON.stringify(tag),
+      integrity: computeSriHash(JSON.stringify(tag)),
+    },
+    record: {
+      key: getVersionKey(opts.account, opts.gateway, manifest.frameworkVersion),
+      value,
+      integrity: computeSriHash(value),
+    },
     manifest,
   };
 }
@@ -278,14 +303,14 @@ export function compatWindowViolations(
 export async function deriveImageRefFromPlatformManifest(opts: {
   configDir: string;
   localConfig: Record<string, unknown>;
-  fetchManifest?: (account: string, gateway: string) => Promise<Manifest | null>;
+  fetchTag?: (account: string, gateway: string) => Promise<unknown>;
   fetchSlot?: (account: string, gateway: string, version: string) => Promise<unknown>;
   fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
 }): Promise<DerivedImageRef | null> {
   const resolved = await resolvePlatformManifest({
     configDir: opts.configDir,
     localConfig: opts.localConfig,
-    fetchManifest: opts.fetchManifest,
+    ...(opts.fetchTag ? { fetchTag: opts.fetchTag } : {}),
     ...(opts.fetchSlot ? { fetchSlot: opts.fetchSlot } : {}),
     ...(opts.fetchParent ? { fetchParent: opts.fetchParent } : {}),
   });

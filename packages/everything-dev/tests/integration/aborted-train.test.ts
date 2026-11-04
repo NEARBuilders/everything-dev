@@ -296,11 +296,11 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     expect(result.status).toBe("published");
     expect(publishedPayloads).toHaveLength(1);
     const ui = (publishedPayloads[0] as { app: { ui: Record<string, string> } }).app.ui;
-    expect(ui.pin.manifest).toMatch(/^versions\/[0-9a-f]{16}\.json$/);
+    expect(ui.digest.manifest).toMatch(/^versions\/[0-9a-f]{16}\.json$/);
 
-    const stored = storage.get("v1.citynode.near", "citynode.app", "ui", ui.pin.manifest);
+    const stored = storage.get("v1.citynode.near", "citynode.app", "ui", ui.digest.manifest);
     expect(stored).not.toBeNull();
-    expect(stored!.sri).toBe(ui.pin.integrity);
+    expect(stored!.sri).toBe(ui.digest.integrity);
   });
 
   it("an aborted v2 train leaves v1's pointer, bytes, and SRI fully live", async () => {
@@ -310,7 +310,7 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     const v1Ui = (publishedPayloads[0] as { app: { ui: Record<string, string> } }).app.ui;
     const v1EntryPath = JSON.parse(
       storage
-        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest)!
+        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.digest.manifest)!
         .bytes.toString("utf8"),
     ) as { entry: string };
 
@@ -326,8 +326,8 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     const v1Entry = storage.get("v1.citynode.near", "citynode.app", "ui", v1EntryPath.entry);
     expect(v1Entry!.bytes.toString("utf8")).toBe('console.log("v1 entry");');
     expect(v1Entry!.sri).toBe(sriOf(v1Entry!.bytes));
-    const v1Manifest = storage.get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest);
-    expect(v1Manifest!.sri).toBe(v1Ui.pin.integrity);
+    const v1Manifest = storage.get("v1.citynode.near", "citynode.app", "ui", v1Ui.digest.manifest);
+    expect(v1Manifest!.sri).toBe(v1Ui.digest.integrity);
   });
 
   it("a socket-kill v2 train (the 2026-09-30 transport failure) also leaves v1 fully live", async () => {
@@ -337,7 +337,7 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     const v1Ui = (publishedPayloads[0] as { app: { ui: Record<string, string> } }).app.ui;
     const v1EntryName = JSON.parse(
       storage
-        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest)!
+        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.digest.manifest)!
         .bytes.toString("utf8"),
     ).entry as string;
 
@@ -355,11 +355,11 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
       "v1.citynode.near",
       "citynode.app",
       "ui",
-      v1Ui.pin.manifest,
+      v1Ui.digest.manifest,
     );
     expect(servedManifest).not.toBeNull();
-    expect(storage.get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest)!.sri).toBe(
-      v1Ui.pin.integrity,
+    expect(storage.get("v1.citynode.near", "citynode.app", "ui", v1Ui.digest.manifest)!.sri).toBe(
+      v1Ui.digest.integrity,
     );
   });
 
@@ -370,7 +370,7 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     const v1Ui = (publishedPayloads[0] as { app: { ui: Record<string, string> } }).app.ui;
     const v1EntryName = JSON.parse(
       storage
-        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest)!
+        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.digest.manifest)!
         .bytes.toString("utf8"),
     ).entry as string;
 
@@ -380,14 +380,14 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     expect(result.status).toBe("published");
     expect(publishedPayloads).toHaveLength(2);
     const v2Ui = (publishedPayloads[1] as { app: { ui: Record<string, string> } }).app.ui;
-    expect(v2Ui.pin.manifest).not.toBe(v1Ui.pin.manifest);
+    expect(v2Ui.digest.manifest).not.toBe(v1Ui.digest.manifest);
 
     // retention: v1's hashed entry + version manifest are still exactly v1's bytes
     const v1Entry = storage.get("v1.citynode.near", "citynode.app", "ui", v1EntryName);
     expect(v1Entry!.bytes.toString("utf8")).toBe(v1.entryContent);
-    const v1Manifest = storage.get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest);
+    const v1Manifest = storage.get("v1.citynode.near", "citynode.app", "ui", v1Ui.digest.manifest);
     expect(v1Manifest!.bytes.toString("utf8")).toContain("mf-manifest");
-    expect(v1Manifest!.sri).toBe(v1Ui.pin.integrity);
+    expect(v1Manifest!.sri).toBe(v1Ui.digest.integrity);
   });
 
   it("an unchanged redeploy diff-skips every dist file and republishes nothing", async () => {
@@ -406,14 +406,14 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     // only the (idempotent) manifest upload ran; every dist file diff-skipped
     const secondBatches = storage.batches.slice(batchesAfterFirst);
     expect(secondBatches.map((batch) => batch.workspace)).toEqual(["ui"]);
-    expect(secondBatches[0]!.paths).toEqual([v1Ui.pin.manifest]);
+    expect(secondBatches[0]!.paths).toEqual([v1Ui.digest.manifest]);
     // the pointer file recorded the live pin for the next diff
     const state = JSON.parse(
       readFileSync(join(configDir, ".bos", "deploy-state.json"), "utf8"),
     ) as { apps: Record<string, Record<string, { manifest: string; integrity: string }>> };
     expect(state.apps["v1.citynode.near/citynode.app"].ui).toEqual({
-      manifest: v1Ui.pin.manifest,
-      integrity: v1Ui.pin.integrity,
+      manifest: v1Ui.digest.manifest,
+      integrity: v1Ui.digest.integrity,
     });
   });
 
@@ -424,7 +424,7 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     const v1Ui = (publishedPayloads[0] as { app: { ui: Record<string, string> } }).app.ui;
     const v1Manifest = JSON.parse(
       storage
-        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest)!
+        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.digest.manifest)!
         .bytes.toString("utf8"),
     ) as { files: Record<string, string> };
     const batchesAfterFirst = storage.batches.length;
@@ -438,19 +438,19 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     expect(publishedPayloads).toHaveLength(2);
     const v2Ui = (publishedPayloads[1] as { app: { ui: Record<string, string> } }).app.ui;
     // the files map changed → a new version id, even though the entry is unchanged
-    expect(v2Ui.pin.manifest).not.toBe(v1Ui.pin.manifest);
+    expect(v2Ui.digest.manifest).not.toBe(v1Ui.digest.manifest);
 
     // exactly the added file + the manifest crossed the wire — unchanged files skipped
     const uploaded = storage.batches.slice(batchesAfterFirst).flatMap((batch) => batch.paths);
     expect([...uploaded].sort()).toEqual(
-      [addedPath, v2Ui.pin.manifest].sort((a, b) => a.localeCompare(b)),
+      [addedPath, v2Ui.digest.manifest].sort((a, b) => a.localeCompare(b)),
     );
 
     // the new manifest's files map covers the whole dist: the added file gets a
     // server-computed SRI, unchanged files carry the previous manifest's SRI
     const v2Manifest = JSON.parse(
       storage
-        .get("v1.citynode.near", "citynode.app", "ui", v2Ui.pin.manifest)!
+        .get("v1.citynode.near", "citynode.app", "ui", v2Ui.digest.manifest)!
         .bytes.toString("utf8"),
     ) as { files: Record<string, string> };
     expect(v2Manifest.files[addedPath]).toBe(sriOf("console.log('added');"));
@@ -636,18 +636,18 @@ describe("a pipelined folder-form plugin ui upload started mid-build", () => {
       publishedPayloads[0] as {
         plugins: Record<
           string,
-          { ui: Record<string, { pin: { manifest: string; integrity: string } }> }
+          { ui: Record<string, { digest: { manifest: string; integrity: string } }> }
         >;
       }
     ).plugins.auth;
-    expect(auth.ui.pin.manifest).toMatch(/^versions\/[0-9a-f]{16}\.json$/);
+    expect(auth.ui.digest.manifest).toMatch(/^versions\/[0-9a-f]{16}\.json$/);
     const storedManifest = storage.get(
       "v1.citynode.near",
       "citynode.app",
       "auth-ui",
-      auth.ui.pin.manifest,
+      auth.ui.digest.manifest,
     );
     expect(storedManifest).not.toBeNull();
-    expect(storedManifest!.sri).toBe(auth.ui.pin.integrity);
+    expect(storedManifest!.sri).toBe(auth.ui.digest.integrity);
   });
 });

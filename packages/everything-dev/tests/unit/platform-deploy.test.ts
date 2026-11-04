@@ -22,7 +22,7 @@ describe("platformUrlDeployEntries (image-native)", () => {
       url: `${BASE}/ui/`,
       urlField: "app.ui.production",
       integrityField: "app.ui.integrity",
-      removeFields: ["app.ui.manifest"],
+      removeFields: ["app.ui.manifest", "app.ui.pin.manifest", "app.ui.pin.integrity"],
     });
     // integrity omitted — applyDeployResults deletes stale pipeline hashes
     expect(entries[0].integrity).toBeUndefined();
@@ -43,7 +43,7 @@ describe("platformUrlDeployEntries (image-native)", () => {
     });
   });
 
-  it("maps plugins to the plugins slot without ssr", () => {
+  it("maps plugins to the plugins remote without ssr", () => {
     const entries = platformUrlDeployEntries({
       origin: ORIGIN,
       account: "v1.citynode.near",
@@ -56,11 +56,15 @@ describe("platformUrlDeployEntries (image-native)", () => {
       url: `${BASE}/votes/`,
       urlField: "plugins.votes.production",
       integrityField: "plugins.votes.integrity",
-      removeFields: ["plugins.votes.manifest"],
+      removeFields: [
+        "plugins.votes.manifest",
+        "plugins.votes.pin.manifest",
+        "plugins.votes.pin.integrity",
+      ],
     });
   });
 
-  it("pins the slot: `pin` carries the manifest pointer, the direct entry SRI is scrubbed", () => {
+  it("stamps the digest: the manifest pointer lands, the direct entry SRI is scrubbed", () => {
     const config = {
       account: "v1.citynode.near",
       domain: "citynode.app",
@@ -77,21 +81,23 @@ describe("platformUrlDeployEntries (image-native)", () => {
         gateway: "citynode.app",
         key: "ui",
         kind: "app",
-        pin: { file: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-manifest-sri" },
+        digest: { file: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-manifest-sri" },
         integrity: "sha384-entry-sri",
         ssrIntegrity: "sha384-ssr-entry-sri",
       }),
     );
 
     const ui = (merged.app as Record<string, Record<string, unknown>>).ui;
-    expect(ui.pin).toEqual({
+    expect(ui.digest).toEqual({
       manifest: "versions/8f3ac1d2feedbeef.json",
       integrity: "sha384-manifest-sri",
     });
-    // the pinned slot's identity is the pin — the direct entry SRI must not linger
+    // the remote's identity is the digest — the direct entry SRI must not linger
     expect(ui.integrity).toBeUndefined();
     // a legacy flat manifest pointer is scrubbed
     expect(ui.manifest).toBeUndefined();
+    // the pre-cutover `pin` stamp is scrubbed by the republish
+    expect(ui.pin).toBeUndefined();
   });
 });
 
@@ -99,7 +105,7 @@ describe("pluginUiUrlDeployEntries (folder-form plugin ui)", () => {
   const ORIGIN = "https://citynode.app";
   const BASE = `${ORIGIN}/bundles/v1.citynode.near/citynode.app`;
 
-  it("pins app.<key>.ui.* fields for an app-slot plugin", () => {
+  it("writes app.<key>.ui.* fields for an app-slot plugin", () => {
     const entries = pluginUiUrlDeployEntries({
       origin: ORIGIN,
       account: "v1.citynode.near",
@@ -115,7 +121,11 @@ describe("pluginUiUrlDeployEntries (folder-form plugin ui)", () => {
         integrity: "sha384-web",
         urlField: "app.auth.ui.production",
         integrityField: "app.auth.ui.integrity",
-        removeFields: ["app.auth.ui.manifest"],
+        removeFields: [
+          "app.auth.ui.manifest",
+          "app.auth.ui.pin.manifest",
+          "app.auth.ui.pin.integrity",
+        ],
       },
       {
         url: `${BASE}/auth-ui/ssr/`,
@@ -210,7 +220,7 @@ describe("pluginUiUrlDeployEntries (folder-form plugin ui)", () => {
     expect(authUi.development).toBe("local:plugins/auth/ui");
   });
 
-  it("carries the version-manifest pin on the ui slot", () => {
+  it("carries the version-manifest digest on the ui remote", () => {
     const merged = applyDeployResults(
       { account: "v1.citynode.near", app: { auth: { ui: { name: "auth-ui" } } } },
       pluginUiUrlDeployEntries({
@@ -219,14 +229,14 @@ describe("pluginUiUrlDeployEntries (folder-form plugin ui)", () => {
         gateway: "citynode.app",
         key: "auth",
         kind: "app",
-        pin: { file: "versions/eee.json", integrity: "sha384-ui-manifest-sri" },
+        digest: { file: "versions/eee.json", integrity: "sha384-ui-manifest-sri" },
       }),
     );
     const authUi = (merged.app as Record<string, Record<string, unknown>>).auth.ui as Record<
       string,
       unknown
     >;
-    expect(authUi.pin).toEqual({
+    expect(authUi.digest).toEqual({
       manifest: "versions/eee.json",
       integrity: "sha384-ui-manifest-sri",
     });

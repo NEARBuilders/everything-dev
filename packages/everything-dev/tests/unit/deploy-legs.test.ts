@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import {
   type ChildImagePin,
   resolveChildImagePin,
@@ -11,6 +10,7 @@ import {
   resolveRuntimeTier,
   runPostPublishLegs,
 } from "../../src/services/deploy/legs";
+import { digestOfManifest } from "../../src/services/platform/manifest-schema";
 
 const { readManifestTagMock } = vi.hoisted(() => ({
   readManifestTagMock: vi.fn<() => Promise<unknown>>(),
@@ -348,12 +348,22 @@ describe("resolveChildImagePin", () => {
     templateInventory: [],
     compat: { minChild: "1.0.0" },
   };
+  const tag = {
+    schemaVersion: 1,
+    version: "2.0.0-rc.14",
+    digest: digestOfManifest(JSON.stringify(manifest)),
+  };
 
-  it("resolves the manifest's ref:tag and the registry digest", async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("resolves the manifest's ref:tag and the registry digest through the thin-tag chain", async () => {
     const resolved = await resolveChildImagePin({
       configDir: mkdtempSync(join(tmpdir(), "bos-child-pin-")),
       localConfig: { extends: "bos://acct/gateway" },
-      fetchManifest: async () => manifest as never,
+      fetchTag: async () => tag,
+      fetchSlot: async () => manifest,
       fetchDigest: async ({ ref }) => {
         expect(ref).toBe("ghcr.io/nearbuilders/everything-dev:v2.0.0-rc.14");
         return digest64;
@@ -366,21 +376,30 @@ describe("resolveChildImagePin", () => {
     });
   });
 
-  it("is undefined when no manifest resolves — the float-redeploy fallback", async () => {
+  it("is undefined when no tag resolves — the float-redeploy fallback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ entries: [] }), { status: 200 })),
+    );
     const resolved = await resolveChildImagePin({
       configDir: mkdtempSync(join(tmpdir(), "bos-child-pin-")),
       localConfig: { extends: "bos://acct/gateway" },
-      fetchManifest: async () => null,
+      fetchTag: async () => null,
     });
     expect(resolved).toBeUndefined();
   });
 
-  it("fails loudly when a pin is recorded but no matching manifest resolves", async () => {
+  it("fails loudly when a pin is recorded but no matching record resolves", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ entries: [] }), { status: 200 })),
+    );
     await expect(
       resolveChildImagePin({
         configDir: mkdtempSync(join(tmpdir(), "bos-child-pin-")),
         localConfig: { extends: "bos://acct/gateway", release: "9.9.9" },
-        fetchManifest: async () => manifest as never,
+        fetchTag: async () => tag,
+        fetchSlot: async () => null,
       }),
     ).rejects.toThrow(/platform pin 9\.9\.9.*never published/s);
   });

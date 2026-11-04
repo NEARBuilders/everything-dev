@@ -12,7 +12,7 @@
  *   the child upgrade consumes them verbatim, a drifted install fails loud).
  *
  * The deploy legs are proxies for the real train: composition of the
- * platform.json registry entry (the publish half) and the derived image
+ * manifest.json thin-tag registry entry (the publish half) and the derived image
  * `ref@v<version>` pin plus the publish-train truth gate (the deploy half).
  */
 
@@ -40,9 +40,11 @@ import {
   type Manifest,
   ManifestSchema,
   resolvePlatformManifest,
+  serializePlatformReleaseManifest,
 } from "../../src/services/platform/manifest";
+import { manifestTagOf } from "../../src/services/platform/manifest-schema";
 import { parseRuntimeRef } from "../../src/services/registry/keys";
-import { getVersionKey } from "../../src/services/registry/pointer";
+import { MANIFEST_TAG_REL_KEY } from "../../src/services/registry/pointer";
 import * as resolutionModule from "../../src/services/registry/resolution";
 import {
   resolveBootShape,
@@ -64,7 +66,7 @@ import { versionManifestFetcher, versionManifestText } from "../helpers/version-
 
 const ROOT_ACCOUNT = "dev.everything.near";
 const ROOT_GATEWAY = "everything.dev";
-const PLATFORM_KEY = `apps/${ROOT_ACCOUNT}/${ROOT_GATEWAY}/platform.json`;
+const PLATFORM_KEY = `apps/${ROOT_ACCOUNT}/${ROOT_GATEWAY}/${MANIFEST_TAG_REL_KEY}`;
 const CONFIG_KEY = `apps/${ROOT_ACCOUNT}/${ROOT_GATEWAY}/bos.config.json`;
 
 const tempDirs: string[] = [];
@@ -76,10 +78,10 @@ let childDir: string;
  * immutable version-slot fetch (#574). */
 const fetchParent = async (account: string, gateway: string) =>
   (registry.get(`apps/${account}/${gateway}/bos.config.json`) as Record<string, unknown>) ?? null;
-const fetchManifest = async (account: string, gateway: string) =>
-  (registry.get(`apps/${account}/${gateway}/platform.json`) as Manifest) ?? null;
+const fetchTag = async (account: string, gateway: string) =>
+  registry.get(`apps/${account}/${gateway}/manifest.json`) ?? null;
 const fetchSlot = async (account: string, gateway: string, version: string) =>
-  registry.get(`apps/${account}/${gateway}/platform-versions/${version}.json`) ?? null;
+  registry.get(`apps/${account}/${gateway}/versions/${version}.json`) ?? null;
 
 function frameworkRootFixture(version: string, reactVersion: string): string {
   const dir = mkdtempSync(join(tmpdir(), "platform-e2e-root-"));
@@ -139,12 +141,9 @@ function publishRootRelease(previousVersion?: string): Manifest {
   });
   expect(entry).not.toBeNull();
   // the real train's atomic write carries BOTH keys (#573): the immutable
-  // version slot + the pointer flip
-  registry.set(entry!.key, JSON.parse(entry!.value));
-  registry.set(
-    getVersionKey(ROOT_ACCOUNT, ROOT_GATEWAY, entry!.manifest.frameworkVersion),
-    JSON.parse(entry!.value),
-  );
+  // version record + the thin-tag flip
+  registry.set(entry!.tag.key, JSON.parse(entry!.tag.value));
+  registry.set(entry!.record.key, JSON.parse(entry!.record.value));
   registry.set(CONFIG_KEY, {
     repository: "https://github.com/NEARBuilders/everything-dev",
   });
@@ -166,13 +165,11 @@ const upgradeSourceOptions: ExtendedRootSourceOptions = {
   seams: {
     async readManifestTag(ref) {
       const { accountId, gatewayId } = parseRuntimeRef(ref);
-      return (registry.get(`apps/${accountId}/${gatewayId}/platform.json`) as unknown) ?? null;
+      return (registry.get(`apps/${accountId}/${gatewayId}/manifest.json`) as unknown) ?? null;
     },
     async readVersionRecord(ref, release) {
       const { accountId, gatewayId } = parseRuntimeRef(ref);
-      const value = registry.get(
-        `apps/${accountId}/${gatewayId}/platform-versions/${release}.json`,
-      );
+      const value = registry.get(`apps/${accountId}/${gatewayId}/versions/${release}.json`);
       return value === undefined ? null : JSON.stringify(value);
     },
     parseManifest: (value) => ManifestSchema.parse(value),
@@ -197,7 +194,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     expect(manifest.frameworkVersion).toBe("2.0.0-rc.1");
     expect(manifest.image.ref).toBe(PLATFORM_IMAGE_REF);
     expect(manifest.image.tags).toEqual(["v2.0.0-rc.1"]);
-    expect(registry.get(PLATFORM_KEY)).toMatchObject({ frameworkVersion: "2.0.0-rc.1" });
+    expect(registry.get(PLATFORM_KEY)).toMatchObject({ version: "2.0.0-rc.1" });
     expect(registry.get(CONFIG_KEY)).toMatchObject({
       repository: "https://github.com/NEARBuilders/everything-dev",
     });
@@ -219,7 +216,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     const derived = await deriveImageRefFromPlatformManifest({
       configDir: childDir,
       localConfig: readChildConfig(),
-      fetchManifest,
+      fetchTag,
       fetchParent,
       fetchSlot,
     });
@@ -228,7 +225,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     const resolved = (await resolvePlatformManifest({
       configDir: childDir,
       localConfig: readChildConfig(),
-      fetchManifest,
+      fetchTag,
       fetchParent,
       fetchSlot,
     }))!;
@@ -265,7 +262,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     const pinned = await resolvePlatformManifest({
       configDir: childDir,
       localConfig: readChildConfig(),
-      fetchManifest,
+      fetchTag,
       fetchParent,
       fetchSlot,
     });
@@ -286,7 +283,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       resolvePlatformManifest({
         configDir: childDir,
         localConfig: { ...readChildConfig(), release: "2.0.0-rc.99" },
-        fetchManifest,
+        fetchTag,
         fetchParent,
         fetchSlot,
       }),
@@ -321,7 +318,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       resolvePlatformManifest({
         configDir: childDir,
         localConfig: readChildConfig(),
-        fetchManifest,
+        fetchTag,
         fetchParent,
         fetchSlot,
         now: () => Date.now() + 25 * 60 * 60_000,
@@ -338,7 +335,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       resolvePlatformManifest({
         configDir: childDir,
         localConfig: readChildConfig(),
-        fetchManifest,
+        fetchTag,
         fetchParent,
         fetchSlot: async () => {
           throw new Error("registry unreachable");
@@ -477,7 +474,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       previousFrameworkVersion: "2.0.0-rc.3",
     });
     expect(entry).not.toBeNull();
-    registry.set(entry!.key, JSON.parse(entry!.value));
+    registry.set(entry!.tag.key, JSON.parse(entry!.tag.value));
 
     const before = readFileSync(join(childDir, "bos.config.json"), "utf-8");
     await expect(readExtendedRootSource(childDir, upgradeSourceOptions)).rejects.toThrow(
@@ -525,28 +522,31 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
         },
       })}\n`,
     );
-    registry.set(
-      PLATFORM_KEY,
-      ManifestSchema.parse({
-        schemaVersion: 1,
-        kind: "everything-dev/platform-manifest",
-        frameworkVersion: "2.0.0-rc.3",
-        everyPluginVersion: "3.0.0-rc.9",
-        image: { ref: PLATFORM_IMAGE_REF, tags: ["v2.0.0-rc.3"] },
-        catalog: { react: "19.3.0", effect: "4.0.0-rc.112" },
-        sharedDeps: {
-          react: {
-            version: "19.3.0",
-            requiredVersion: "19.3.0",
-            singleton: true,
-            eager: false,
-            strictVersion: true,
-            shareScope: "default",
-          },
+    const release = ManifestSchema.parse({
+      schemaVersion: 1,
+      kind: "everything-dev/platform-manifest",
+      frameworkVersion: "2.0.0-rc.3",
+      everyPluginVersion: "3.0.0-rc.9",
+      image: { ref: PLATFORM_IMAGE_REF, tags: ["v2.0.0-rc.3"] },
+      catalog: { react: "19.3.0", effect: "4.0.0-rc.112" },
+      sharedDeps: {
+        react: {
+          version: "19.3.0",
+          requiredVersion: "19.3.0",
+          singleton: true,
+          eager: false,
+          strictVersion: true,
+          shareScope: "default",
         },
-        templateInventory: [],
-        compat: { minChild: "2.0.0-rc.2" },
-      }),
+      },
+      templateInventory: [],
+      compat: { minChild: "2.0.0-rc.37" },
+    });
+    const serialized = serializePlatformReleaseManifest(release);
+    registry.set(PLATFORM_KEY, manifestTagOf(release, serialized));
+    registry.set(
+      `apps/${ROOT_ACCOUNT}/${ROOT_GATEWAY}/versions/2.0.0-rc.3.json`,
+      JSON.parse(serialized),
     );
   });
 
@@ -582,7 +582,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
       resolved = await resolvePlatformManifest({
         configDir: childDir,
         localConfig,
-        fetchManifest,
+        fetchTag,
         fetchParent,
         fetchSlot,
       });
@@ -590,7 +590,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
       const latest = await resolvePlatformManifest({
         configDir: childDir,
         localConfig: { ...localConfig, release: undefined },
-        fetchManifest,
+        fetchTag,
         fetchParent,
         fetchSlot,
       });
@@ -606,8 +606,8 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
       catalog: { react: "19.2.4", effect: "4.0.0-rc.112" },
     });
     // rc-aware compat (plan 057): the pinned child 2.0.0-rc.1 now also fails
-    // the release's 2.0.0-rc.2 compat floor — the old comparator could not
-    // order prereleases and let this pass silently.
+    // the release's compat floor (post-cutover: the cutover rc) — the old
+    // comparator could not order prereleases and let this pass silently.
     expect(violations).toHaveLength(2);
     const skew = violations.find((v) => v.kind === "shared-dep");
     expect(skew).toMatchObject({ kind: "shared-dep", name: "react" });
@@ -635,8 +635,8 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
   const CHILD_SLOT = { account: "child.near", gateway: "child.example" };
   const liveConfigKey = `apps/${ACCOUNT}/${GATEWAY}/bos.config.json`;
 
-  const authRc1Shared = { "everything-dev/ui/auth": "2.0.0-rc.1", react: "19.2.4" };
-  const authRc2Shared = { "everything-dev/ui/auth": "2.0.0-rc.2", react: "19.3.0" };
+  const authRc37Shared = { "everything-dev/ui/auth": "2.0.0-rc.37", react: "19.2.4" };
+  const authRc38Shared = { "everything-dev/ui/auth": "2.0.0-rc.38", react: "19.3.0" };
   const childUiShared = { react: "19.2.4" };
 
   let server: Server;
@@ -645,7 +645,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
   let rootDir: string;
   let childDir: string;
 
-  const pinFor = (slotBase: string, file: string, shared: Record<string, string>) => {
+  const digestFor = (slotBase: string, file: string, shared: Record<string, string>) => {
     const text = versionManifestText(shared);
     routes[`${base}${slotBase}${file}`] = text;
     return { manifest: file, integrity: computeManifestSri(text) };
@@ -677,9 +677,9 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       join(rootDir, "packages", "everything-dev", "package.json"),
       `${JSON.stringify({ name: "everything-dev", version })}\n`,
     );
-    const authPin = pinFor("/auth/", `versions/auth-${version}.json`, shared);
-    const authUiPin = pinFor("/auth-ui/", `versions/auth-ui-${version}.json`, shared);
-    const parentUi = { production: `${base}/auth-ui/`, pin: authUiPin, name: "auth" };
+    const authDigest = digestFor("/auth/", `versions/auth-${version}.json`, shared);
+    const authUiDigest = digestFor("/auth-ui/", `versions/auth-ui-${version}.json`, shared);
+    const parentUi = { production: `${base}/auth-ui/`, digest: authUiDigest, name: "auth" };
     const entry = composePlatformManifestPublishEntry({
       configDir: rootDir,
       account: ACCOUNT,
@@ -689,17 +689,17 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
         app: {
           auth: {
             production: `${base}/auth/`,
-            pin: authPin,
+            digest: authDigest,
             ui: parentUi,
           },
         },
         plugins: {
           votes: {
             production: `${base}/votes/`,
-            pin: pinFor("/votes/", `versions/votes-${version}.json`, shared),
+            digest: digestFor("/votes/", `versions/votes-${version}.json`, shared),
             ui: {
               production: `${base}/votes-ui/`,
-              pin: pinFor("/votes-ui/", `versions/votes-ui-${version}.json`, shared),
+              digest: digestFor("/votes-ui/", `versions/votes-ui-${version}.json`, shared),
               name: "votes-ui",
             },
           },
@@ -707,8 +707,8 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       },
     });
     expect(entry).not.toBeNull();
-    registry.set(entry!.key, JSON.parse(entry!.value));
-    registry.set(getVersionKey(ACCOUNT, GATEWAY, version), JSON.parse(entry!.value));
+    registry.set(entry!.tag.key, JSON.parse(entry!.tag.value));
+    registry.set(entry!.record.key, JSON.parse(entry!.record.value));
     registry.set(liveConfigKey, {
       account: ACCOUNT,
       domain: GATEWAY,
@@ -718,7 +718,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
         api: { production: `${base}/api/` },
         auth: {
           production: `${base}/auth/`,
-          pin: authPin,
+          digest: authDigest,
           ui: parentUi,
         },
       },
@@ -731,7 +731,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
    * schema parse of the merged shape, then the gate. */
   async function simulateDeploy(
     authoredConfig: Record<string, unknown>,
-    ownUiPin: { manifest: string; integrity: string },
+    ownUiDigest: { manifest: string; integrity: string },
     stamps: boolean,
   ): Promise<{
     ok: boolean;
@@ -743,14 +743,14 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     const resolvedRelease = await resolveReleaseManifestForDeploy({
       configDir: childDir,
       authoredConfig,
-      resolveOptions: { fetchManifest, fetchParent, fetchSlot },
+      resolveOptions: { fetchTag, fetchParent, fetchSlot },
     });
     const payload = structuredClone(authoredConfig);
     const app = payload.app as Record<string, Record<string, unknown>>;
     app.ui.production = `${base}/child-ui/`;
-    app.ui.pin = ownUiPin;
+    app.ui.digest = ownUiDigest;
     let stamped: string[] = [];
-    if (stamps && resolvedRelease?.slots) {
+    if (stamps && resolvedRelease?.remotes) {
       stamped = stampRemotesFromRelease({
         payload,
         authoredConfig,
@@ -789,11 +789,11 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
 
     routes[`${base}/child-ui/versions/fedcba0987654321.json`] = versionManifestText(childUiShared);
 
-    rootDir = frameworkRootFixture("2.0.0-rc.1", "19.2.4");
-    childDir = childFixture("2.0.0-rc.1");
+    rootDir = frameworkRootFixture("2.0.0-rc.37", "19.2.4");
+    childDir = childFixture("2.0.0-rc.37");
     writeFileSync(
       join(childDir, "package.json"),
-      `${JSON.stringify({ name: "child", dependencies: { "everything-dev": "2.0.0-rc.1" } })}\n`,
+      `${JSON.stringify({ name: "child", dependencies: { "everything-dev": "2.0.0-rc.37" } })}\n`,
     );
     writeFileSync(
       join(childDir, "pnpm-workspace.yaml"),
@@ -808,8 +808,8 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       ].join("\n"),
     );
 
-    publishRootRelease("2.0.0-rc.1", undefined, authRc1Shared);
-    publishRootRelease("2.0.0-rc.2", "2.0.0-rc.1", authRc2Shared);
+    publishRootRelease("2.0.0-rc.37", undefined, authRc37Shared);
+    publishRootRelease("2.0.0-rc.38", "2.0.0-rc.37", authRc38Shared);
   });
 
   afterAll(() => {
@@ -824,7 +824,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       extends: `bos://${ACCOUNT}/${GATEWAY}`,
       account: "child.near",
       domain: "child.example",
-      release: "2.0.0-rc.1",
+      release: "2.0.0-rc.37",
       app: { ui: { development: "local:ui" } },
       plugins: { feedback: { extends: `bos://${ACCOUNT}/${GATEWAY}/votes` } },
     };
@@ -843,8 +843,8 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     // declared plugin set owns that domain, so none of them stamp
     expect(stamped).toEqual(["app.auth", "app.auth.ui"]);
     const app = merged.app as Record<string, Record<string, Record<string, string>>>;
-    expect(app.auth.pin.manifest).toBe("versions/auth-2.0.0-rc.1.json");
-    expect(app.auth.ui.pin.manifest).toBe("versions/auth-ui-2.0.0-rc.1.json");
+    expect(app.auth.digest.manifest).toBe("versions/auth-2.0.0-rc.37.json");
+    expect(app.auth.ui.digest.manifest).toBe("versions/auth-ui-2.0.0-rc.37.json");
     expect(merged.plugins).toEqual({
       feedback: { extends: `bos://${ACCOUNT}/${GATEWAY}/votes` },
     });
@@ -856,7 +856,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       extends: `bos://${ACCOUNT}/${GATEWAY}`,
       account: "child.near",
       domain: "child.example",
-      release: "2.0.0-rc.1",
+      release: "2.0.0-rc.37",
       app: { ui: { development: "local:ui" } },
       plugins: { feedback: { extends: `bos://${ACCOUNT}/${GATEWAY}/votes` } },
     };
@@ -1064,9 +1064,9 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
     });
     expect(entry).not.toBeNull();
     releaseManifest = entry!.manifest;
-    // the real train's atomic write: the immutable version slot + the pointer
-    registry.set(entry!.key, JSON.parse(entry!.value));
-    registry.set(getVersionKey(ACCOUNT, GATEWAY, RELEASE_VERSION), JSON.parse(entry!.value));
+    // the real train's atomic write: the immutable version record + the thin tag
+    registry.set(entry!.tag.key, JSON.parse(entry!.tag.value));
+    registry.set(entry!.record.key, JSON.parse(entry!.record.value));
     registry.set(`apps/${ACCOUNT}/${GATEWAY}/bos.config.json`, {
       repository: "https://github.com/NEARBuilders/everything-dev",
     });

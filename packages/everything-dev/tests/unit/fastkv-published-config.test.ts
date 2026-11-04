@@ -20,7 +20,7 @@ function entriesResponse(value: unknown) {
 describe("fetchPublishedConfigFromFastKv", () => {
   it("reads the registry URL verbatim and unwraps the entry value", async () => {
     const fetchMock = vi.fn(async () =>
-      entriesResponse({ account: "a.near", domain: "a.app", app: { ui: { pin: {} } } }),
+      entriesResponse({ account: "a.near", domain: "a.app", app: { ui: { digest: {} } } }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -32,7 +32,7 @@ describe("fetchPublishedConfigFromFastKv", () => {
       url,
       expect.objectContaining({ headers: { accept: "application/json" } }),
     );
-    expect(config).toEqual({ account: "a.near", domain: "a.app", app: { ui: { pin: {} } } });
+    expect(config).toEqual({ account: "a.near", domain: "a.app", app: { ui: { digest: {} } } });
   });
 
   it("JSON-parses a string-valued entry", async () => {
