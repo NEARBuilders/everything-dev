@@ -217,6 +217,45 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
+  promote: async (result, _ctx) => {
+    const promoteResult = result as any;
+    if (promoteResult.status === "error") {
+      console.log();
+      console.log(colors.error(`${icons.err} Promote failed`));
+      if (promoteResult.error) {
+        console.log(`  ${colors.dim("Error:")} ${promoteResult.error}`);
+      }
+      if (promoteResult.verification) {
+        console.log();
+        for (const check of promoteResult.verification) {
+          const mark = check.ok ? colors.green(icons.ok) : colors.error(icons.err);
+          const reason = check.reason ? colors.dim(` — ${check.reason}`) : "";
+          console.log(`  ${mark} ${check.remote}${reason}`);
+        }
+      }
+      console.log();
+      process.exit(1);
+    }
+
+    if (promoteResult.status === "dry-run") {
+      console.log();
+      console.log(colors.cyan(`${icons.ok} Promote dry run complete`));
+      console.log(`  ${colors.dim("Registry URL:")} ${promoteResult.registryUrl}`);
+      console.log();
+      return;
+    }
+
+    console.log();
+    console.log(colors.green(`${icons.ok} Promoted — the recorded deployment is live again`));
+    console.log(`  ${colors.dim("Registry URL:")} ${promoteResult.registryUrl}`);
+    if (promoteResult.txHash) {
+      console.log(`  ${colors.dim("Transaction:")} ${promoteResult.txHash}`);
+    }
+    console.log(`  ${colors.dim("Lockfile:")} bos.lock.json now freezes the promoted composition`);
+    console.log();
+    return;
+  },
+
   deploy: async (result, _ctx) => {
     const deployResult = result as any;
     if (deployResult.status === "list") {

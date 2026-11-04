@@ -117,6 +117,41 @@ export function registerDeploy(builder: BosBuilder) {
       });
     }),
 
+    promote: builder.promote.effect(function* (_opts, input) {
+      const session = yield* ResolutionSessionService;
+      if (!session) {
+        return {
+          status: "error" as const,
+          registryUrl: "",
+          error: MISSING_CONFIG_MESSAGE,
+        } satisfies RollbackResult;
+      }
+
+      return yield* Effect.tryPromise({
+        try: () =>
+          rollbackBody(session, {
+            registry: input.registry,
+            limit: 20,
+            listOnly: false,
+            version: input.version,
+            previous: false,
+            force: input.force,
+            env: input.env,
+            dryRun: input.dryRun,
+            verbose: input.verbose,
+            network: input.network,
+            privateKey: input.privateKey,
+            wallet: input.wallet,
+            promote: true,
+          }),
+        catch: (error) => ({
+          status: "error" as const,
+          registryUrl: "",
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    }),
+
     deploy: builder.deploy.effect(function* (_opts, input) {
       const session = yield* ResolutionSessionService;
       const train = yield* DeployTrainService;
@@ -170,6 +205,11 @@ async function rollbackBody(
     network?: "mainnet" | "testnet";
     privateKey?: string;
     wallet: boolean;
+    /** Promote framing (ADR 0042 ticket 05): activate a recorded deployment
+     * without the rolledBackFrom brand; requires an explicit version, and an
+     * already-live target is a legitimate idempotent no-op rather than a
+     * refusal. */
+    promote?: boolean;
   },
 ): Promise<RollbackResult> {
   const { account, domain } = session.config ?? {};
@@ -237,14 +277,19 @@ async function rollbackBody(
       status: "error",
       registryUrl: "",
       history: historyEntries,
-      error: input.version
-        ? `No history entry matches "${input.version}" — pick a block height from the listing`
-        : "Specify --version <block-height> or --previous (interactive selection happens CLI-side)",
+      error: input.promote
+        ? "bos promote requires --version <block-height> — the deployment to activate"
+        : input.version
+          ? `No history entry matches "${input.version}" — pick a block height from the listing`
+          : "Specify --version <block-height> or --previous (interactive selection happens CLI-side)",
     };
   }
 
   const liveValue = await fetchLiveConfig({ account, domain, registry: input.registry });
-  if (liveValue !== undefined && isSnapshotLive(target.value, liveValue)) {
+  // Promote skips the identical-live refusal: activating the already-live
+  // deployment is a legitimate idempotent no-op (the train's
+  // already-published path handles it gracefully).
+  if (!input.promote && liveValue !== undefined && isSnapshotLive(target.value, liveValue)) {
     return {
       status: "error",
       registryUrl: "",
@@ -294,6 +339,7 @@ async function rollbackBody(
     },
     {
       skipVerify: true,
+      ...(input.promote ? { promote: true } : {}),
       restorePlatformPointer: await resolvePointerRestore(account, domain, input.registry),
     },
   );
