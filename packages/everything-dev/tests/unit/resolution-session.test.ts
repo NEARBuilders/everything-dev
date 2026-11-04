@@ -235,7 +235,7 @@ describe("openResolution", () => {
         host: {
           development: "local:host",
           production: "https://stage.test/host",
-          pin: {
+          digest: {
             manifest: `versions/${hostEntry}.json`,
             integrity: `sha384-${createHash("sha384").update(JSON.stringify(hostManifest)).digest("base64")}`,
           },
@@ -359,7 +359,7 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
         host: {
           development: "local:host",
           production: "https://stage.test/host",
-          pin: {
+          digest: {
             manifest: `versions/${hostEntry}.json`,
             integrity: `sha384-${createHash("sha384").update(JSON.stringify(hostManifest)).digest("base64")}`,
           },

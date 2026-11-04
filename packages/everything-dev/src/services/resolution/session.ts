@@ -472,7 +472,7 @@ export async function openResolution(
           const stamp = stampInheritedRemotes({
             config: tree,
             authoredConfig: rawConfig as Record<string, unknown>,
-            slots: releaseManifest.slots,
+            remotes: releaseManifest.remotes,
             mode: "consumer",
           });
           releaseComposition = { stamped: stamp.stamped, omitted: stamp.omitted };

@@ -825,3 +825,7 @@ This repo also ships Emil Kowalski's design-engineering skills in `.agents/skill
 - `/animation-performance`, `/animation-vocabulary`, `/break-ui` — frame-rate debugging, prompting vocabulary for motion, and worst-case-data UI stress testing
 
 Note: this repo's own `/prototype` skill (from the Matt Pocock set — build a throwaway prototype to answer a design question) takes precedence over Emil's same-named skill (switch between multiple built UI versions); Emil's `prototype`, `animate-expo`, and `write-swift` were deliberately not installed (React Native/Expo and Swift skills don't apply to this web monorepo; `prototype` collided with the existing skill).
+
+### Shell working directory
+
+The agent shell persists its cwd — it stays at the repo root. Use **relative paths** and omit the workdir parameter; the absolute repo path is long enough that re-typing it per call invites transcription errors.

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // the production-config tests below are about auth naming, not version-manifest
-// resolution — every remote slot pins a manifest, and resolution is stubbed
+// resolution — every remote pins a manifest, and resolution is stubbed
 vi.mock("../../src/services/deploy/version-manifest", () => ({
   resolveSlotVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
@@ -13,7 +13,7 @@ vi.mock("../../src/services/deploy/version-manifest", () => ({
   clearSlotVersionCache: vi.fn(),
 }));
 
-const SLOT_PIN = { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" };
+const SLOT_DIGEST = { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" };
 
 let originalFetch: typeof globalThis.fetch;
 
@@ -37,10 +37,10 @@ function makeBosConfig(authSection: Record<string, unknown>) {
   return {
     account: "test.near",
     app: {
-      host: { development: "local:host", production: "https://host.example", pin: SLOT_PIN },
-      ui: { production: "https://ui.example", pin: SLOT_PIN },
-      api: { development: "local:api", production: "https://api.example", pin: SLOT_PIN },
-      auth: { pin: SLOT_PIN, ...authSection },
+      host: { development: "local:host", production: "https://host.example", digest: SLOT_DIGEST },
+      ui: { production: "https://ui.example", digest: SLOT_DIGEST },
+      api: { development: "local:api", production: "https://api.example", digest: SLOT_DIGEST },
+      auth: { digest: SLOT_DIGEST, ...authSection },
     },
   } as any;
 }

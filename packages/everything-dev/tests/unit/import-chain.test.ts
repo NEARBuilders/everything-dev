@@ -123,9 +123,9 @@ describe("bos import — localWorkspaceSlotOf", () => {
 
 describe("bos import — configEntryAt / resolvePinnedSource", () => {
   it("reads the entry for app.<key> slots", () => {
-    const config = { app: { auth: { pin: { manifest: "versions/a.json" } } } };
+    const config = { app: { auth: { digest: { manifest: "versions/a.json" } } } };
     expect(configEntryAt(config, "app.auth")).toMatchObject({
-      pin: { manifest: "versions/a.json" },
+      digest: { manifest: "versions/a.json" },
     });
     expect(configEntryAt(config, "plugins.auth")).toBeNull();
   });
@@ -151,7 +151,7 @@ describe("bos import — configEntryAt / resolvePinnedSource", () => {
     const result = await resolvePinnedSource(
       {
         production: "https://cdn.test/base/auth/",
-        pin: { manifest: "versions/abc.json", integrity },
+        digest: { manifest: "versions/abc.json", integrity },
       },
       fetcher,
     );
@@ -172,7 +172,7 @@ describe("bos import — configEntryAt / resolvePinnedSource", () => {
       resolvePinnedSource(
         {
           production: "https://cdn.test/base/auth/",
-          pin: { manifest: "versions/abc.json", integrity: "sha384-tampered" },
+          digest: { manifest: "versions/abc.json", integrity: "sha384-tampered" },
         },
         fetcher,
       ),
@@ -184,7 +184,7 @@ describe("bos import — configEntryAt / resolvePinnedSource", () => {
     const result = await resolvePinnedSource(
       {
         production: "https://cdn.test/base/auth/",
-        pin: { manifest: "versions/abc.json" },
+        digest: { manifest: "versions/abc.json" },
       },
       fetcher,
     );
@@ -198,7 +198,7 @@ describe("bos import — configEntryAt / resolvePinnedSource", () => {
     const result = await resolvePinnedSource(
       {
         production: "https://cdn.test/base/auth/",
-        pin: { manifest: "versions/abc.json", integrity },
+        digest: { manifest: "versions/abc.json", integrity },
       },
       fetcher,
     );
@@ -434,7 +434,7 @@ describe("bos import — resolveImportChain", () => {
           repository: "https://github.com/base/runtime",
           appAuth: {
             production: "https://cdn.test/base/auth/",
-            pin: { manifest: "versions/abc.json", integrity },
+            digest: { manifest: "versions/abc.json", integrity },
           },
         }),
       }),
@@ -462,7 +462,7 @@ describe("bos import — resolveImportChain", () => {
     const repolessBase = baseConfig({
       appAuth: {
         production: "https://cdn.test/base/auth/",
-        pin: { manifest: "versions/abc.json", integrity },
+        digest: { manifest: "versions/abc.json", integrity },
       },
     });
     delete repolessBase.repository;
@@ -501,7 +501,7 @@ describe("bos import — resolveImportChain", () => {
           extends: "bos://root.near/root",
           appAuth: {
             production: "https://cdn.test/base/auth/",
-            pin: { manifest: "versions/abc.json", integrity },
+            digest: { manifest: "versions/abc.json", integrity },
           },
         }),
         "bos://root.near/root": grandparentConfig,

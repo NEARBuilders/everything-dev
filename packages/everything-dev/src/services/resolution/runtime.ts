@@ -349,7 +349,7 @@ async function deriveVersionManifestFields(
 
   const derive = async (
     label: string,
-    slotConfig: { pin?: unknown } | undefined,
+    slotConfig: { digest?: unknown } | undefined,
     slot: { url?: string; remoteUrl?: string; source?: string } | undefined,
     apply: (resolved: ResolvedSlotVersion) => void,
   ): Promise<void> => {
@@ -360,19 +360,19 @@ async function deriveVersionManifestFields(
     // published configs.
     const slotWithProduction = slotConfig as { production?: unknown } | undefined;
     if (!slotWithProduction || slotWithProduction.production === undefined) return;
-    const rawPin = slotConfig?.pin as { manifest?: unknown; integrity?: unknown } | undefined;
-    const pin =
-      rawPin &&
-      typeof rawPin.manifest === "string" &&
-      rawPin.manifest &&
-      typeof rawPin.integrity === "string" &&
-      rawPin.integrity
-        ? { manifest: rawPin.manifest, integrity: rawPin.integrity }
+    const rawDigest = slotConfig?.digest as { manifest?: unknown; integrity?: unknown } | undefined;
+    const digest =
+      rawDigest &&
+      typeof rawDigest.manifest === "string" &&
+      rawDigest.manifest &&
+      typeof rawDigest.integrity === "string" &&
+      rawDigest.integrity
+        ? { manifest: rawDigest.manifest, integrity: rawDigest.integrity }
         : undefined;
-    if (!pin) {
+    if (!digest) {
       if (isDev) return;
       throw new Error(
-        `slot "${label}" (${slot.url}) pins no version manifest — remote slots must pin ` +
+        `remote "${label}" (${slot.url}) carries no version-manifest digest — remote slots must pin ` +
           `a version manifest outside development (pre-atomic-deploy config; redeploy required)`,
       );
     }
@@ -381,11 +381,11 @@ async function deriveVersionManifestFields(
     // there); its `remoteUrl` carries the deployment bundle base.
     let resolved: ResolvedSlotVersion;
     try {
-      resolved = await resolveSlotVersion({ base: slot.remoteUrl ?? slot.url, pin });
+      resolved = await resolveSlotVersion({ base: slot.remoteUrl ?? slot.url, digest });
     } catch (cause) {
       if (isDev) {
         warnOutsideEffect(
-          `[Config] Version-manifest pin for "${label}" (${pin.manifest}) failed to resolve, ` +
+          `[Config] Version-manifest digest for "${label}" (${digest.manifest}) failed to resolve, ` +
             `continuing unpinned (development): ${cause instanceof Error ? cause.message : String(cause)}`,
         );
         return;

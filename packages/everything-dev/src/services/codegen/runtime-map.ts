@@ -63,7 +63,7 @@ export interface MapSource {
   location: string;
   manifestPath?: string;
   manifestUrl?: string;
-  pin?: string;
+  digest?: string;
   note?: string;
   manifest: PluginManifest;
 }
@@ -114,7 +114,7 @@ interface SourceDescriptor {
   location: string;
   manifestPath?: string;
   manifestUrl?: string;
-  pin?: string;
+  digest?: string;
   note?: string;
 }
 
@@ -123,16 +123,16 @@ function describeSlot(
   key: string,
   kind: SourceDescriptor["kind"],
   slot:
-    | { url?: string; localPath?: string; source?: string; pin?: { manifest?: string } }
+    | { url?: string; localPath?: string; source?: string; digest?: { manifest?: string } }
     | undefined,
   unresolved: UnresolvedSource[],
 ): SourceDescriptor | null {
   if (!slot) return null;
-  const pin = slot.pin?.manifest;
+  const digest = slot.digest?.manifest;
   if (slot.localPath) {
     const manifestPath = join(slot.localPath, "src/manifest.gen.json");
     if (existsSync(manifestPath)) {
-      return { key, kind, source: "local", location: slot.localPath, manifestPath, pin };
+      return { key, kind, source: "local", location: slot.localPath, manifestPath, digest };
     }
     if (isHttp(slot.url)) {
       return {
@@ -141,7 +141,7 @@ function describeSlot(
         source: "remote",
         location: slot.url,
         manifestUrl: manifestUrlFor(slot.url),
-        pin,
+        digest,
         note: `local path "${slot.localPath}" is absent; using the published bundle`,
       };
     }
@@ -159,7 +159,7 @@ function describeSlot(
       source: "remote",
       location: slot.url,
       manifestUrl: manifestUrlFor(slot.url),
-      pin,
+      digest,
     };
   }
   unresolved.push({ key, kind, reason: "no local workspace or remote target" });
@@ -378,7 +378,7 @@ function describeBackend(
         source?: string;
         remoteUrl?: string;
         remoteEntry?: string;
-        pin?: { manifest?: string };
+        digest?: { manifest?: string };
         integrity?: string;
         dependsOn?: string[];
       }
@@ -386,7 +386,7 @@ function describeBackend(
 ): BackendRecord | null {
   if (!slot) return null;
   const name = typeof slot.name === "string" ? slot.name : null;
-  const pin = slot.pin?.manifest;
+  const digest = slot.digest?.manifest;
   const dependsOn = slot.dependsOn;
   if (slot.localPath) {
     return {
@@ -397,7 +397,7 @@ function describeBackend(
       location: slot.localPath.startsWith(root)
         ? slot.localPath.slice(root.length + 1)
         : slot.localPath,
-      ...(pin ? { pin } : {}),
+      ...(digest ? { digest } : {}),
       ...(slot.integrity ? { integrity: slot.integrity } : {}),
       ...(dependsOn ? { dependsOn } : {}),
     };
@@ -414,7 +414,7 @@ function describeBackend(
       // module) — probing it 404s on every real host and, in strict mode,
       // fails types gen in every scaffolded child
       ...(kind !== "host" ? { pluginManifestUrl: pluginManifestUrlFor(remote) } : {}),
-      ...(pin ? { pin } : {}),
+      ...(digest ? { digest } : {}),
       ...(slot.integrity ? { integrity: slot.integrity } : {}),
       ...(dependsOn ? { dependsOn } : {}),
     };
@@ -449,7 +449,7 @@ export interface BackendRecord {
   source: "local" | "remote";
   /** Workspace-relative path (local) or URL (remote). */
   location: string;
-  pin?: string;
+  digest?: string;
   integrity?: string;
   dependsOn?: string[];
   /** Remote backends only: the composed plugin bundle's version + contract
@@ -517,7 +517,7 @@ interface GeneratedRuntimeMap {
     source: string;
     location: string;
     manifestUrl: string | null;
-    pin: string | null;
+    digest: string | null;
     note: string | null;
   }>;
   backends: BackendRecord[];
@@ -650,7 +650,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
           ? source.location.slice(configDir.length + 1)
           : source.location,
       manifestUrl: source.manifestUrl ?? null,
-      pin: source.pin ?? null,
+      digest: source.digest ?? null,
       note: source.note ?? null,
     })),
     backends,

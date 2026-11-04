@@ -7,7 +7,7 @@ import { readManifestTag, readVersionRecord } from "../../src/services/registry/
  * burned a version slot because these reads passed a FULL key into
  * `fetchRegistryKey` (which wraps with `apps/<account>/<gateway>/`), so
  * every pointer/slot read resolved
- * `apps/<a>/<g>/apps/<a>/<g>/platform.json` — a key that can never exist —
+ * `apps/<a>/<g>/apps/<a>/<g>/manifest.json` — a key that can never exist —
  * and returned null. The unit seam asserted outcomes, never URLs; these
  * tests pin the URLs.
  */
@@ -34,7 +34,7 @@ function stubRegistry(value: unknown): void {
 }
 
 describe("readManifestTag / readVersionRecord — the read wire keys", () => {
-  it("readManifestTag fetches apps/<account>/<gateway>/platform.json — prefixed exactly once", async () => {
+  it("readManifestTag fetches apps/<account>/<gateway>/manifest.json — prefixed exactly once", async () => {
     stubRegistry({ frameworkVersion: "2.0.0-rc.35" });
 
     const pointer = await readManifestTag<{ frameworkVersion: string }>(ACCOUNT, GATEWAY);
@@ -42,11 +42,11 @@ describe("readManifestTag / readVersionRecord — the read wire keys", () => {
     expect(pointer?.frameworkVersion).toBe("2.0.0-rc.35");
     expect(fetchedUrls).toEqual([
       "https://kv.main.fastnear.com/v0/latest/dev.everything.near/dev.everything.near/" +
-        `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fplatform.json`,
+        `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fmanifest.json`,
     ]);
   });
 
-  it("readVersionRecord fetches apps/<account>/<gateway>/platform-versions/<v>.json — prefixed exactly once", async () => {
+  it("readVersionRecord fetches apps/<account>/<gateway>/versions/<v>.json — prefixed exactly once", async () => {
     stubRegistry({ frameworkVersion: "2.0.0-rc.36" });
 
     const slot = await readVersionRecord<{ frameworkVersion: string }>(
@@ -58,17 +58,17 @@ describe("readManifestTag / readVersionRecord — the read wire keys", () => {
     expect(slot?.frameworkVersion).toBe("2.0.0-rc.36");
     expect(fetchedUrls).toEqual([
       "https://kv.main.fastnear.com/v0/latest/dev.everything.near/dev.everything.near/" +
-        `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fplatform-versions%2F2.0.0-rc.36.json`,
+        `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fversions%2F2.0.0-rc.36.json`,
     ]);
   });
 
-  it("an absent slot reads null through the same single-prefixed key", async () => {
+  it("an absent record reads null through the same single-prefixed key", async () => {
     stubRegistry(undefined);
 
     await expect(readVersionRecord(ACCOUNT, GATEWAY, "9.9.9")).resolves.toBeNull();
     expect(fetchedUrls).toEqual([
       "https://kv.main.fastnear.com/v0/latest/dev.everything.near/dev.everything.near/" +
-        `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fplatform-versions%2F9.9.9.json`,
+        `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fversions%2F9.9.9.json`,
     ]);
   });
 });

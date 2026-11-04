@@ -86,10 +86,10 @@ describe("composePlatformReleaseManifest", () => {
   });
 });
 
-describe("getPlatformManifestKey", () => {
-  it("names the well-known slot beside the published config", () => {
+describe("getManifestKey", () => {
+  it("names the well-known tag beside the published config", () => {
     expect(getManifestKey("dev.everything.near", "everything.dev")).toBe(
-      "apps/dev.everything.near/everything.dev/platform.json",
+      "apps/dev.everything.near/everything.dev/manifest.json",
     );
   });
 });

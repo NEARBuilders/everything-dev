@@ -72,7 +72,7 @@ function attachmentToEntry(attachment: AttachmentRef): Record<string, unknown> {
                   ? { development: attachment.ui.development }
                   : {}),
               ...(attachment.ui.integrity ? { integrity: attachment.ui.integrity } : {}),
-              ...(attachment.ui.pin ? { pin: attachment.ui.pin } : {}),
+              ...(attachment.ui.digest ? { digest: attachment.ui.digest } : {}),
             },
           }
         : {}),
@@ -350,7 +350,7 @@ function entryToAttachment(key: string, entry: Record<string, unknown>): Record<
       ...(typeof ui.name === "string" ? { name: ui.name } : {}),
       ...(uiPath !== undefined ? { path: uiPath } : {}),
       ...(ui.integrity !== undefined ? { integrity: ui.integrity } : {}),
-      ...(ui.pin !== undefined ? { pin: ui.pin } : {}),
+      ...(ui.digest !== undefined ? { digest: ui.digest } : {}),
     };
   }
   return out;

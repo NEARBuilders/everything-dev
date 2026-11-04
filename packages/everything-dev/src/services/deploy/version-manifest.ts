@@ -107,7 +107,7 @@ export interface ResolvedSlotVersion {
   source?: SourceRef;
 }
 
-export interface SlotPin {
+export interface RemoteDigest {
   /** versioned manifest filename, relative to the slot's production base */
   manifest: string;
   /** the manifest document's own SRI */
@@ -155,14 +155,14 @@ function slotVersionFromManifest(
  * absent from the staged namespace or the pinned manifest is present (the
  * normal healthy case, which keeps the pin's SRI check).
  */
-function readStagedSlotVersion(base: string, pin: SlotPin): ResolvedSlotVersion | null {
+function readStagedSlotVersion(base: string, digest: RemoteDigest): ResolvedSlotVersion | null {
   const bundleDir = process.env.BOS_BUNDLE_DIR;
   if (!bundleDir) return null;
 
   const slotDir = bundleUrlToStagedPath(base, bundleDir);
   if (!slotDir || !existsSync(slotDir)) return null;
 
-  const pinnedManifestPath = resolveContained(slotDir, pin.manifest);
+  const pinnedManifestPath = resolveContained(slotDir, digest.manifest);
   if (!pinnedManifestPath || existsSync(pinnedManifestPath)) return null;
 
   const versionsDir = path.join(slotDir, "versions");
@@ -188,25 +188,25 @@ function readStagedSlotVersion(base: string, pin: SlotPin): ResolvedSlotVersion 
 
 export async function resolveSlotVersion(input: {
   base: string;
-  pin: SlotPin;
+  digest: RemoteDigest;
   fetchImpl?: typeof fetch;
 }): Promise<ResolvedSlotVersion> {
-  const key = `${input.base}::${input.pin.manifest}::${input.pin.integrity}`;
+  const key = `${input.base}::${input.digest.manifest}::${input.digest.integrity}`;
   // content-addressed: a verified pin is cached for the process lifetime and
   // never refetched — the cache IS the last-known-good
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const staged = readStagedSlotVersion(input.base, input.pin);
+  const staged = readStagedSlotVersion(input.base, input.digest);
   if (staged) {
     cache.set(key, staged);
     return staged;
   }
 
-  const manifestUrl = manifestDocumentUrl(input.base, input.pin.manifest);
+  const manifestUrl = manifestDocumentUrl(input.base, input.digest.manifest);
   const verified = await fetchVerifiedManifest({
     base: input.base,
-    pin: input.pin,
+    digest: input.digest,
     fetchImpl: input.fetchImpl,
   });
   if (!verified.ok) {

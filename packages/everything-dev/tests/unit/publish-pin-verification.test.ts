@@ -67,7 +67,7 @@ const bosConfig = {
     host: {
       development: "local:host",
       production: "https://host.example",
-      pin: { manifest: "versions/aaaaaaaaaaaaaaaa.json", integrity: "sha384-host" },
+      digest: { manifest: "versions/aaaaaaaaaaaaaaaa.json", integrity: "sha384-host" },
     },
     ui: { development: "local:ui", production: "https://ui.example" },
     api: { development: "local:api", production: "https://api.example" },

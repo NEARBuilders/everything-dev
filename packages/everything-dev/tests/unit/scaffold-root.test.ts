@@ -41,6 +41,13 @@ describe("scaffold root invariant", () => {
       ref: runtimeRefOf({ accountId: parsed.accountId, gatewayId: parsed.gatewayId }),
     });
     expect(manifestKey).toBe("apps/dev.everything.near/everything.dev/manifest.json");
+
+    const versionKey = keyPathOf({
+      kind: "version",
+      ref: runtimeRefOf({ accountId: parsed.accountId, gatewayId: parsed.gatewayId }),
+      version: "2.0.0-rc.37",
+    });
+    expect(versionKey).toBe("apps/dev.everything.near/everything.dev/versions/2.0.0-rc.37.json");
   });
 
   it("the dead-end form is a different runtime — the diagnostic keys name it", () => {

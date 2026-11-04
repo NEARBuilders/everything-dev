@@ -2,8 +2,8 @@ import {
   type IntegrityCheckResult,
   type TenantConfigDraft,
   verifySsrIntegrity,
+  verifyUiDigest,
   verifyUiIntegrity,
-  verifyUiPin,
 } from "@/app";
 
 export type IntegrityPreflight =
@@ -13,12 +13,12 @@ export type IntegrityPreflight =
 
 export async function runIntegrityPreflight(value: TenantConfigDraft): Promise<IntegrityPreflight> {
   const checks: { label: string; check: IntegrityCheckResult }[] = [];
-  if (value.uiProduction && value.uiManifest && value.uiPinIntegrity) {
+  if (value.uiProduction && value.uiManifest && value.uiDigestIntegrity) {
     checks.push({
       label: "UI pin",
-      check: await verifyUiPin(value.uiProduction, {
+      check: await verifyUiDigest(value.uiProduction, {
         manifest: value.uiManifest,
-        integrity: value.uiPinIntegrity,
+        integrity: value.uiDigestIntegrity,
       }),
     });
   } else if (value.uiProduction && value.uiIntegrity) {

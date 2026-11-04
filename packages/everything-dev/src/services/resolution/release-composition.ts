@@ -19,7 +19,7 @@ import { isPlainObject } from "./merge";
  */
 
 /** Keys that name where a slot's code comes from — owning the slot's bytes. */
-const SLOT_SOURCE_KEYS = ["production", "development", "pin", "extends", "proxy"] as const;
+const SLOT_SOURCE_KEYS = ["production", "development", "digest", "extends", "proxy"] as const;
 
 /**
  * A slot is authored when its entry names a code source (or opts out with
@@ -68,20 +68,20 @@ export interface StampOutcome {
  * pinned plane cannot claim, so it is omitted and reported for the dev
  * audit instead of being silently live-followed (the skew bug class).
  */
-export type ReleasePlaneMode = "payload" | "consumer";
+export type CompositionMode = "payload" | "consumer";
 
 export function stampInheritedRemotes(input: {
   config: Record<string, unknown>;
   authoredConfig: Record<string, unknown>;
-  slots: Record<string, RemoteRecord> | undefined;
-  mode: ReleasePlaneMode;
+  remotes: Record<string, RemoteRecord> | undefined;
+  mode: CompositionMode;
 }): StampOutcome {
-  const slots = input.slots ?? {};
+  const remotes = input.remotes ?? {};
   const authored = authoredRemoteKeys(input.authoredConfig);
   const stamped: string[] = [];
   const omitted: string[] = [];
 
-  for (const [slotPath, record] of Object.entries(slots)) {
+  for (const [slotPath, record] of Object.entries(remotes)) {
     const isAppSlot = /^app\.[^.]+(\.ui)?$/.test(slotPath);
     if (input.mode === "payload" && !isAppSlot) continue;
     if (authored.has(slotPath)) continue;
@@ -116,7 +116,7 @@ function slotEntryAt(
   return isPlainObject(entry) ? entry : undefined;
 }
 
-/** Write `{ production, pin }` for one dotted slot path (2–3 segments),
+/** Write `{ production, digest }` for one dotted remote path (2–3 segments),
  * merging into an existing entry rather than replacing it. */
 function stampSlotRecord(
   config: Record<string, unknown>,
@@ -131,7 +131,7 @@ function stampSlotRecord(
   const existing = container[leaf];
   const entry: Record<string, unknown> = isPlainObject(existing) ? { ...existing } : {};
   entry.production = record.base;
-  entry.pin = { manifest: record.pin.manifest, integrity: record.pin.integrity };
+  entry.digest = { manifest: record.digest.manifest, integrity: record.digest.integrity };
   container[leaf] = entry;
 }
 
@@ -185,7 +185,7 @@ function ownedRemoteRepair(slot: string): string {
  *   the merged shape).
  */
 export async function auditReleaseComposition(input: {
-  slots: Array<{ slot: string; base: string; pin: { manifest: string; integrity: string } }>;
+  remotes: Array<{ slot: string; base: string; digest: { manifest: string; integrity: string } }>;
   authoredPaths: Set<string>;
   /** The installed version this runtime composes for one singleton name —
    * the probe the boot guard consults too (catalog for framework names,
@@ -204,7 +204,7 @@ export async function auditReleaseComposition(input: {
   const strictness = new Map(SHARED_DEP_SPECS.map((spec) => [spec.name, spec.critical]));
   const manifestRemotePaths = new Set(input.manifestRemotePaths ?? []);
 
-  for (const { slot, base, pin } of input.slots) {
+  for (const { slot, base, digest } of input.remotes) {
     const kind = input.authoredPaths.has(slot) ? "owned" : "inherited";
     const repair =
       kind === "owned"
@@ -213,7 +213,7 @@ export async function auditReleaseComposition(input: {
     try {
       const resolved = await resolveSlotVersion({
         base,
-        pin,
+        digest,
         ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
       });
       for (const [name, version] of Object.entries(resolved.sharedVersions ?? {})) {
@@ -245,7 +245,7 @@ export async function auditReleaseComposition(input: {
   // upstream after the pin — they compose live, unpinned bytes, so the repair
   // is a real re-pin. Inherited only (authored slots are the leaf's own
   // decision, and pinned ones are already claimed by the manifest).
-  const pinnedRemotes = new Set(input.slots.map((ref) => ref.slot));
+  const pinnedRemotes = new Set(input.remotes.map((ref) => ref.slot));
   for (const slot of input.configRemotePaths ?? []) {
     if (
       !manifestRemotePaths.has(slot) &&
@@ -256,7 +256,7 @@ export async function auditReleaseComposition(input: {
         remote: slot,
         kind: "provisioned",
         message:
-          `remote "" is served by the extends chain but missing from the ` +
+          `remote "${slot}" is served by the extends chain but missing from the ` +
           `${input.pinnedReleaseVersion ?? "pinned"} release composition — it composes live, unpinned bytes; ` +
           `run bos upgrade to re-pin and claim it`,
       });
@@ -268,7 +268,7 @@ export async function auditReleaseComposition(input: {
       remote: slot,
       kind: "uncomposed",
       message:
-        `remote "" is recorded in the ${input.pinnedReleaseVersion ?? "pinned"} release ` +
+        `remote "${slot}" is recorded in the ${input.pinnedReleaseVersion ?? "pinned"} release ` +
         `but not composed by this config — declare it in your config's app/plugins domain to compose it`,
     });
   }

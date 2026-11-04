@@ -187,7 +187,7 @@ function extractIntegrityHashes(config: Record<string, unknown>): Map<string, st
 function slotHashOf(entry: Record<string, unknown>): { key: string; hash: string } | null {
   const production = entry.production;
   if (typeof production !== "string") return null;
-  const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+  const pin = entry.digest as { manifest?: unknown; integrity?: unknown } | undefined;
   if (pin && typeof pin.manifest === "string" && typeof pin.integrity === "string") {
     return {
       key: `${production.replace(/\/$/, "")}/${pin.manifest.replace(/^\//, "")}`,

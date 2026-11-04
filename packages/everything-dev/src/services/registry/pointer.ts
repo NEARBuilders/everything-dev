@@ -16,14 +16,14 @@ import { fetchRegistryKey } from "./fastkv";
  * the history endpoint's `keyPath` parameter takes. The full-key helpers
  * below are derived from these — one derivation per wire key, so ticket 10's
  * cutover flips this file and nothing else. */
-export const PLATFORM_POINTER_REL_KEY = "platform.json";
+export const MANIFEST_TAG_REL_KEY = "manifest.json";
 
 export function getVersionRelKey(version: string): string {
-  return `platform-versions/${version}.json`;
+  return `versions/${version}.json`;
 }
 
 export function getManifestKey(accountId: string, gatewayId: string): string {
-  return `apps/${accountId}/${gatewayId}/${PLATFORM_POINTER_REL_KEY}`;
+  return `apps/${accountId}/${gatewayId}/${MANIFEST_TAG_REL_KEY}`;
 }
 
 export function getVersionKey(accountId: string, gatewayId: string, version: string): string {
@@ -37,7 +37,7 @@ export function deployAuditKeyOf(
   gatewayId: string,
   publishedAt: string,
 ): string {
-  return `apps/${accountId}/${gatewayId}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
+  return `apps/${accountId}/${gatewayId}/deploys/${publishedAt.replace(/[:.]/g, "-")}.json`;
 }
 
 /** The release classifier's pointer read: absent (null) means no release has
@@ -50,7 +50,7 @@ export function readManifestTag<T>(
   gatewayId: string,
   registry?: string,
 ): Promise<T | null> {
-  return fetchRegistryKey<T>(accountId, gatewayId, PLATFORM_POINTER_REL_KEY, registry);
+  return fetchRegistryKey<T>(accountId, gatewayId, MANIFEST_TAG_REL_KEY, registry);
 }
 
 /** The release leg's immutability check: the version slot must either be

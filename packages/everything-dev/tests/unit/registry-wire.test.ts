@@ -8,7 +8,7 @@ import {
 /** The real-transport contract: the default seams reach FastKV through
  * `fetchRegistryKey`, which owns the `apps/<account>/<gateway>/` prefix.
  * A seam that passes a full key double-prefixes the URL and reads absent
- * forever — every pinned resolution fails "no version slot" while the
+ * forever — every pinned resolution fails "no version record" while the
  * record sits published (the stranded-pin incident). These legs stub fetch
  * and pin the exact wire. */
 
@@ -52,8 +52,8 @@ describe("the default seams' FastKV wire (transport-contract regression)", () =>
   it("the version-record read targets the single-prefixed key — never double-prefixed", async () => {
     const manifest = makeManifest("2.0.0-rc.36");
     const { urls } = stubFastKv({
-      "apps/root.near/root/platform.json": manifest,
-      "apps/root.near/root/platform-versions/2.0.0-rc.36.json": manifest,
+      "apps/root.near/root/manifest.json": manifest,
+      "apps/root.near/root/versions/2.0.0-rc.36.json": manifest,
     });
 
     const resolved = await resolvePlatformManifest({
@@ -63,10 +63,10 @@ describe("the default seams' FastKV wire (transport-contract regression)", () =>
 
     expect(resolved).not.toBeNull();
     expect(resolved!.manifest.frameworkVersion).toBe("2.0.0-rc.36");
-    const recordUrls = urls.filter((url) => url.includes("platform-versions"));
+    const recordUrls = urls.filter((url) => url.includes("versions"));
     expect(recordUrls.length).toBeGreaterThan(0);
     for (const url of recordUrls) {
-      expect(url).toContain("apps%2Froot.near%2Froot%2Fplatform-versions%2F2.0.0-rc.36.json");
+      expect(url).toContain("apps%2Froot.near%2Froot%2Fversions%2F2.0.0-rc.36.json");
       expect(url).not.toContain("apps%2Froot.near%2Froot%2Fapps%2F");
     }
   });
@@ -74,7 +74,7 @@ describe("the default seams' FastKV wire (transport-contract regression)", () =>
   it("an absent record still surfaces as the pin-not-found failure — through the real transport", async () => {
     const manifest = makeManifest("2.0.0-rc.36");
     stubFastKv({
-      "apps/root.near/root/platform.json": manifest,
+      "apps/root.near/root/manifest.json": manifest,
     });
 
     await expect(

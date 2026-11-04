@@ -6,7 +6,9 @@ import {
   composePlatformReleaseManifest,
   type Manifest,
   resolvePlatformManifest,
+  serializePlatformReleaseManifest,
 } from "../../src/services/platform/manifest";
+import { manifestTagOf } from "../../src/services/platform/manifest-schema";
 
 let tmpRoot: string;
 
@@ -25,15 +27,20 @@ function makeManifest(frameworkVersion: string): Manifest {
   });
 }
 
+function makeTag(manifest: Manifest) {
+  return manifestTagOf(manifest, serializePlatformReleaseManifest(manifest));
+}
+
 function harness(opts: {
   chain: Array<{
     account: string;
     gateway: string;
+    /** the manifest the node's thin tag points at (the moving home) */
     manifest?: Manifest;
     config?: Record<string, unknown>;
-    /** immutable version slots (#574): pin version → manifest */
-    slots?: Record<string, Manifest>;
-    /** simulate an unreachable registry for the slot reads (offline dev) */
+    /** immutable version records (#574): release version → manifest */
+    records?: Record<string, Manifest>;
+    /** simulate an unreachable registry for the record reads (offline dev) */
     failSlotReads?: boolean;
   }>;
   cached?: {
@@ -47,13 +54,20 @@ function harness(opts: {
   now?: () => number;
 }) {
   const writes: Array<unknown> = [];
-  const fetchManifest = async (account: string, gateway: string) =>
-    opts.chain.find((n) => n.account === account && n.gateway === gateway)?.manifest ?? null;
+  const fetchTag = async (account: string, gateway: string) => {
+    const manifest = opts.chain.find(
+      (n) => n.account === account && n.gateway === gateway,
+    )?.manifest;
+    return manifest ? makeTag(manifest) : null;
+  };
   const fetchSlot = async (account: string, gateway: string, version: string) => {
     const node = opts.chain.find((n) => n.account === account && n.gateway === gateway);
     if (!node) return null;
     if (node.failSlotReads) throw new Error("registry unreachable");
-    return node.slots?.[version] ?? null;
+    if (node.records?.[version]) return node.records[version];
+    // a node's tag manifest doubles as its own version record
+    if (node.manifest && node.manifest.frameworkVersion === version) return node.manifest;
+    return null;
   };
   const fetchParent = async (account: string, gateway: string) =>
     opts.chain.find((n) => n.account === account && n.gateway === gateway)?.config ?? null;
@@ -64,7 +78,7 @@ function harness(opts: {
       return resolvePlatformManifest({
         configDir: tmpRoot,
         localConfig,
-        fetchManifest,
+        fetchTag,
         fetchSlot,
         fetchParent,
         ...(opts.now ? { now: opts.now } : {}),
@@ -98,7 +112,7 @@ describe("resolvePlatformManifest", () => {
     expect(resolved?.fromCache).toBe(false);
   });
 
-  it("an exact pin resolves from the immutable version slot and caches", async () => {
+  it("an exact pin resolves from the immutable version record and caches", async () => {
     const h = harness({
       chain: [
         {
@@ -106,7 +120,7 @@ describe("resolvePlatformManifest", () => {
           gateway: "root",
           manifest: makeManifest("2.0.0-rc.14"),
           config: { extends: "bos://mid.near/mid" },
-          slots: { "2.1.0": makeManifest("2.1.0") },
+          records: { "2.1.0": makeManifest("2.1.0") },
         },
         { account: "mid.near", gateway: "mid", manifest: makeManifest("2.1.0") },
       ],
@@ -127,7 +141,7 @@ describe("resolvePlatformManifest", () => {
           account: "root.near",
           gateway: "root",
           manifest: makeManifest("2.0.0-rc.15"),
-          slots: { "2.0.0-rc.14": makeManifest("2.0.0-rc.14") },
+          records: { "2.0.0-rc.14": makeManifest("2.0.0-rc.14") },
         },
       ],
     });
@@ -155,7 +169,7 @@ describe("resolvePlatformManifest", () => {
     );
   });
 
-  it("a slot read failure without a matching cache fails loud naming the slot key", async () => {
+  it("a record read failure without a matching cache fails loud naming the record key", async () => {
     const h = harness({
       chain: [
         {
@@ -167,12 +181,12 @@ describe("resolvePlatformManifest", () => {
       ],
     });
     await expect(h.run({ ...childConfig, release: "2.0.0-rc.14" })).rejects.toThrow(
-      /platform-versions\/2\.0\.0-rc\.14\.json/,
+      /versions\/2\.0\.0-rc\.14\.json/,
     );
   });
 
-  it("a clean slot miss does not fall back to the cache — the actionable error names the release", async () => {
-    // the slot's absence is authoritative (the release's manifest leg never
+  it("a clean record miss does not fall back to the cache — the actionable error names the release", async () => {
+    // the record's absence is authoritative (the release's manifest leg never
     // published, #568) — a matching cache must not paper over it
     const h = harness({
       chain: [
@@ -197,7 +211,7 @@ describe("resolvePlatformManifest", () => {
     expect(await h.run(childConfig)).toBeNull();
   });
 
-  it("offline (slot reads fail) with a cache matching the pin → the cached manifest (fromCache)", async () => {
+  it("offline (record reads fail) with a cache matching the pin → the cached manifest (fromCache)", async () => {
     const cachedManifest = makeManifest("2.0.0-rc.14");
     const h = harness({
       chain: [

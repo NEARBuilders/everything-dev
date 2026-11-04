@@ -261,7 +261,7 @@ describe("isConfigAlreadyPublished", () => {
   });
 });
 
-describe("confirmPublish — the platformPointer leg (the pre-cutover release flip)", () => {
+describe("confirmPublish — the manifest-tag leg (the release thin-tag flip)", () => {
   beforeEach(() => {
     delete process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS;
     delete process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS;
@@ -272,29 +272,32 @@ describe("confirmPublish — the platformPointer leg (the pre-cutover release fl
     delete process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS;
   });
 
-  const POINTER_WIRE_KEY = "apps/dev.everything.near/everything.dev/platform.json";
-  const manifest = { frameworkVersion: "2.0.0-rc.36", everyPluginVersion: "3.0.0-rc.15" };
+  const MANIFEST_KEY = {
+    kind: "manifest" as const,
+    ref: "bos://dev.everything.near/everything.dev",
+  };
+  const tag = { schemaVersion: 1, version: "2.0.0-rc.36", digest: "aaa" };
 
   const legs = (): ConfirmLeg[] => [
     { kind: "runtimeConfig", key: CONFIG_KEY, expected: { domain: "everything.dev" } },
     {
-      kind: "platformPointer",
-      wireKey: POINTER_WIRE_KEY,
-      expected: manifest,
+      kind: "manifest",
+      key: MANIFEST_KEY,
+      expected: tag,
       read: async () => null,
     },
   ];
 
-  it("verifies the pointer leg through its injected pre-cutover read", async () => {
+  it("verifies the manifest leg through its injected pointer read", async () => {
     const clock = fakeClock();
     const verdict = await confirmPublish({
       legs: [
         { kind: "runtimeConfig", key: CONFIG_KEY, expected: { domain: "everything.dev" } },
         {
-          kind: "platformPointer",
-          wireKey: POINTER_WIRE_KEY,
-          expected: manifest,
-          read: async () => manifest,
+          kind: "manifest",
+          key: MANIFEST_KEY,
+          expected: tag,
+          read: async () => tag,
         },
       ],
       timeoutMs: 10_000,
@@ -308,23 +311,23 @@ describe("confirmPublish — the platformPointer leg (the pre-cutover release fl
         clock.tick(ms);
       },
     });
-    expect(verdict).toEqual({ ok: true, verified: ["runtimeConfig", "platformPointer"] });
+    expect(verdict).toEqual({ ok: true, verified: ["runtimeConfig", "manifest"] });
   });
 
-  it("a lagging pointer flip retries until the index serves it — then verifies", async () => {
+  it("a lagging tag flip retries until the index serves it — then verifies", async () => {
     const clock = fakeClock();
-    let pointerReads = 0;
+    let tagReads = 0;
     const verdict = await confirmPublish({
       legs: [
         { kind: "runtimeConfig", key: CONFIG_KEY, expected: { domain: "everything.dev" } },
         {
-          kind: "platformPointer",
-          wireKey: POINTER_WIRE_KEY,
-          expected: manifest,
+          kind: "manifest",
+          key: MANIFEST_KEY,
+          expected: tag,
           // the index lags the write: two absent probes, then the flip
           read: async () => {
-            pointerReads += 1;
-            return pointerReads < 3 ? null : manifest;
+            tagReads += 1;
+            return tagReads < 3 ? null : tag;
           },
         },
       ],
@@ -339,19 +342,19 @@ describe("confirmPublish — the platformPointer leg (the pre-cutover release fl
         clock.tick(ms);
       },
     });
-    expect(verdict).toEqual({ ok: true, verified: ["runtimeConfig", "platformPointer"] });
-    expect(pointerReads).toBe(3);
+    expect(verdict).toEqual({ ok: true, verified: ["runtimeConfig", "manifest"] });
+    expect(tagReads).toBe(3);
   });
 
-  it("a pointer-leg timeout names the wire key, not a key-model path", async () => {
+  it("a manifest-leg timeout names the key-model path", async () => {
     const clock = fakeClock();
     const verdict = await confirmPublish({
       legs: [
         { kind: "runtimeConfig", key: CONFIG_KEY, expected: { domain: "everything.dev" } },
         {
-          kind: "platformPointer",
-          wireKey: POINTER_WIRE_KEY,
-          expected: manifest,
+          kind: "manifest",
+          key: MANIFEST_KEY,
+          expected: tag,
           read: async () => null,
         },
       ],
@@ -368,7 +371,7 @@ describe("confirmPublish — the platformPointer leg (the pre-cutover release fl
     });
     expect(verdict.ok).toBe(false);
     const message = describeConfirmTimeout(legs(), verdict);
-    expect(message).toContain(POINTER_WIRE_KEY);
+    expect(message).toContain("apps/dev.everything.near/everything.dev/manifest.json");
     expect(message).not.toContain("bos.config.json");
   });
 });

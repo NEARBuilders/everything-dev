@@ -9,7 +9,7 @@ import { pinFor, versionManifestFetcher, versionManifestText } from "../helpers/
 
 const record = (base: string, version = "1") => ({
   base,
-  pin: {
+  digest: {
     manifest: `https://cdn.test/${base}/mf-manifest.json`,
     integrity: `sha384-${base}-${version}`,
   },
@@ -18,7 +18,7 @@ const record = (base: string, version = "1") => ({
 const consumerShape = (merged: Record<string, unknown>) => merged;
 
 describe("release-composition stamping", () => {
-  const slots = {
+  const remotes = {
     "app.auth": record("https://auth.test/slot"),
     "app.auth.ui": record("https://auth.test/ui"),
     "plugins.ai": record("https://ai.test/slot"),
@@ -39,7 +39,7 @@ describe("release-composition stamping", () => {
       host: { production: "https://live.test/host" },
       ui: {
         production: "https://elsewhere-live.test/ui",
-        pin: { manifest: "old", integrity: "old" },
+        digest: { manifest: "old", integrity: "old" },
       },
       auth: {
         production: "https://live-parent.test/auth",
@@ -57,7 +57,7 @@ describe("release-composition stamping", () => {
     const outcome = stampInheritedRemotes({
       config,
       authoredConfig: structuredClone(authored),
-      slots,
+      remotes,
       mode: "consumer",
     });
 
@@ -65,14 +65,14 @@ describe("release-composition stamping", () => {
     expect(outcome.omitted).toEqual(["plugins.newcomer"]);
     const config1 = config as typeof merged;
     expect(config1.app.auth.production).toBe("https://auth.test/slot");
-    expect(config1.app.auth.pin.integrity).toBe("sha384-https://auth.test/slot-1");
+    expect(config1.app.auth.digest.integrity).toBe("sha384-https://auth.test/slot-1");
     expect(config1.app.auth.ui.production).toBe("https://auth.test/ui");
     expect(config1.app.auth.variables).toEqual({ ka: "kept" });
     expect(config1.plugins.ai.production).toBe("https://ai.test/slot");
     expect("newcomer" in config1.plugins).toBe(false);
   });
 
-  it("keeps child-authored slots untouched (configuring is not authoring; authoring wins)", () => {
+  it("keeps child-authored remotes untouched (configuring is not authoring; authoring wins)", () => {
     const authoredConfig = {
       ...authored,
       app: {
@@ -84,7 +84,7 @@ describe("release-composition stamping", () => {
     const outcome = stampInheritedRemotes({
       config,
       authoredConfig,
-      slots,
+      remotes,
       mode: "consumer",
     });
     expect(outcome.stamped).not.toContain("app.auth");
@@ -92,12 +92,12 @@ describe("release-composition stamping", () => {
     expect(config1.app.auth.production).toBe("https://live-parent.test/auth");
   });
 
-  it("omits post-release provisioned slots instead of live-following them", () => {
+  it("omits post-release provisioned remotes instead of live-following them", () => {
     const config = structuredClone(consumerShape(merged));
     const outcome = stampInheritedRemotes({
       config,
       authoredConfig: structuredClone(authored),
-      slots,
+      remotes,
       mode: "consumer",
     });
     expect(outcome.omitted).toEqual(["plugins.newcomer"]);
@@ -110,7 +110,7 @@ describe("release-composition stamping", () => {
     const outcome = stampInheritedRemotes({
       config,
       authoredConfig: structuredClone(authored),
-      slots,
+      remotes,
       mode: "payload",
     });
     expect(outcome.stamped).toEqual(["app.auth", "app.auth.ui"]);
@@ -119,12 +119,12 @@ describe("release-composition stamping", () => {
     expect("newcomer" in config1.plugins).toBe(false);
   });
 
-  it("a manifest without slots stamps nothing — pre-slot releases degrade to live-follow", () => {
+  it("a manifest without remotes stamps nothing — pre-remotes releases degrade to live-follow", () => {
     const config = structuredClone(consumerShape(merged));
     const outcome = stampInheritedRemotes({
       config,
       authoredConfig: structuredClone(authored),
-      slots: undefined,
+      remotes: undefined,
       mode: "consumer",
     });
     expect(outcome.stamped).toEqual([]);
@@ -145,12 +145,15 @@ describe("release-composition stamping", () => {
 });
 
 describe("auditReleaseComposition — the dev chain audit", () => {
-  const pin = pinFor("mf-manifest.json", { "every-plugin": "3.0.0-rc.15", effect: "4.0.0-rc.118" });
+  const digest = pinFor("mf-manifest.json", {
+    "every-plugin": "3.0.0-rc.15",
+    effect: "4.0.0-rc.118",
+  });
   const slotInputs = [
     {
       slot: "plugins.auth",
       base: "https://auth-rc28.test",
-      pin,
+      digest,
     },
   ];
   const fetch = versionManifestFetcher({
@@ -162,7 +165,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
 
   it("coherent strict singletons say nothing", async () => {
     const lines = await auditReleaseComposition({
-      slots: slotInputs,
+      remotes: slotInputs,
       authoredPaths: new Set(),
       localVersionOf: (name) => (name === "every-plugin" ? "3.0.0-rc.15" : "4.0.0-rc.118"),
       fetchImpl: fetch,
@@ -172,7 +175,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
 
   it("an inherited slot lagging the exact strict singleton names bos upgrade", async () => {
     const lines = await auditReleaseComposition({
-      slots: slotInputs,
+      remotes: slotInputs,
       authoredPaths: new Set(),
       localVersionOf: (name) => (name === "every-plugin" ? "3.0.0-rc.14" : "4.0.0-rc.118"),
       fetchImpl: fetch,
@@ -185,11 +188,11 @@ describe("auditReleaseComposition — the dev chain audit", () => {
 
   it("an owned slot ahead of the runtime names bos plugin publish", async () => {
     const lines = await auditReleaseComposition({
-      slots: [
+      remotes: [
         {
           slot: "plugins.nostr",
           base: "https://nostr-rc28.test",
-          pin: pinFor("mf-manifest.json", { "every-plugin": "3.0.0-rc.15" }),
+          digest: pinFor("mf-manifest.json", { "every-plugin": "3.0.0-rc.15" }),
         },
       ],
       authoredPaths: new Set(["plugins.nostr"]),
@@ -206,11 +209,11 @@ describe("auditReleaseComposition — the dev chain audit", () => {
 
   it("an owned app slot names the scoped deploy train, not plugin publish", async () => {
     const lines = await auditReleaseComposition({
-      slots: [
+      remotes: [
         {
           slot: "app.ui",
           base: "https://ui-rc28.test",
-          pin: pinFor("mf-manifest.json", { react: "19.3.1" }),
+          digest: pinFor("mf-manifest.json", { react: "19.3.1" }),
         },
       ],
       authoredPaths: new Set(["app.ui"]),
@@ -223,10 +226,14 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     expect(lines[0]!.message).toContain("run bos deploy --packages ui");
   });
 
-  it("an unservable pin reports on its slot", async () => {
+  it("an unservable digest reports on its remote", async () => {
     const lines = await auditReleaseComposition({
-      slots: [
-        { slot: "plugins.ghost", base: "https://ghost.test", pin: pinFor("mf-manifest.json", {}) },
+      remotes: [
+        {
+          slot: "plugins.ghost",
+          base: "https://ghost.test",
+          digest: pinFor("mf-manifest.json", {}),
+        },
       ],
       authoredPaths: new Set(),
       localVersionOf: () => undefined,
@@ -246,22 +253,22 @@ describe("auditReleaseComposition — the dev chain audit", () => {
       {
         slot: "app.ui",
         base: "https://ui.test",
-        pin: pinFor("mf-manifest.json", { react: "19.3.1" }),
+        digest: pinFor("mf-manifest.json", { react: "19.3.1" }),
       },
       {
         slot: "app.api",
         base: "https://api.test",
-        pin: pinFor("mf-manifest.json", { "@orpc/client": "2.0.0-beta.45" }),
+        digest: pinFor("mf-manifest.json", { "@orpc/client": "2.0.0-beta.45" }),
       },
       {
         slot: "app.auth",
         base: "https://auth.test",
-        pin: pinFor("mf-manifest.json", { "@orpc/client": "2.0.0-beta.45" }),
+        digest: pinFor("mf-manifest.json", { "@orpc/client": "2.0.0-beta.45" }),
       },
       {
         slot: "app.auth.ui",
         base: "https://auth-ui.test",
-        pin: pinFor("mf-manifest.json", { react: "19.3.1" }),
+        digest: pinFor("mf-manifest.json", { react: "19.3.1" }),
       },
     ];
     const fetchImpl = versionManifestFetcher({
@@ -275,7 +282,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
       "https://auth-ui.test/mf-manifest.json": versionManifestText({ react: "19.3.1" }),
     });
     const lines = await auditReleaseComposition({
-      slots: slotInputs,
+      remotes: slotInputs,
       authoredPaths: new Set([
         "app.ui",
         "app.api",
@@ -327,7 +334,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
 
   it("a manifest slot the merged config does not compose is an uncomposed note, not an upgrade", async () => {
     const lines = await auditReleaseComposition({
-      slots: [],
+      remotes: [],
       authoredPaths: new Set(),
       localVersionOf: () => undefined,
       provisionedRemotes: ["plugins.warden"],
@@ -343,7 +350,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
 
   it("a config slot the pinned manifest lacks is genuinely provisioned — upgrade claims it", async () => {
     const lines = await auditReleaseComposition({
-      slots: [],
+      remotes: [],
       authoredPaths: new Set(),
       localVersionOf: () => undefined,
       provisionedRemotes: [],
@@ -360,7 +367,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
 
   it("an authored slot absent from the manifest is the leaf's own decision — no line", async () => {
     const lines = await auditReleaseComposition({
-      slots: [],
+      remotes: [],
       authoredPaths: new Set(["plugins.warden"]),
       localVersionOf: () => undefined,
       provisionedRemotes: [],

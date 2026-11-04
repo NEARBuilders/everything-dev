@@ -19,7 +19,7 @@ const remoteSlot = (over: Partial<RemoteEntry> = {}): RemoteEntry => ({
 describe("entryUrls — pinned remote slot", () => {
   it("production: pin-derived hashed entries win on both surfaces, no busters", () => {
     expect(entryUrls(remoteSlot(), "production")).toEqual({
-      web: `${APPS}/remoteEntry.aaa.js`,
+      ui: `${APPS}/remoteEntry.aaa.js`,
       ssr: `${APPS_SSR}/remoteEntry.server.aaa.js`,
       browserManifest: `${APPS}/mf-manifest.bbb.json`,
     });
@@ -27,24 +27,24 @@ describe("entryUrls — pinned remote slot", () => {
 
   it("development: the pin-derived entry still wins over the fixed dev name", () => {
     const urls = entryUrls(remoteSlot(), "development");
-    expect(urls.web).toBe(`${APPS}/remoteEntry.aaa.js`);
+    expect(urls.ui).toBe(`${APPS}/remoteEntry.aaa.js`);
     expect(urls.ssr).toBe(`${APPS_SSR}/remoteEntry.server.aaa.js`);
   });
 
   it("hashed URLs never grow a buster, even with integrity present", () => {
     const urls = entryUrls(remoteSlot(), "development");
-    expect(urls.web).not.toContain("?");
+    expect(urls.ui).not.toContain("?");
     expect(urls.ssr).not.toContain("?");
   });
 });
 
 describe("entryUrls — dev fixed names (no pin derivation in development)", () => {
-  it("web buster comes from integrity; server buster from ssrIntegrity", () => {
+  it("the ui buster comes from integrity; server buster from ssrIntegrity", () => {
     const urls = entryUrls(
       remoteSlot({ entryUrl: undefined, ssrEntryUrl: undefined }),
       "development",
     );
-    expect(urls.web).toBe(`${APPS}/remoteEntry.js?v=sha384-entry`);
+    expect(urls.ui).toBe(`${APPS}/remoteEntry.js?v=sha384-entry`);
     expect(urls.ssr).toBe(`${APPS_SSR}/remoteEntry.server.js?v=sha384-ssr`);
   });
 
@@ -58,7 +58,7 @@ describe("entryUrls — dev fixed names (no pin derivation in development)", () 
       }),
       "development",
     );
-    expect(urls.web).toBe(`${APPS}/remoteEntry.js`);
+    expect(urls.ui).toBe(`${APPS}/remoteEntry.js`);
     expect(urls.ssr).toBe(`${APPS_SSR}/remoteEntry.server.js`);
   });
 
@@ -99,9 +99,9 @@ describe("entryUrls — local slot (atomic-deploys 08)", () => {
     ...over,
   });
 
-  it("dev fixed web entry from the dev server base, SSR container from the loopback base", () => {
+  it("dev fixed ui entry from the dev server base, SSR container from the loopback base", () => {
     const urls = entryUrls(localSlot(), "development");
-    expect(urls.web).toBe("http://localhost:4111/remoteEntry.js");
+    expect(urls.ui).toBe("http://localhost:4111/remoteEntry.js");
     expect(urls.ssr).toBe("http://127.0.0.1:4112/ssr/remoteEntry.server.js?v=1727987612345");
   });
 
@@ -119,12 +119,12 @@ describe("entryUrls — local slot (atomic-deploys 08)", () => {
 });
 
 describe("entryUrls — base selection (publicUrl ?? url, ADR 0011)", () => {
-  it("dev fixed web entry rides the publicUrl base, trailing slash trimmed", () => {
+  it("dev fixed ui entry rides the publicUrl base, trailing slash trimmed", () => {
     const urls = entryUrls(
       remoteSlot({ entryUrl: undefined, publicUrl: "https://bundles.example.com/apps/" }),
       "development",
     );
-    expect(urls.web).toBe("https://bundles.example.com/apps/remoteEntry.js?v=sha384-entry");
+    expect(urls.ui).toBe("https://bundles.example.com/apps/remoteEntry.js?v=sha384-entry");
   });
 
   it("a pin-derived entryUrl ignores the base entirely", () => {
@@ -132,7 +132,7 @@ describe("entryUrls — base selection (publicUrl ?? url, ADR 0011)", () => {
       remoteSlot({ publicUrl: "https://bundles.example.com/apps/" }),
       "production",
     );
-    expect(urls.web).toBe(`${APPS}/remoteEntry.aaa.js`);
+    expect(urls.ui).toBe(`${APPS}/remoteEntry.aaa.js`);
   });
 
   it("an absent base degrades to the root-relative fixed name (client-shell head path)", () => {
@@ -140,14 +140,14 @@ describe("entryUrls — base selection (publicUrl ?? url, ADR 0011)", () => {
       { name: "ui", entryUrl: undefined, integrity: "sha384-entry" },
       "development",
     );
-    expect(urls.web).toBe("/remoteEntry.js?v=sha384-entry");
+    expect(urls.ui).toBe("/remoteEntry.js?v=sha384-entry");
   });
 });
 
 describe("entryUrls — loud throw outside development", () => {
-  it("web surface: a remote slot without the derived entry names the slot and surface", () => {
-    expect(() => entryUrls(remoteSlot({ entryUrl: undefined }), "production").web).toThrow(
-      /slot "apps" has no derived web entry/,
+  it("ui surface: a remote slot without the derived entry names the slot and surface", () => {
+    expect(() => entryUrls(remoteSlot({ entryUrl: undefined }), "production").ui).toThrow(
+      /slot "apps" has no derived ui entry/,
     );
   });
 
@@ -157,12 +157,12 @@ describe("entryUrls — loud throw outside development", () => {
     );
   });
 
-  it("surfaces throw independently — resolving web does not trip the ssr surface", () => {
+  it("surfaces throw independently — resolving ui does not trip the ssr surface", () => {
     const urls = entryUrls(remoteSlot({ ssrEntryUrl: undefined }), "production");
-    expect(urls.web).toBe(`${APPS}/remoteEntry.aaa.js`);
+    expect(urls.ui).toBe(`${APPS}/remoteEntry.aaa.js`);
   });
 
-  it("a slot with no SSR coordinates at all resolves web without throwing — ssr is undefined", () => {
+  it("a slot with no SSR coordinates at all resolves ui without throwing — ssr is undefined", () => {
     const urls = entryUrls(
       {
         name: "api",
@@ -171,14 +171,14 @@ describe("entryUrls — loud throw outside development", () => {
       },
       "production",
     );
-    expect(urls.web).toBe("https://api.example.com/remoteEntry.aaa.js");
+    expect(urls.ui).toBe("https://api.example.com/remoteEntry.aaa.js");
     expect(urls.ssr).toBeUndefined();
     expect(urls.browserManifest).toBeUndefined();
   });
 
   it("staging resolves like production — only development gets fixed names", () => {
-    expect(() => entryUrls(remoteSlot({ entryUrl: undefined }), "staging").web).toThrow(
-      /has no derived web entry/,
+    expect(() => entryUrls(remoteSlot({ entryUrl: undefined }), "staging").ui).toThrow(
+      /has no derived ui entry/,
     );
   });
 });

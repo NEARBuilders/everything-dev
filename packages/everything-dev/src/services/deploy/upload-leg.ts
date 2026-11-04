@@ -78,16 +78,19 @@ async function diffUploadWorkspace(
     workspace: string;
     files: DistFile[];
     base: string;
-    previousPin: PreviousPin | undefined;
+    previousDigest: PreviousPin | undefined;
     notes: string[];
   },
 ): Promise<DiffUploadOutcome> {
   const localSri = localSriMap(input.files);
   let uploadFiles = input.files;
   let prevFiles: Record<string, string> | undefined;
-  if (input.previousPin) {
+  if (input.previousDigest) {
     try {
-      const resolved = await deps.resolveSlotVersion({ base: input.base, pin: input.previousPin });
+      const resolved = await deps.resolveSlotVersion({
+        base: input.base,
+        digest: input.previousDigest,
+      });
       if (resolved.files) {
         const diff = diffWorkspaceFiles(input.files, localSri, resolved.files);
         prevFiles = resolved.files;
@@ -191,7 +194,7 @@ async function resolveSourceReference(
     gateway: string;
     workspace: string;
     base: string;
-    previousPin: PreviousPin | undefined;
+    previousDigest: PreviousPin | undefined;
     repoRoot: string;
     workspaceDir: string;
     notes: string[];
@@ -205,11 +208,11 @@ async function resolveSourceReference(
       workspace: input.workspaceDir,
       outDir,
     });
-    if (input.previousPin) {
+    if (input.previousDigest) {
       try {
         const resolved = await deps.resolveSlotVersion({
           base: input.base,
-          pin: input.previousPin,
+          digest: input.previousDigest,
         });
         if (resolved.source?.integrity === archive.integrity) {
           notes.push(`source unchanged — reusing ${archive.file}`);
@@ -307,7 +310,7 @@ export async function uploadWorkspaceBundle(
       workspace: input.workspaceKey,
       files: distFiles,
       base,
-      previousPin: input.previousPin,
+      previousDigest: input.previousPin,
       notes,
     });
     const report = deps.readBuildReport(input.distDir);
@@ -330,7 +333,7 @@ export async function uploadWorkspaceBundle(
         gateway: input.gateway,
         workspace: input.workspaceKey,
         base,
-        previousPin: input.previousPin,
+        previousDigest: input.previousPin,
         repoRoot: input.source.repoRoot,
         workspaceDir: input.source.workspaceDir,
         notes,

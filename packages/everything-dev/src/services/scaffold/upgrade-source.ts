@@ -46,6 +46,15 @@ function unresolvableError(outcome: Extract<ResolutionOutcome, { state: "Unresol
       `Refusing to choose a release: ${outcome.detail ?? "integrity check failed"}${chain ? ` — chain: ${chain}` : ""}`,
     );
   }
+  if (outcome.reason === "absent" && outcome.context.tagServes === "thin") {
+    // the tag home serves a thin tag naming a release whose record never
+    // published — the #568 race, not an unpublished chain
+    return new Error(
+      `The manifest tag names a release whose version record is not published (${outcome.detail ?? "record absent"})` +
+        `${chain ? ` — chain: ${chain}` : ""} — the release deploy is incomplete or still running; ` +
+        `retry once the release is fully published`,
+    );
+  }
   return new Error(
     `No platform release manifest resolves in the extends chain (${chain || "empty"}) — publish the platform manifest (bos publish on the parent) or run \`bos platform manifest --check\` to diagnose` +
       (outcome.context.deadEnd

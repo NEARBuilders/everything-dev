@@ -872,7 +872,7 @@ export async function resolvePinnedSource(
   if (!entry) {
     return { warning: `no config entry found for the pinned slot — ${HEAD_FALLBACK_NOTE}` };
   }
-  const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+  const pin = entry.digest as { manifest?: unknown; integrity?: unknown } | undefined;
   const manifest = typeof pin?.manifest === "string" ? pin.manifest : undefined;
   const production = typeof entry.production === "string" ? entry.production : undefined;
   if (!manifest || !production) {

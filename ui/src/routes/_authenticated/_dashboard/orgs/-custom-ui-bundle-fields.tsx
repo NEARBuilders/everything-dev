@@ -83,7 +83,7 @@ export function CustomUiBundleFields({
         uiProduction: production,
         uiIntegrity: pinManifest ? "" : integrity,
         uiManifest: pinManifest,
-        uiPinIntegrity: pinIntegrity,
+        uiDigestIntegrity: pinIntegrity,
         ...(allowSsr && ssrUrl && ssrIntegrity ? { ssrUrl, ssrIntegrity } : {}),
       }));
       toast.success(`Bundle and integrity filled from ${account}`);
@@ -129,17 +129,17 @@ export function CustomUiBundleFields({
       return;
     }
     if (draft.uiManifest) {
-      if (!draft.uiPinIntegrity) {
+      if (!draft.uiDigestIntegrity) {
         toast.error("Enter the pin integrity first (or use Verify to fill it)");
       }
       return onVerifyBundle(
         draft.uiManifest,
-        draft.uiPinIntegrity,
+        draft.uiDigestIntegrity,
         (manifestName) =>
           computeSubresourceIntegrity(
             `${draft.uiProduction.replace(/\/$/, "")}/${manifestName.replace(/^\//, "")}`,
           ),
-        (computed) => setDraft((prev) => ({ ...prev, uiPinIntegrity: computed })),
+        (computed) => setDraft((prev) => ({ ...prev, uiDigestIntegrity: computed })),
         "UI pin",
       );
     }
@@ -235,7 +235,7 @@ export function CustomUiBundleFields({
           setDraft((prev) => ({
             ...prev,
             uiIntegrity: value,
-            ...(value ? { uiManifest: "", uiPinIntegrity: "" } : {}),
+            ...(value ? { uiManifest: "", uiDigestIntegrity: "" } : {}),
           }))
         }
         placeholder="sha384-…"
@@ -267,8 +267,8 @@ export function CustomUiBundleFields({
         <ConfigField
           id={`${idPrefix}-ui-pin-integrity`}
           label="Pin integrity (the manifest document's SRI)"
-          value={draft.uiPinIntegrity}
-          onChange={(value) => setDraft((prev) => ({ ...prev, uiPinIntegrity: value }))}
+          value={draft.uiDigestIntegrity}
+          onChange={(value) => setDraft((prev) => ({ ...prev, uiDigestIntegrity: value }))}
           placeholder="sha384-…"
           mono
           disabled={disabled}

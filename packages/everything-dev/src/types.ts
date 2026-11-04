@@ -60,18 +60,19 @@ export const FederationEntrySchema = z.object({
 export type FederationEntry = z.infer<typeof FederationEntrySchema>;
 
 /**
- * Slot pin (atomic-deploys): an explicit pointer to the slot's immutable
- * per-deploy WorkspaceVersionManifest — `manifest` is the versioned manifest
- * filename relative to the slot's production base, `integrity` is that
- * document's SRI. Resolving the pin derives the slot's entry-level fields
- * (`entryUrl`, entry integrity, ssr entry). A slot without a `pin` uses its
- * top-level `integrity` as a direct entry SRI (fixed-name slots only).
+ * Remote digest (atomic-deploys): an explicit pointer to the remote's
+ * immutable per-deploy WorkspaceVersionManifest — `manifest` is the versioned
+ * manifest filename relative to the remote's production base, `integrity` is
+ * that document's SRI. Resolving the digest derives the remote's entry-level
+ * fields (`entryUrl`, entry integrity, ssr entry). A remote without a
+ * `digest` uses its top-level `integrity` as a direct entry SRI (fixed-name
+ * remotes only).
  */
-export const SlotPinSchema = z.object({
+export const RemoteDigestSchema = z.object({
   manifest: z.string().min(1),
   integrity: z.string().min(1),
 });
-export type SlotPin = z.infer<typeof SlotPinSchema>;
+export type RemoteDigest = z.infer<typeof RemoteDigestSchema>;
 
 export const PluginUiConfigSchema = z.object({
   name: z.string(),
@@ -84,7 +85,7 @@ export const PluginUiConfigSchema = z.object({
   integrity: z.string().optional(),
   ssr: z.string().optional(),
   ssrIntegrity: z.string().optional(),
-  pin: SlotPinSchema.optional(),
+  digest: RemoteDigestSchema.optional(),
 });
 export type PluginUiConfig = z.infer<typeof PluginUiConfigSchema>;
 
@@ -102,7 +103,7 @@ export const ComposableAppEntrySchema = z.object({
   connectSrc: z.array(z.string()).optional(),
   /** `false` opts a consumer out of the ui the extended provider attaches */
   ui: z.union([PluginUiConfigSchema, z.literal(false)]).optional(),
-  pin: SlotPinSchema.optional(),
+  digest: RemoteDigestSchema.optional(),
 });
 export type ComposableAppEntry = z.infer<typeof ComposableAppEntrySchema>;
 
@@ -212,7 +213,7 @@ export const UiConfigSchema = z
     integrity: z.string().optional(),
     ssr: z.string().optional(),
     ssrIntegrity: z.string().optional(),
-    pin: SlotPinSchema.optional(),
+    digest: RemoteDigestSchema.optional(),
   })
   .strict();
 export type UiConfig = z.infer<typeof UiConfigSchema>;
@@ -227,7 +228,7 @@ export const HostConfigSchema = z.object({
   /** direct entry SRI — only for slots without a `pin` */
   integrity: z.string().optional(),
   secrets: z.array(z.string()).optional(),
-  pin: SlotPinSchema.optional(),
+  digest: RemoteDigestSchema.optional(),
 });
 export type HostConfig = z.infer<typeof HostConfigSchema>;
 

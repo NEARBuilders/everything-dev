@@ -16,29 +16,39 @@ export function platformUrlDeployEntries(input: {
   integrity?: string;
   ssrIntegrity?: string;
   /** the workspace's uploaded version manifest: filename (relative to the
-   * bundle base) + its own SRI — written as the slot's `pin` */
-  pin?: { file: string; integrity: string };
+   * bundle base) + its own SRI — written as the remote's `digest` */
+  digest?: { file: string; integrity: string };
 }): DeployResultEntry[] {
-  const { origin, account, gateway, key, kind, integrity, ssrIntegrity, pin } = input;
+  const { origin, account, gateway, key, kind, integrity, ssrIntegrity, digest } = input;
   const slot = kind === "app" ? "app" : "plugins";
   const base = `${origin.replace(/\/$/, "")}/bundles/${account}/${gateway}/${key}/`;
   const entries: DeployResultEntry[] = [
     {
       url: base,
-      ...(pin
+      ...(digest
         ? {
-            value: pin.file,
-            valueField: `${slot}.${key}.pin.manifest`,
-            integrity: pin.integrity,
-            integrityField: `${slot}.${key}.pin.integrity`,
-            // the pinned slot's identity is the pin — a stale direct entry
-            // SRI or retired flat manifest pointer must not linger
-            removeFields: [`${slot}.${key}.integrity`, `${slot}.${key}.manifest`],
+            value: digest.file,
+            valueField: `${slot}.${key}.digest.manifest`,
+            integrity: digest.integrity,
+            integrityField: `${slot}.${key}.digest.integrity`,
+            // the remote's identity is the digest — a stale direct entry
+            // SRI, retired flat manifest pointer, or the pre-cutover `pin`
+            // stamp must not linger
+            removeFields: [
+              `${slot}.${key}.integrity`,
+              `${slot}.${key}.manifest`,
+              `${slot}.${key}.pin.manifest`,
+              `${slot}.${key}.pin.integrity`,
+            ],
           }
         : {
             integrity,
             integrityField: `${slot}.${key}.integrity`,
-            removeFields: [`${slot}.${key}.manifest`],
+            removeFields: [
+              `${slot}.${key}.manifest`,
+              `${slot}.${key}.pin.manifest`,
+              `${slot}.${key}.pin.integrity`,
+            ],
           }),
       urlField: `${slot}.${key}.production`,
     },
@@ -72,29 +82,38 @@ export function pluginUiUrlDeployEntries(input: {
   integrity?: string;
   ssrIntegrity?: string;
   /** the uploaded version manifest: filename + its own SRI — written as the
-   * ui slot's `pin` */
-  pin?: { file: string; integrity: string };
+   * ui remote's `digest` */
+  digest?: { file: string; integrity: string };
   /** The built MF container name — remote boots need it pinned in the config. */
   name?: string;
 }): DeployResultEntry[] {
-  const { origin, account, gateway, key, kind, integrity, ssrIntegrity, pin, name } = input;
+  const { origin, account, gateway, key, kind, integrity, ssrIntegrity, digest, name } = input;
   const slot = kind === "app" ? "app" : "plugins";
   const base = `${origin.replace(/\/$/, "")}/bundles/${account}/${gateway}/${key}-ui/`;
   const entries: DeployResultEntry[] = [
     {
       url: base,
-      ...(pin
+      ...(digest
         ? {
-            value: pin.file,
-            valueField: `${slot}.${key}.ui.pin.manifest`,
-            integrity: pin.integrity,
-            integrityField: `${slot}.${key}.ui.pin.integrity`,
-            removeFields: [`${slot}.${key}.ui.integrity`, `${slot}.${key}.ui.manifest`],
+            value: digest.file,
+            valueField: `${slot}.${key}.ui.digest.manifest`,
+            integrity: digest.integrity,
+            integrityField: `${slot}.${key}.ui.digest.integrity`,
+            removeFields: [
+              `${slot}.${key}.ui.integrity`,
+              `${slot}.${key}.ui.manifest`,
+              `${slot}.${key}.ui.pin.manifest`,
+              `${slot}.${key}.ui.pin.integrity`,
+            ],
           }
         : {
             integrity,
             integrityField: `${slot}.${key}.ui.integrity`,
-            removeFields: [`${slot}.${key}.ui.manifest`],
+            removeFields: [
+              `${slot}.${key}.ui.manifest`,
+              `${slot}.${key}.ui.pin.manifest`,
+              `${slot}.${key}.ui.pin.integrity`,
+            ],
           }),
       urlField: `${slot}.${key}.ui.production`,
     },

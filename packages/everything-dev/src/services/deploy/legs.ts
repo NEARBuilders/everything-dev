@@ -64,13 +64,15 @@ export interface ChildImagePin {
 export async function resolveChildImagePin(input: {
   configDir: string;
   localConfig: Record<string, unknown>;
-  fetchManifest?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchManifest"];
+  fetchTag?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchTag"];
+  fetchSlot?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchSlot"];
   fetchDigest?: typeof resolveRegistryDigest;
 }): Promise<ChildImagePin | undefined> {
   const derived = await deriveImageRefFromPlatformManifest({
     configDir: input.configDir,
     localConfig: input.localConfig,
-    fetchManifest: input.fetchManifest,
+    ...(input.fetchTag ? { fetchTag: input.fetchTag } : {}),
+    ...(input.fetchSlot ? { fetchSlot: input.fetchSlot } : {}),
   });
   if (!derived) return undefined;
   const digest = await (input.fetchDigest ?? resolveRegistryDigest)({

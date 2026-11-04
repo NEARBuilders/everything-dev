@@ -23,7 +23,7 @@ describe("fetchVerifiedManifest", () => {
     const fetchImpl = (async () => new Response(body, { status: 200 })) as typeof fetch;
     const result = await fetchVerifiedManifest({
       base: "https://cdn/ui/",
-      pin: { manifest: "versions/a.json", integrity: sri },
+      digest: { manifest: "versions/a.json", integrity: sri },
       fetchImpl,
     });
     expect(result.ok).toBe(true);
@@ -34,7 +34,7 @@ describe("fetchVerifiedManifest", () => {
     const fetchImpl = (async () => new Response("gone", { status: 404 })) as typeof fetch;
     const result = await fetchVerifiedManifest({
       base: "https://cdn/ui/",
-      pin: { manifest: "versions/a.json", integrity: sri },
+      digest: { manifest: "versions/a.json", integrity: sri },
       fetchImpl,
     });
     expect(result).toMatchObject({ ok: false, reason: "manifest fetch failed: 404" });
@@ -44,7 +44,7 @@ describe("fetchVerifiedManifest", () => {
     const fetchImpl = (async () => new Response("tampered", { status: 200 })) as typeof fetch;
     const result = await fetchVerifiedManifest({
       base: "https://cdn/ui/",
-      pin: { manifest: "versions/a.json", integrity: sri },
+      digest: { manifest: "versions/a.json", integrity: sri },
       fetchImpl,
     });
     expect(result.ok).toBe(false);
@@ -60,7 +60,7 @@ describe("fetchVerifiedManifest", () => {
     }) as typeof fetch;
     const result = await fetchVerifiedManifest({
       base: "https://cdn/ui/",
-      pin: { manifest: "versions/a.json", integrity: sri },
+      digest: { manifest: "versions/a.json", integrity: sri },
       fetchImpl,
     });
     expect(result).toMatchObject({ ok: false, reason: "manifest fetch failed: ECONNREFUSED" });

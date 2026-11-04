@@ -9,7 +9,8 @@ import {
   platformTruthViolations,
   resolveExactCatalog,
 } from "../../src/services/deploy/platform-manifest";
-import { ManifestSchema } from "../../src/services/platform/manifest";
+import { serializePlatformReleaseManifest } from "../../src/services/platform/manifest";
+import { ManifestSchema, manifestTagOf } from "../../src/services/platform/manifest-schema";
 
 const tmpRoot = join(import.meta.dirname, ".platform-publish-fixture");
 
@@ -55,17 +56,27 @@ describe("composePlatformManifestPublishEntry", () => {
       previousFrameworkVersion: "2.0.0-rc.13",
     });
     expect(entry).not.toBeNull();
-    expect(entry!.key).toBe("apps/dev.everything.near/everything.dev/platform.json");
-    expect(entry!.integrity).toMatch(/^sha384-/);
-    const parsed = ManifestSchema.parse(JSON.parse(entry!.value));
+    // the full manifest lives at the immutable version record
+    expect(entry!.record.key).toBe(
+      "apps/dev.everything.near/everything.dev/versions/2.0.0-rc.14.json",
+    );
+    expect(entry!.record.integrity).toMatch(/^sha384-/);
+    const parsed = ManifestSchema.parse(JSON.parse(entry!.record.value));
     expect(parsed.frameworkVersion).toBe("2.0.0-rc.14");
     expect(parsed.everyPluginVersion).toBe("3.0.0-rc.9");
     expect(parsed.image.ref).toBe(PLATFORM_IMAGE_REF);
     expect(parsed.image.tags).toEqual(["v2.0.0-rc.14"]);
-    // the compat floor is the previous release — children on it stay accepted
-    expect(parsed.compat.minChild).toBe("2.0.0-rc.13");
+    // the compat floor never sits below the cutover release — pre-cutover
+    // children cannot parse the wire
+    expect(parsed.compat.minChild).toBe("2.0.0-rc.37");
     expect(parsed.sharedDeps.effect?.version).toBe("4.0.0-rc.112");
     expect(parsed.templateInventory.map((t) => t.path)).toContain("package.json");
+    // the thin tag rides manifest.json, digesting the record's exact bytes
+    expect(entry!.tag.key).toBe("apps/dev.everything.near/everything.dev/manifest.json");
+    const tag = JSON.parse(entry!.tag.value) as { version: string; digest: string };
+    expect(tag.version).toBe("2.0.0-rc.14");
+    expect(manifestTagOf(parsed, entry!.record.value).digest).toBe(tag.digest);
+    expect(entry!.tag.integrity).toMatch(/^sha384-/);
   });
 
   it("is byte-stable across compositions of the same inputs", () => {
@@ -80,7 +91,8 @@ describe("composePlatformManifestPublishEntry", () => {
       account: "a.near",
       gateway: "g",
     });
-    expect(a!.value).toBe(b!.value);
+    expect(a!.record.value).toBe(b!.record.value);
+    expect(a!.tag.value).toBe(b!.tag.value);
   });
 
   it("returns null for a non-framework-rooted deploy — children never publish a release manifest", () => {
@@ -156,7 +168,7 @@ describe("resolveExactCatalog", () => {
       account: "root.near",
       gateway: "root",
     });
-    const parsed = ManifestSchema.parse(JSON.parse(entry!.value));
+    const parsed = ManifestSchema.parse(JSON.parse(entry!.record.value));
     expect(parsed.catalog["everything-dev"]).toBe("2.0.0-rc.14");
     expect(parsed.catalog.react).toBe("19.2.9");
     expect(parsed.catalog["not-in-lockfile"]).toBe("^1.2.3");
@@ -174,7 +186,8 @@ describe("deriveImageRefFromPlatformManifest", () => {
     const derived = await deriveImageRefFromPlatformManifest({
       configDir,
       localConfig: { extends: "bos://root.near/root" },
-      fetchManifest: async () => manifest,
+      fetchTag: async () => manifestTagOf(manifest, serializePlatformReleaseManifest(manifest)),
+      fetchSlot: async () => manifest,
     });
     expect(derived).toEqual({
       image: "ghcr.io/nearbuilders/everything-dev",
@@ -187,7 +200,7 @@ describe("deriveImageRefFromPlatformManifest", () => {
     const derived = await deriveImageRefFromPlatformManifest({
       configDir: tmpRoot,
       localConfig: {},
-      fetchManifest: async () => null,
+      fetchTag: async () => null,
     });
     expect(derived).toBeNull();
   });
