@@ -35,7 +35,6 @@ import {
   platformTruthViolations,
 } from "../../src/services/deploy/platform-manifest";
 import { checkUiCompositionCompat } from "../../src/services/federation/service";
-import * as platformManifestModule from "../../src/services/platform/manifest";
 import {
   checkPlatformCompat,
   type PlatformReleaseManifest,

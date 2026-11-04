@@ -1116,7 +1116,7 @@ export async function runPnpmInstallForUpgrade(
     spinner?: { message: (msg: string) => void };
   },
 ): Promise<void> {
-  const timeout = COMMAND_TIMEOUTS["pnpm"] ?? 2 * 60_000;
+  const timeout = COMMAND_TIMEOUTS.pnpm ?? 2 * 60_000;
   const child = execa("pnpm", ["install", "--force"], {
     cwd: destination,
     stdio: ["inherit", "pipe", "pipe"],
