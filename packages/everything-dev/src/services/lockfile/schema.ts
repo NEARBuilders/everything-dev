@@ -13,6 +13,7 @@
  * JSON round-trips preserve that order.
  */
 import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { BosConfig } from "../../types";
@@ -155,4 +156,68 @@ export function serializeLockfile(lock: CompositionLockfile): string {
 
 export function parseLockfile(bytes: string): CompositionLockfile {
   return CompositionLockfileSchema.parse(JSON.parse(bytes));
+}
+
+/** Absent or unparseable → null: the lockfile is an input, and a corrupt one
+ * degrades the explainer's provenance rather than failing a build. */
+export async function readLockfileIfExists(
+  configDir?: string,
+): Promise<CompositionLockfile | null> {
+  try {
+    return parseLockfile(await readFile(lockfilePath(configDir), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export interface LockWriteResult {
+  status: "written" | "unchanged" | "drift";
+  path: string;
+  fingerprint: string;
+  /** The `--check` refusal reasons — empty unless status is "drift". */
+  drift: string[];
+}
+
+/** The producer seam both writers share (`bos lock`, and the deploy train's
+ * post-publish leg): freeze the resolved composition, atomically, with the
+ * `--check` refusal the CI gate exits on. */
+export async function writeLockfile(
+  lock: CompositionLockfile,
+  configDir?: string,
+  opts?: { check?: boolean },
+): Promise<LockWriteResult> {
+  const target = lockfilePath(configDir);
+  const serialized = serializeLockfile(lock);
+  const existing = await readFile(target, "utf8").catch(() => null);
+  if (opts?.check) {
+    if (existing === null) {
+      return {
+        status: "drift",
+        path: target,
+        fingerprint: lock.fingerprint,
+        drift: ["bos.lock.json is missing — run `bos lock` and commit the result"],
+      };
+    }
+    if (existing !== serialized) {
+      return {
+        status: "drift",
+        path: target,
+        fingerprint: lock.fingerprint,
+        drift: [
+          "bos.lock.json differs from the resolved composition — run `bos lock` and commit the result",
+        ],
+      };
+    }
+    return { status: "unchanged", path: target, fingerprint: lock.fingerprint, drift: [] };
+  }
+  await mkdir(path.dirname(target), { recursive: true });
+  const temp = `${target}.tmp`;
+  await writeFile(temp, serialized);
+  await rename(temp, target);
+  return {
+    status: existing === serialized ? "unchanged" : "written",
+    path: target,
+    fingerprint: lock.fingerprint,
+    drift: [],
+  };
 }

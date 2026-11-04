@@ -1,3 +1,5 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -7,6 +9,7 @@ import {
   lockfilePath,
   parseLockfile,
   serializeLockfile,
+  writeLockfile,
 } from "../../src/services/lockfile/schema";
 import { pointerFingerprint } from "../../src/services/registry/fingerprint";
 import { BosConfigSchema } from "../../src/types";
@@ -145,5 +148,51 @@ describe("round-trip", () => {
   it("rejects unknown top-level keys — the lockfile is derived, never extended by hand", () => {
     const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
     expect(() => parseLockfile(serializeLockfile({ ...lock, note: "hand-edited" }))).toThrow();
+  });
+});
+
+describe("writeLockfile — the producer seam (ADR 0042 ticket 02)", () => {
+  it("writes atomically and reports written→unchanged on the identical re-run", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "lockfile-write-"));
+    const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    const first = await writeLockfile(lock, dir);
+    expect(first.status).toBe("written");
+    expect(first.fingerprint).toBe(lock.fingerprint);
+    const second = await writeLockfile(lock, dir);
+    expect(second.status).toBe("unchanged");
+    expect(parseLockfile(await readFile(path.join(dir, "bos.lock.json"), "utf8"))).toEqual(lock);
+  });
+
+  it("--check passes when the file matches, drifts when missing", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "lockfile-check-"));
+    const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    const missing = await writeLockfile(lock, dir, { check: true });
+    expect(missing.status).toBe("drift");
+    expect(missing.drift[0]).toContain("missing");
+    await writeLockfile(lock, dir);
+    const ok = await writeLockfile(lock, dir, { check: true });
+    expect(ok.status).toBe("unchanged");
+    expect(ok.drift).toEqual([]);
+  });
+
+  it("--check drifts when the frozen composition differs from the resolved one", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "lockfile-drift-"));
+    const stale = lockfileOf({
+      account: ACCOUNT,
+      gateway: GATEWAY,
+      config,
+      release: "2.0.0-rc.36",
+    });
+    const fresh = lockfileOf({
+      account: ACCOUNT,
+      gateway: GATEWAY,
+      config,
+      release: "2.0.0-rc.37",
+    });
+    await writeLockfile(stale, dir);
+    const drifted = await writeLockfile(fresh, dir, { check: true });
+    expect(drifted.status).toBe("drift");
+    expect(drifted.drift.join(" ")).toContain("differs from the resolved composition");
+    expect(parseLockfile(await readFile(path.join(dir, "bos.lock.json"), "utf8"))).toEqual(stale);
   });
 });

@@ -15,6 +15,7 @@ import { runDev, runStart } from "./commands/dev";
 import { runInit } from "./commands/init";
 import { inspectRenderers } from "./commands/inspect";
 import { lifecycleRenderers } from "./commands/lifecycle";
+import { lockRenderers } from "./commands/lock";
 import { publishRenderers, rollbackPreCall } from "./commands/publish";
 import { scaffoldRenderers } from "./commands/scaffold";
 import { resolveFrameworkPackage } from "./framework-version";
@@ -38,6 +39,7 @@ const renderers = {
   ...dbRenderers,
   ...inspectRenderers,
   ...lifecycleRenderers,
+  ...lockRenderers,
   ...publishRenderers,
   ...scaffoldRenderers,
   ...secretsRenderers,
