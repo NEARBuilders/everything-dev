@@ -320,7 +320,13 @@ export async function copyFilteredFiles(
     return 0;
   }
 
-  const baseIgnore = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"];
+  const baseIgnore = [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/.bos/**",
+    "**/*.gen.ts",
+  ];
   const ignore = options.ignore ? [...baseIgnore, ...options.ignore] : baseIgnore;
 
   const allFiles = new Set<string>();
@@ -1387,7 +1393,13 @@ export async function writeInitSnapshot(
     starter?: StarterLevel;
   },
 ): Promise<void> {
-  const baseIgnore = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"];
+  const baseIgnore = [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/.bos/**",
+    "**/*.gen.ts",
+  ];
   const ignore = options.ignore ? [...baseIgnore, ...options.ignore] : baseIgnore;
 
   const allFiles = new Set<string>();
