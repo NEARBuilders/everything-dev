@@ -136,11 +136,14 @@ export async function submitRegistryWrite(
 
 /** Classify a broadcast transaction for the publish-confirmation machine.
  * The wait level is NONE — one cheap RPC read of the current state, never a
- * wait-for-inclusion poll (the confirmation loop paces itself). Explicit
- * rejection maps to `invalid`; not-found/unknown maps to `unknown` (the
- * confirmation loop's own grace window decides when unknown is terminal);
- * every probe failure maps to the conservative `unreachable` — a status probe
- * that cannot run must never kill a publish content-polling can still verify. */
+ * wait-for-inclusion poll (the confirmation loop paces itself). The registry
+ * namespace account is codeless: publishes execute with CodeDoesNotExist and
+ * that is the designed success state, so a failed execution reads as
+ * `included` — only a transaction the chain has never seen (`unknown`), a
+ * consumed nonce or a missing publish key (`invalid`), or an unusable probe
+ * (`unreachable`, informative-only) classify differently. Discrimination goes
+ * through near-kit's `error.name` (every class sets it; the classes are not
+ * re-exported from the package root). */
 export async function classifyTransactionOutcome(
   txHash: string,
   accountId: string,
@@ -151,9 +154,25 @@ export async function classifyTransactionOutcome(
     await near.getTransactionStatus(txHash, accountId, "NONE");
     return "included";
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/invalid|expired|nonce/i.test(message)) return "invalid";
-    if (/not found|unknown|does not exist/i.test(message)) return "unknown";
-    return "unreachable";
+    if (!(error instanceof Error)) return "unreachable";
+    const congested =
+      error.name === "InvalidTransactionError" &&
+      (Boolean((error as { shardCongested?: boolean }).shardCongested) ||
+        Boolean((error as { shardStuck?: boolean }).shardStuck));
+    switch (error.name) {
+      case "ContractNotDeployedError":
+      case "FunctionCallError":
+      case "ContractExecutionError":
+      case "InvalidTransactionError":
+        return congested ? "unknown" : "included";
+      case "InvalidNonceError":
+      case "AccessKeyDoesNotExistError":
+      case "AccountDoesNotExistError":
+        return "invalid";
+      case "NetworkError":
+        return /not found|unknown transaction/i.test(error.message) ? "unknown" : "unreachable";
+      default:
+        return "unreachable";
+    }
   }
 }

@@ -17,7 +17,11 @@ import { keyPathOf, type RegistryKey } from "./keys";
  * after two informative-but-absent probes, or any history failure, the
  * machine falls back permanently to plain content polling, so a registry
  * whose history never carries the tx still verifies; and a leg read failure
- * never skips the leg — it retries until the deadline.
+ * never skips the leg — it retries until the deadline. The transaction probe
+ * is consultative: it runs only after a content miss and may terminate a
+ * wait content has already failed to satisfy, never preempt a verify — the
+ * read-back outranks it (a landed publish executes with CodeDoesNotExist on
+ * the codeless namespace and that is success).
  */
 
 export type ConfirmLegKind = "runtimeConfig" | "manifest" | "version";
@@ -123,34 +127,6 @@ export async function confirmPublish(opts: ConfirmOptions): Promise<ConfirmVerdi
   const startedAt = now();
   let txUnknownSince: number | undefined;
   while (now() - startedAt < timeoutMs) {
-    if (opts.txHash && opts.txStatus && !indexed) {
-      let status: TxStatus;
-      try {
-        status = await opts.txStatus(opts.txHash);
-      } catch {
-        status = "unreachable";
-      }
-      if (status === "invalid") {
-        return terminalVerdict(
-          opts.txHash,
-          "rejected on-chain (invalid — most often a stale nonce at broadcast)",
-          pending().map((leg) => leg.kind),
-        );
-      }
-      if (status === "unknown") {
-        if (txUnknownSince === undefined) {
-          txUnknownSince = now();
-        } else if (now() - txUnknownSince >= TX_UNKNOWN_GRACE_MS) {
-          return terminalVerdict(
-            opts.txHash,
-            `unknown to the chain past ${TX_UNKNOWN_GRACE_MS / 1000}s — dropped at broadcast`,
-            pending().map((leg) => leg.kind),
-          );
-        }
-      } else {
-        txUnknownSince = undefined;
-      }
-    }
     if (trackByTx && !indexed) {
       try {
         const entries = await history(probeLeg!.key, 5);
@@ -168,6 +144,7 @@ export async function confirmPublish(opts: ConfirmOptions): Promise<ConfirmVerdi
       }
     }
 
+    let contentMissed = false;
     for (const leg of pending()) {
       try {
         const served = leg.read ? await leg.read() : await read(leg.key);
@@ -176,14 +153,50 @@ export async function confirmPublish(opts: ConfirmOptions): Promise<ConfirmVerdi
           lastErrors.delete(leg.kind);
         } else {
           lastErrors.set(leg.kind, "registry serves a different value");
+          contentMissed = true;
         }
       } catch (error) {
         lastErrors.set(leg.kind, error instanceof Error ? error.message : String(error));
+        contentMissed = true;
       }
     }
 
     if (pending().length === 0) {
       return { ok: true, verified: [...verified] };
+    }
+
+    // The transaction probe runs only after content failed to verify: the
+    // read-back is the authority (a landed publish executes with
+    // CodeDoesNotExist on the codeless namespace and that is success), so the
+    // probe may terminate a wait content has already failed to satisfy — it
+    // must never preempt a verify.
+    if (contentMissed && opts.txHash && opts.txStatus && !indexed) {
+      let status: TxStatus;
+      try {
+        status = await opts.txStatus(opts.txHash);
+      } catch {
+        status = "unreachable";
+      }
+      if (status === "invalid") {
+        return terminalVerdict(
+          opts.txHash,
+          "rejected on-chain (stale nonce, missing publish key, or expired — re-mint with `bos login --key` and update NEAR_PRIVATE_KEY)",
+          pending().map((leg) => leg.kind),
+        );
+      }
+      if (status === "unknown") {
+        if (txUnknownSince === undefined) {
+          txUnknownSince = now();
+        } else if (now() - txUnknownSince >= TX_UNKNOWN_GRACE_MS) {
+          return terminalVerdict(
+            opts.txHash,
+            `unknown to the chain past ${TX_UNKNOWN_GRACE_MS / 1000}s — dropped at broadcast`,
+            pending().map((leg) => leg.kind),
+          );
+        }
+      } else {
+        txUnknownSince = undefined;
+      }
     }
     await sleep(intervalMs);
   }

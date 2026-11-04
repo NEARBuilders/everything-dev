@@ -3,25 +3,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { NearMock, nearCalls, builder, keychainSubmit, nearCliInstalled } = vi.hoisted(() => {
-  const nearCalls: Array<Record<string, unknown>> = [];
-  const send = vi.fn();
-  const functionCall = vi.fn(() => ({ send }));
-  const transaction = vi.fn(() => ({ functionCall }));
-  class NearMock {
-    transaction = transaction;
-    constructor(config: Record<string, unknown>) {
-      nearCalls.push(config);
+const { NearMock, nearCalls, builder, keychainSubmit, nearCliInstalled, getTransactionStatusMock } =
+  vi.hoisted(() => {
+    const nearCalls: Array<Record<string, unknown>> = [];
+    const send = vi.fn();
+    const functionCall = vi.fn(() => ({ send }));
+    const transaction = vi.fn(() => ({ functionCall }));
+    const getTransactionStatusMock = vi.fn();
+    class NearMock {
+      transaction = transaction;
+      getTransactionStatus = getTransactionStatusMock;
+      constructor(config: Record<string, unknown>) {
+        nearCalls.push(config);
+      }
     }
-  }
-  return {
-    NearMock,
-    nearCalls,
-    builder: { send, functionCall, transaction },
-    keychainSubmit: vi.fn(),
-    nearCliInstalled: vi.fn(),
-  };
-});
+    return {
+      NearMock,
+      nearCalls,
+      builder: { send, functionCall, transaction },
+      keychainSubmit: vi.fn(),
+      nearCliInstalled: vi.fn(),
+      getTransactionStatusMock,
+    };
+  });
 
 vi.mock("near-kit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("near-kit")>();
@@ -38,11 +42,21 @@ vi.mock("../../src/services/auth/near-cli", async (importOriginal) => {
 });
 
 import {
+  classifyTransactionOutcome,
   describeSigningStrategy,
   resolveSigningKey,
   resolveSigningStrategy,
   submitRegistryWrite,
 } from "../../src/services/auth/near-signer";
+
+/** A near-kit-shaped error: every class sets `this.name`, and the classifier
+ * discriminates on exactly that. */
+function nearError(name: string, message = name, extra: Record<string, unknown> = {}): Error {
+  const error = new Error(message);
+  error.name = name;
+  Object.assign(error, extra);
+  return error;
+}
 
 const VALID_KEY =
   "ed25519:5dGS92auiST5KtcLpBG3hQXnWUX2ny94BGYHbzup4jhzyYcpisz6TeoSGKhVQNTtcdANs9MJp5tqqPe21aCGjtBx";
@@ -306,5 +320,81 @@ describe("submitRegistryWrite", () => {
       }),
     );
     expect(nearCalls).toHaveLength(0);
+  });
+});
+
+describe("classifyTransactionOutcome — action-indexed semantics", () => {
+  afterEach(() => {
+    getTransactionStatusMock.mockReset();
+  });
+
+  it("a resolved status is included", async () => {
+    getTransactionStatusMock.mockResolvedValue({ status: "SuccessValue" });
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "included",
+    );
+    expect(getTransactionStatusMock).toHaveBeenCalledWith("tx1", "dev.everything.near", "NONE");
+  });
+
+  it("a failed execution (CodeDoesNotExist) is included — the designed success state", async () => {
+    getTransactionStatusMock.mockRejectedValue(
+      nearError("InvalidTransactionError", "Action #0: CodeDoesNotExist", {
+        shardCongested: false,
+        shardStuck: false,
+      }),
+    );
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "included",
+    );
+  });
+
+  it("a shard-congested transaction is unknown, not terminal", async () => {
+    getTransactionStatusMock.mockRejectedValue(
+      nearError("InvalidTransactionError", "shard congested", { shardCongested: true }),
+    );
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "unknown",
+    );
+  });
+
+  it("a consumed nonce is invalid", async () => {
+    getTransactionStatusMock.mockRejectedValue(
+      nearError("InvalidNonceError", "nonce is too low", { txNonce: 5, akNonce: 6 }),
+    );
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "invalid",
+    );
+  });
+
+  it("a signing key missing from the account is invalid", async () => {
+    getTransactionStatusMock.mockRejectedValue(
+      nearError("AccessKeyDoesNotExistError", "the access key is not found"),
+    );
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "invalid",
+    );
+  });
+
+  it("an RPC not-found lookup is unknown", async () => {
+    getTransactionStatusMock.mockRejectedValue(
+      nearError("NetworkError", "RPC error [UNKNOWN_TRANSACTION]: Transaction is not found"),
+    );
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "unknown",
+    );
+  });
+
+  it("an RPC outage is unreachable — informative only", async () => {
+    getTransactionStatusMock.mockRejectedValue(nearError("TimeoutError", "request timed out"));
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "unreachable",
+    );
+  });
+
+  it("a non-Error throw is unreachable — conservative default", async () => {
+    getTransactionStatusMock.mockRejectedValue("total garbage");
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "unreachable",
+    );
   });
 });
