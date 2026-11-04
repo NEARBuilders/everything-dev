@@ -264,6 +264,17 @@ function toSourcePath(sourceDir: string, destPath: string): string | null {
     }
   }
 
+  // api children get the slim shell from `.github/templates/api/` at init —
+  // sync resolves through the same mirror so both distribution paths hand out
+  // the same child-facing bytes. The parent's own `api/` workspace is its
+  // domain shell (e.g. the dev root secret wiring) and is not child shape.
+  if (destPath.startsWith("api/")) {
+    const templatePath = destPath.replace(/^api\//, ".github/templates/api/");
+    if (existsSync(join(sourceDir, templatePath))) {
+      return templatePath;
+    }
+  }
+
   const directPath = join(sourceDir, destPath);
   if (existsSync(directPath)) {
     return destPath;
@@ -688,7 +699,7 @@ export async function syncTemplate(
           sourceDir,
           projectDir,
           filePath,
-          undefined,
+          destPath,
           childScripts,
           workflowPin,
         ),
