@@ -21,6 +21,12 @@ import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegat
 import { classifyTransactionOutcome, submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
+import {
+  digestOfLockfile,
+  lockfileOf,
+  serializeLockfile,
+  writeLockfileSync,
+} from "../lockfile/schema";
 import type { Manifest } from "../platform/manifest";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { type ConfirmLeg, confirmPublish, describeConfirmTimeout } from "../registry/confirm";
@@ -823,6 +829,28 @@ export async function runPublishTrain(
   const registryEntries: Record<string, string> = {
     [registryKey]: JSON.stringify(publishPayload),
   };
+  // The composition lockfile producer leg (ADR 0042 ticket 04): the train
+  // freezes the exact composition it is about to publish, and the per-deploy
+  // audit record names the lockfile digest — a deployment record then
+  // answers "what exact composition was live". Non-fatal: the lockfile is
+  // provenance, never a gate.
+  let lock: ReturnType<typeof lockfileOf> | null = null;
+  let lockfileDigest: string | null = null;
+  try {
+    lock = lockfileOf({
+      account,
+      gateway,
+      config: publishPayload as BosConfig,
+      release: (publishPayload as { release?: string }).release ?? null,
+    });
+    lockfileDigest = digestOfLockfile(serializeLockfile(lock));
+  } catch (error) {
+    console.log(
+      colors.dim(
+        `  lockfile leg skipped: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+  }
   const manifestKey = deployAuditKeyOf(account, gateway, publishedAt);
   // ADR 0034 + #573: the platform release manifest rides the same atomic
   // write as the config. The truth gate (shared-singleton cross-check) runs
@@ -985,6 +1013,9 @@ export async function runPublishTrain(
     network,
     publishedAt,
     registryUrl,
+    ...(lockfileDigest && lock
+      ? { lockfile: { digest: lockfileDigest, fingerprint: lock.fingerprint } }
+      : {}),
     ...(platformManifest
       ? {
           platformManifest: {
@@ -1030,6 +1061,21 @@ export async function runPublishTrain(
     }
   };
 
+  // The lockfile reflects what is live — written (or healed) whenever the
+  // publish state is confirmed, never before.
+  const persistLockfile = () => {
+    if (!lock) return;
+    try {
+      writeLockfileSync(lock, configDir);
+    } catch (error) {
+      console.log(
+        colors.dim(
+          `  Note: could not write bos.lock.json — ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  };
+
   try {
     // NOT deduped with the preflight's published-config read (#430): that
     // fetch returns the raw stored JSON, while the idempotency comparison is
@@ -1046,6 +1092,7 @@ export async function runPublishTrain(
     if (alreadyPublished) {
       console.log("  Already up to date — skipping transaction");
       persistDeployState();
+      persistLockfile();
       return {
         status: "published",
         registryUrl,
@@ -1219,6 +1266,7 @@ export async function runPublishTrain(
       });
     }
     persistDeployState();
+    persistLockfile();
 
     return {
       status: "published",
