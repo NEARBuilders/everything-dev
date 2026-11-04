@@ -332,6 +332,121 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     expect(lines.some((line) => line.message.includes("bos upgrade"))).toBe(false);
   });
 
+  it("a remote built against the ui/auth subpath singleton matches through the base package (opencrosspost rc.38 regression)", async () => {
+    // The exact shape that produced false divergences on every rc.38 child:
+    // ui/auth-ui bundles embed `everything-dev/ui/auth@<release>` in their
+    // shared maps, and the subpath name never resolves as a local package —
+    // no own package.json or catalog row — so the probe printed @unknown and
+    // the repair instructions (redeploy / upgrade) could never clear it. The
+    // probe now falls back to the base package's installed version.
+    const lines = await auditReleaseComposition({
+      remotes: [
+        {
+          remote: "app.ui",
+          base: "https://ui-rc38.test",
+          digest: pinFor("mf-manifest.json", {
+            react: "19.3.1",
+            "everything-dev/ui/auth": "2.0.0-rc.38",
+          }),
+        },
+        {
+          remote: "app.auth.ui",
+          base: "https://auth-ui-rc38.test",
+          digest: pinFor("mf-manifest.json", {
+            react: "19.3.1",
+            "everything-dev/ui/auth": "2.0.0-rc.38",
+          }),
+        },
+      ],
+      authoredPaths: new Set(["app.ui"]),
+      localVersionOf: (name) => {
+        const catalog: Record<string, string> = {
+          react: "19.3.1",
+          "everything-dev": "2.0.0-rc.38",
+        };
+        return catalog[name];
+      },
+      fetchImpl: versionManifestFetcher({
+        "https://ui-rc38.test/mf-manifest.json": versionManifestText({
+          react: "19.3.1",
+          "everything-dev/ui/auth": "2.0.0-rc.38",
+        }),
+        "https://auth-ui-rc38.test/mf-manifest.json": versionManifestText({
+          react: "19.3.1",
+          "everything-dev/ui/auth": "2.0.0-rc.38",
+        }),
+      }),
+    });
+    expect(lines).toEqual([]);
+  });
+
+  it("a subpath singleton the base package genuinely lags still names the divergence", async () => {
+    const lines = await auditReleaseComposition({
+      remotes: [
+        {
+          remote: "app.auth.ui",
+          base: "https://auth-ui-rc38.test",
+          digest: pinFor("mf-manifest.json", {
+            "everything-dev/ui/auth": "2.0.0-rc.38",
+            "@orpc/client": "2.0.0-beta.45",
+          }),
+        },
+      ],
+      authoredPaths: new Set(),
+      localVersionOf: (name) => {
+        const catalog: Record<string, string> = {
+          "everything-dev": "2.0.0-rc.37",
+          "@orpc/client": "2.0.0-beta.45",
+        };
+        return catalog[name];
+      },
+      fetchImpl: versionManifestFetcher({
+        "https://auth-ui-rc38.test/mf-manifest.json": versionManifestText({
+          "everything-dev/ui/auth": "2.0.0-rc.38",
+          "@orpc/client": "2.0.0-beta.45",
+        }),
+      }),
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.message).toContain("everything-dev/ui/auth@2.0.0-rc.38");
+    expect(lines[0]!.message).toContain("this runtime composes everything-dev/ui/auth@2.0.0-rc.37");
+  });
+
+  it("the auth mirror over a recorded app.auth composes pinned bytes — no provisioned line (opencrosspost rc.38 regression)", async () => {
+    // config.ts adds a plugins.auth entry mirroring app.auth (the plugin
+    // runtime's compose surface); its pins live on app.auth, which the
+    // release manifest records — the mirror composes the same pinned bytes,
+    // not "live, unpinned bytes".
+    const lines = await auditReleaseComposition({
+      remotes: [],
+      authoredPaths: new Set(),
+      localVersionOf: () => undefined,
+      provisionedRemotes: [],
+      manifestRemotePaths: ["app.auth", "app.auth.ui", "app.ui"],
+      configRemotePaths: ["app.auth", "app.auth.ui", "plugins.auth", "app.ui"],
+      pinnedReleaseVersion: "2.0.0-rc.38",
+      fetchImpl: fetch,
+    });
+    expect(lines).toEqual([]);
+  });
+
+  it("the auth mirror over an unrecorded app.auth is genuinely provisioned", async () => {
+    const lines = await auditReleaseComposition({
+      remotes: [],
+      authoredPaths: new Set(),
+      localVersionOf: () => undefined,
+      provisionedRemotes: [],
+      manifestRemotePaths: [],
+      configRemotePaths: ["plugins.auth"],
+      pinnedReleaseVersion: "2.0.0-rc.30",
+      fetchImpl: fetch,
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.remote).toBe("plugins.auth");
+    expect(lines[0]!.kind).toBe("provisioned");
+    expect(lines[0]!.message).toContain("run bos upgrade to re-pin and claim it");
+  });
+
   it("a manifest remote the merged config does not compose is an uncomposed note, not an upgrade", async () => {
     const lines = await auditReleaseComposition({
       remotes: [],

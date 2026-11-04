@@ -141,6 +141,19 @@ export interface CompositionAuditLine {
   message: string;
 }
 
+/** The package name a subpath singleton resolves through: `everything-dev/ui/auth`
+ * → `everything-dev` (scoped: `@scope/pkg/sub` → `@scope/pkg`; a bare package
+ * name — including `@scope/pkg` — has no subpath and yields undefined). */
+function subpathBaseName(name: string): string | undefined {
+  if (!name.includes("/")) return undefined;
+  if (name.startsWith("@")) {
+    const segments = name.split("/");
+    return segments.length >= 3 ? `${segments[0]}/${segments[1]}` : undefined;
+  }
+  const [pkg] = name.split("/");
+  return pkg;
+}
+
 /**
  * The publish key an owned remote realigns through: the workspace key the
  * scoped deploy train and `bos plugin publish` understand — `app.<key>` and
@@ -210,6 +223,16 @@ export async function auditReleaseComposition(input: {
       kind === "owned"
         ? ownedRemoteRepair(remote)
         : "run bos upgrade (the pin trails the chain serving this remote)";
+    // Subpath singletons (`everything-dev/ui/auth`, `everything-dev/ui/i18n`)
+    // never resolve as local packages — no own package.json or catalog row —
+    // so the probe falls back to the base package's installed version: the
+    // same package ships the subpath, one version serves both names.
+    const localOf = (sharedName: string): string | undefined => {
+      const local = input.localVersionOf(sharedName);
+      if (local !== undefined) return local;
+      const base = subpathBaseName(sharedName);
+      return base ? input.localVersionOf(base) : undefined;
+    };
     try {
       const resolved = await resolveRemoteVersion({
         base,
@@ -220,7 +243,7 @@ export async function auditReleaseComposition(input: {
         // Strict singletons must agree exactly (shareConfigFor: critical ⇒
         // strictVersion true); non-strict names range-coexist by design — no line.
         if (!strictness.get(name)) continue;
-        const local = input.localVersionOf(name);
+        const local = localOf(name);
         if (local !== undefined && local === version) continue;
         lines.push({
           remote,
@@ -252,6 +275,12 @@ export async function auditReleaseComposition(input: {
       !pinnedRemotes.has(remote) &&
       !input.authoredPaths.has(remote)
     ) {
+      // The auth mirror (config.ts adds plugins.auth mirroring app.auth — the
+      // plugin runtime's compose surface) composes app.auth's pinned bytes;
+      // the release manifest records the remote under its app domain ("its
+      // pins live on app.auth" — resolution/runtime.ts). A recorded app.auth
+      // covers the mirror; without one the mirror is genuinely unpinned.
+      if (remote === "plugins.auth" && manifestRemotePaths.has("app.auth")) continue;
       lines.push({
         remote,
         kind: "provisioned",
