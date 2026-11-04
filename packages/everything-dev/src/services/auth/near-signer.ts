@@ -30,6 +30,17 @@ export interface NearTransactionResult {
   signedWith: "env" | "credentials-file" | "near-cli-keychain";
 }
 
+/** near-kit's default mainnet RPC (free.rpc.fastnear.com) accepts signed
+ * broadcasts via send_tx and silently drops them post-acceptance (2026-11-04:
+ * every publish broadcast since 02:42 died UNKNOWN_TRANSACTION while the same
+ * endpoint served fresh nonce views, from CI runners and local machines
+ * alike). NEAR_RPC_URL pins the signing stack to an endpoint with a real
+ * transaction pool — set it to https://rpc.mainnet.near.org. Mirrors the
+ * auth plugin's dev-wiring convention (plugins/auth/plugin.dev.ts). */
+export function resolveNearRpcUrl(): string | undefined {
+  return process.env.NEAR_RPC_URL || undefined;
+}
+
 function assertPrivateKey(key: string): PrivateKey {
   if (!isPrivateKey(key)) {
     throw new NearTransactionError(
@@ -101,6 +112,7 @@ async function submitWithNearKit(
     network: tx.network,
     defaultSignerId: tx.account,
     privateKey: assertPrivateKey(privateKey),
+    rpcUrl: resolveNearRpcUrl(),
   });
 
   const outcome = await near
@@ -149,7 +161,7 @@ export async function classifyTransactionOutcome(
   accountId: string,
   network: NetworkId,
 ): Promise<TxStatus> {
-  const near = new Near({ network, defaultSignerId: accountId });
+  const near = new Near({ network, defaultSignerId: accountId, rpcUrl: resolveNearRpcUrl() });
   try {
     await near.getTransactionStatus(txHash, accountId, "NONE");
     return "included";
@@ -206,7 +218,11 @@ export async function checkPublishKeyHealth(input: {
   privateKey: string;
   network: NetworkId;
 }): Promise<PublishKeyHealth> {
-  const near = new Near({ network: input.network, defaultSignerId: input.account });
+  const near = new Near({
+    network: input.network,
+    defaultSignerId: input.account,
+    rpcUrl: resolveNearRpcUrl(),
+  });
   const publicKey = parseKey(input.privateKey).publicKey.toString();
   let view: Awaited<ReturnType<Near["getAccessKey"]>>;
   try {
