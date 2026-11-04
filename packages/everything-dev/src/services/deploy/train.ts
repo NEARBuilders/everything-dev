@@ -18,7 +18,7 @@ import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
 import { ensureCustodyBalance, submitRegistryWriteCustody } from "../auth/custody-signer";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegate-signer";
-import { submitRegistryWrite } from "../auth/near-signer";
+import { classifyTransactionOutcome, submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
 import type { Manifest } from "../platform/manifest";
@@ -1056,11 +1056,9 @@ export async function runPublishTrain(
       };
     }
 
-    console.log(`  Submitting transaction on ${network}...`);
-
-    // Auth handles were validated once in preflight (guards once per run,
-    // ticket #422) — the dispatch consumes the plan's handles.
-    const result = await (async (): Promise<{ success: boolean; txHash?: string }> => {
+    const submitOnce = async (): Promise<{ success: boolean; txHash?: string }> => {
+      // Auth handles were validated once in preflight (guards once per run,
+      // ticket #422) — the dispatch consumes the plan's handles.
       if (useCustody) {
         if (!plan.custodyWallet) {
           throw new PublishTrainError({
@@ -1113,8 +1111,10 @@ export async function runPublishTrain(
         privateKey: input.privateKey,
         strategy,
       });
-    })();
+    };
 
+    console.log(`  Submitting transaction on ${network}...`);
+    let result = await submitOnce();
     if (result.txHash) {
       console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
     }
@@ -1165,21 +1165,41 @@ export async function runPublishTrain(
             ]
           : []),
       ];
-      const verdict = await confirmPublish({
-        legs: confirmLegs,
-        ...(result.txHash ? { txHash: result.txHash } : {}),
-        read: (key) => deps.registry.fetchConfig(key.ref, input.registry),
-        history: (key, limit) => {
-          const { accountId, gatewayId } = parseRuntimeRef(key.ref);
-          return deps.registry.fetchHistory({
-            accountId,
-            gatewayId,
-            registry: input.registry,
-            limit,
-            keyPath: keyPathOf(key),
-          });
-        },
-      });
+      const runConfirm = (txHash?: string) =>
+        confirmPublish({
+          legs: confirmLegs,
+          ...(txHash
+            ? {
+                txHash,
+                txStatus: (tx: string) => classifyTransactionOutcome(tx, account, network),
+              }
+            : {}),
+          read: (key) => deps.registry.fetchConfig(key.ref, input.registry),
+          history: (key, limit) => {
+            const { accountId, gatewayId } = parseRuntimeRef(key.ref);
+            return deps.registry.fetchHistory({
+              accountId,
+              gatewayId,
+              registry: input.registry,
+              limit,
+              keyPath: keyPathOf(key),
+            });
+          },
+        });
+
+      let verdict = await runConfirm(result.txHash);
+      if (!verdict.ok && verdict.terminalTx) {
+        console.log(colors.yellow(`  ${verdict.lastError ?? "transaction rejected"}`));
+        console.log(
+          colors.yellow("  Resubmitting the identical publish bytes (fresh signing attempt)..."),
+        );
+        result = await submitOnce();
+        if (result.txHash) {
+          console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
+        }
+        console.log("  Waiting for publish confirmation...");
+        verdict = await runConfirm(result.txHash);
+      }
       if (!verdict.ok) {
         throw new Error(describeConfirmTimeout(confirmLegs, verdict));
       }

@@ -22,6 +22,12 @@ import { keyPathOf, type RegistryKey } from "./keys";
 
 export type ConfirmLegKind = "runtimeConfig" | "manifest" | "version";
 
+/** The submit's transaction as the chain sees it, from the `txStatus` seam.
+ * `invalid` is explicit rejection (stale nonce, expired); `unknown` means no
+ * node has the transaction; `unreachable` is a failed status probe — always
+ * treated as informative-only, never proof of anything. */
+export type TxStatus = "included" | "invalid" | "unknown" | "unreachable";
+
 export interface ConfigConfirmLeg {
   readonly kind: ConfirmLegKind;
   readonly key: RegistryKey;
@@ -43,6 +49,11 @@ export type ConfirmVerdict =
       readonly ok: false;
       readonly unverified: readonly ConfirmLegKind[];
       readonly lastError?: string;
+      /** The transaction reached a terminal-unapplied outcome — rejected on-chain
+       * or dropped at broadcast (most often a stale nonce). The registry was
+       * never written; content polling is pointless. The caller may resubmit
+       * identical bytes. */
+      readonly terminalTx?: true;
     };
 
 export interface ConfirmOptions {
@@ -54,6 +65,10 @@ export interface ConfirmOptions {
   /** Seams — tests substitute fakes; production defaults to the client. */
   readonly read?: (key: RegistryKey) => Promise<unknown>;
   readonly history?: (key: RegistryKey, limit: number) => Promise<Array<{ txHash?: string }>>;
+  /** The submit's transaction status as the chain sees it. `invalid` and an
+   * `unknown` state persisting past {@link TX_UNKNOWN_GRACE_MS} end the wait
+   * early with a terminal verdict; everything else keeps content polling. */
+  readonly txStatus?: (txHash: string) => Promise<TxStatus>;
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
 }
@@ -64,6 +79,23 @@ const envMs = (name: string): number | undefined => {
 };
 
 const deepEqual = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/** How long a transaction may stay unknown to the chain before the wait is
+ * declared terminal: a broadcast that landed is visible within seconds; one
+ * still unknown past this grace was dropped (most often a stale nonce from a
+ * lagging RPC at broadcast) and will never apply. */
+export const TX_UNKNOWN_GRACE_MS = 30_000;
+
+const terminalVerdict = (
+  txHash: string,
+  reason: string,
+  unverified: readonly ConfirmLegKind[],
+): Extract<ConfirmVerdict, { ok: false }> => ({
+  ok: false,
+  unverified: [...unverified],
+  lastError: `transaction ${txHash} will never apply (${reason}) — the registry was not written`,
+  terminalTx: true,
+});
 
 export async function confirmPublish(opts: ConfirmOptions): Promise<ConfirmVerdict> {
   const timeoutMs = opts.timeoutMs ?? envMs("BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS") ?? 120_000;
@@ -89,7 +121,36 @@ export async function confirmPublish(opts: ConfirmOptions): Promise<ConfirmVerdi
   let indexed = false;
 
   const startedAt = now();
+  let txUnknownSince: number | undefined;
   while (now() - startedAt < timeoutMs) {
+    if (opts.txHash && opts.txStatus && !indexed) {
+      let status: TxStatus;
+      try {
+        status = await opts.txStatus(opts.txHash);
+      } catch {
+        status = "unreachable";
+      }
+      if (status === "invalid") {
+        return terminalVerdict(
+          opts.txHash,
+          "rejected on-chain (invalid — most often a stale nonce at broadcast)",
+          pending().map((leg) => leg.kind),
+        );
+      }
+      if (status === "unknown") {
+        if (txUnknownSince === undefined) {
+          txUnknownSince = now();
+        } else if (now() - txUnknownSince >= TX_UNKNOWN_GRACE_MS) {
+          return terminalVerdict(
+            opts.txHash,
+            `unknown to the chain past ${TX_UNKNOWN_GRACE_MS / 1000}s — dropped at broadcast`,
+            pending().map((leg) => leg.kind),
+          );
+        }
+      } else {
+        txUnknownSince = undefined;
+      }
+    }
     if (trackByTx && !indexed) {
       try {
         const entries = await history(probeLeg!.key, 5);

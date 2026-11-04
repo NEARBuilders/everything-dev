@@ -17,6 +17,8 @@ import {
   type ConfirmLeg,
   confirmPublish,
   describeConfirmTimeout,
+  TX_UNKNOWN_GRACE_MS,
+  type TxStatus,
 } from "../../src/services/registry/confirm";
 import type { RegistryKey } from "../../src/services/registry/keys";
 import type { BosConfig } from "../../src/types";
@@ -47,7 +49,10 @@ function fakeClock(start = 1_000_000) {
   };
 }
 
-function harness(legs: ConfirmLeg[], opts?: { txHash?: string }) {
+function harness(
+  legs: ConfirmLeg[],
+  opts?: { txHash?: string; txStatus?: (txHash: string) => Promise<TxStatus> },
+) {
   const clock = fakeClock();
   const reads: Array<{ key: RegistryKey; value: unknown }> = [];
   const history: Array<{ txHash?: string }> = [];
@@ -55,6 +60,7 @@ function harness(legs: ConfirmLeg[], opts?: { txHash?: string }) {
   const outcome = confirmPublish({
     legs,
     ...(opts?.txHash ? { txHash: opts.txHash } : {}),
+    ...(opts?.txStatus ? { txStatus: opts.txStatus } : {}),
     timeoutMs: 10_000,
     intervalMs: 10,
     read: async (key) => {
@@ -177,6 +183,74 @@ describe("confirmPublish — the publish-confirmation state machine", () => {
     const h = harness([configLeg({ v: 1 })]);
     h.serve(CONFIG_KEY, { v: 1 });
     await expect(h.outcome).resolves.toEqual({ ok: true, verified: ["runtimeConfig"] });
+  });
+
+  it("an invalid transaction ends the wait immediately with a terminal verdict", async () => {
+    const txStatus = vi.fn<() => Promise<TxStatus>>().mockResolvedValue("invalid");
+    const h = harness([configLeg({ v: 1 })], { txHash: "tx1", txStatus });
+    const verdict = await h.outcome;
+    expect(verdict).toMatchObject({
+      ok: false,
+      terminalTx: true,
+      unverified: ["runtimeConfig"],
+    });
+    expect((verdict as Extract<typeof verdict, { ok: false }>).lastError).toContain(
+      "transaction tx1 will never apply",
+    );
+    expect((verdict as Extract<typeof verdict, { ok: false }>).lastError).toContain(
+      "rejected on-chain",
+    );
+    expect(txStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("a transaction unknown past the grace window is terminal — dropped at broadcast", async () => {
+    const clock = fakeClock();
+    const verdict = await confirmPublish({
+      legs: [configLeg({ v: 1 })],
+      txHash: "tx1",
+      txStatus: async () => "unknown",
+      timeoutMs: 60_000,
+      intervalMs: 10,
+      read: async () => {
+        throw new Error("registry unreachable");
+      },
+      history: async () => [],
+      now: clock.now,
+      sleep: async (ms) => {
+        clock.tick(ms);
+      },
+    });
+    expect(verdict).toMatchObject({ ok: false, terminalTx: true });
+    expect((verdict as Extract<typeof verdict, { ok: false }>).lastError).toContain(
+      `unknown to the chain past ${TX_UNKNOWN_GRACE_MS / 1000}s`,
+    );
+  });
+
+  it("a transient unknown never becomes terminal before the grace window", async () => {
+    let calls = 0;
+    const txStatus = vi.fn(async () =>
+      calls++ < 5 ? ("unknown" as TxStatus) : ("included" as TxStatus),
+    );
+    const h = harness([configLeg({ v: 1 })], { txHash: "tx1", txStatus });
+    const verdict = await h.outcome;
+    expect(verdict).toMatchObject({ ok: false, unverified: ["runtimeConfig"] });
+    expect("terminalTx" in verdict).toBe(false);
+    expect(calls).toBeGreaterThanOrEqual(5);
+  });
+
+  it("a status probe failure is informative only — content polling still verifies", async () => {
+    const txStatus = vi.fn<() => Promise<TxStatus>>().mockRejectedValue(new Error("rpc down"));
+    const h = harness([configLeg({ v: 1 })], { txHash: "tx1", txStatus });
+    h.serve(CONFIG_KEY, { v: 1 });
+    await expect(h.outcome).resolves.toEqual({ ok: true, verified: ["runtimeConfig"] });
+  });
+
+  it("without a txStatus seam the machine behaves exactly as before", async () => {
+    const h = harness([configLeg({ v: 1 })], { txHash: "tx1" });
+    h.serve(CONFIG_KEY, { v: 1 });
+    const verdict = await h.outcome;
+    expect(verdict).toEqual({ ok: true, verified: ["runtimeConfig"] });
+    expect("terminalTx" in verdict).toBe(false);
   });
 
   it("a leg read failure (unreachable) retries, then times out naming the leg", async () => {
