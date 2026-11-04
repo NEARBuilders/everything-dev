@@ -36,6 +36,17 @@ export interface RegistryConfigSourceDeps {
 const describe = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/** The degraded boot's marker (ADR 0041): the host process was started from
+ * the approved boot snapshot, so /health carries composition provenance until
+ * the watch adopts a published generation. */
+export const BOOT_SNAPSHOT_ENV_KEY = "BOS_BOOT_SNAPSHOT";
+
+export function bootSnapshotEnv(
+  source: "registry" | "snapshot" | null | undefined,
+): Record<string, string> {
+  return source === "snapshot" ? { [BOOT_SNAPSHOT_ENV_KEY]: "1" } : {};
+}
+
 export function createRegistryConfigSource(deps: RegistryConfigSourceDeps) {
   return {
     resolve: async (input: {

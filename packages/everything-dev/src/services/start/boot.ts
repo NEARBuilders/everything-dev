@@ -26,7 +26,7 @@ import { latestUrlFor } from "../registry/client";
 import { runtimeRefOf } from "../registry/keys";
 import { resolvePublishedConfig } from "../registry/published";
 import { bootSnapshotOf, readBootSnapshot, writeBootSnapshot } from "../snapshot/schema";
-import { createRegistryConfigSource } from "./snapshot-source";
+import { bootSnapshotEnv, createRegistryConfigSource } from "./snapshot-source";
 import { isRegistryStart, resolveStartConfigSource, type StartConfigSource } from "./source";
 
 export class StartFetchFailed extends Data.TaggedError("StartFetchFailed")<{ message: string }> {}
@@ -95,6 +95,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
     const warnings: string[] = [];
 
     let config: BosConfig | null = null;
+    let configResolutionSource: "registry" | "snapshot" | undefined;
 
     if (explicitConfig.configPath) {
       config = deps.session?.config ?? null;
@@ -125,6 +126,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
         });
       }
       config = resolved.config;
+      configResolutionSource = resolved.source;
       for (const warning of resolved.warnings) {
         warnings.push(warning);
       }
@@ -318,6 +320,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       packages: ["host"],
       env: {
         NODE_ENV: "production",
+        ...bootSnapshotEnv(configResolutionSource),
         ...productionEnv,
         ...stagingEnvVars,
         ...plan.launch.env,
