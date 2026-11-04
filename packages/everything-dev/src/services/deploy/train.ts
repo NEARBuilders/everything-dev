@@ -40,6 +40,7 @@ import {
   readVersionRecord,
 } from "../registry/pointer";
 import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
+import { bootSnapshotOf, writeBootSnapshot } from "../snapshot/schema";
 import {
   type BuildTargetsDeps,
   type BuildTargetsInput,
@@ -727,9 +728,7 @@ export async function runPublishTrain(
     bootShape = await resolveBootShape(
       publishPayload,
       { account, gateway },
-      {
-        ...(input.registry ? { registry: input.registry } : {}),
-      },
+      input.registry ? { registry: input.registry } : undefined,
     );
   } catch {
     // KEEP: re-walked by verifyBootPayload, which owns the chain-failure report
@@ -739,9 +738,7 @@ export async function runPublishTrain(
     : await verifyBootPayload(
         publishPayload,
         { account, gateway },
-        {
-          ...(input.registry ? { registry: input.registry } : {}),
-        },
+        input.registry ? { registry: input.registry } : undefined,
       );
   if (!bootCheck.ok) {
     const detail = bootCheck.issues
@@ -836,6 +833,7 @@ export async function runPublishTrain(
   // provenance, never a gate.
   let lock: ReturnType<typeof lockfileOf> | null = null;
   let lockfileDigest: string | null = null;
+  let lockfileSerialized: string | null = null;
   try {
     lock = lockfileOf({
       account,
@@ -843,7 +841,8 @@ export async function runPublishTrain(
       config: publishPayload as BosConfig,
       release: (publishPayload as { release?: string }).release ?? null,
     });
-    lockfileDigest = digestOfLockfile(serializeLockfile(lock));
+    lockfileSerialized = serializeLockfile(lock);
+    lockfileDigest = digestOfLockfile(lockfileSerialized);
   } catch (error) {
     console.log(
       colors.dim(
@@ -1076,6 +1075,39 @@ export async function runPublishTrain(
     }
   };
 
+  // The staging leg (ADR 0043): the control plane writes the approved
+  // snapshot for the composition it just confirmed live, so restarts of
+  // this runtime boot from the staged state instead of resolving. Stamped
+  // with the release thin tag (when the release leg ran) and the lockfile
+  // digest (the deployment record's identity). Non-fatal, like every
+  // provenance leg — and AWAITED: a floating write settles after the caller
+  // (a test's teardown, a process exit) has removed the target dir, and the
+  // escaped rejection kills the run.
+  const stageBootSnapshot = async () => {
+    if (!lockfileSerialized) return;
+    try {
+      const manifestTag = platformManifest
+        ? ManifestTagSchema.parse(JSON.parse(platformManifest.tag.value))
+        : null;
+      await writeBootSnapshot(
+        bootSnapshotOf({
+          account,
+          gateway,
+          config: publishPayload as BosConfig,
+          manifestTag,
+          lockfileDigest: lockfileDigest ?? undefined,
+        }),
+        { dir: join(configDir, ".bos", "snapshot") },
+      );
+    } catch (error) {
+      console.log(
+        colors.dim(
+          `  Note: could not stage the boot snapshot — ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  };
+
   try {
     // NOT deduped with the preflight's published-config read (#430): that
     // fetch returns the raw stored JSON, while the idempotency comparison is
@@ -1093,6 +1125,7 @@ export async function runPublishTrain(
       console.log("  Already up to date — skipping transaction");
       persistDeployState();
       persistLockfile();
+      await stageBootSnapshot();
       return {
         status: "published",
         registryUrl,
@@ -1267,6 +1300,7 @@ export async function runPublishTrain(
     }
     persistDeployState();
     persistLockfile();
+    await stageBootSnapshot();
 
     return {
       status: "published",

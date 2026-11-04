@@ -109,7 +109,7 @@ export async function publishRollbackSnapshot(
   const bootCheck = await verifyBootPayload(
     targetValue,
     { account: input.account, gateway: input.domain },
-    { ...(input.registry ? { registry: input.registry } : {}) },
+    input.registry ? { registry: input.registry } : undefined,
   );
   if (!bootCheck.ok) {
     const detail = bootCheck.issues
