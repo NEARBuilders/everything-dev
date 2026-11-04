@@ -3,29 +3,39 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { NearMock, nearCalls, builder, keychainSubmit, nearCliInstalled, getTransactionStatusMock } =
-  vi.hoisted(() => {
-    const nearCalls: Array<Record<string, unknown>> = [];
-    const send = vi.fn();
-    const functionCall = vi.fn(() => ({ send }));
-    const transaction = vi.fn(() => ({ functionCall }));
-    const getTransactionStatusMock = vi.fn();
-    class NearMock {
-      transaction = transaction;
-      getTransactionStatus = getTransactionStatusMock;
-      constructor(config: Record<string, unknown>) {
-        nearCalls.push(config);
-      }
+const {
+  NearMock,
+  nearCalls,
+  builder,
+  keychainSubmit,
+  nearCliInstalled,
+  getTransactionStatusMock,
+  getAccessKeyMock,
+} = vi.hoisted(() => {
+  const nearCalls: Array<Record<string, unknown>> = [];
+  const send = vi.fn();
+  const functionCall = vi.fn(() => ({ send }));
+  const transaction = vi.fn(() => ({ functionCall }));
+  const getTransactionStatusMock = vi.fn();
+  const getAccessKeyMock = vi.fn();
+  class NearMock {
+    transaction = transaction;
+    getTransactionStatus = getTransactionStatusMock;
+    getAccessKey = getAccessKeyMock;
+    constructor(config: Record<string, unknown>) {
+      nearCalls.push(config);
     }
-    return {
-      NearMock,
-      nearCalls,
-      builder: { send, functionCall, transaction },
-      keychainSubmit: vi.fn(),
-      nearCliInstalled: vi.fn(),
-      getTransactionStatusMock,
-    };
-  });
+  }
+  return {
+    NearMock,
+    nearCalls,
+    builder: { send, functionCall, transaction },
+    keychainSubmit: vi.fn(),
+    nearCliInstalled: vi.fn(),
+    getTransactionStatusMock,
+    getAccessKeyMock,
+  };
+});
 
 vi.mock("near-kit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("near-kit")>();
@@ -41,7 +51,9 @@ vi.mock("../../src/services/auth/near-cli", async (importOriginal) => {
   };
 });
 
+import { generateKey } from "near-kit";
 import {
+  checkPublishKeyHealth,
   classifyTransactionOutcome,
   describeSigningStrategy,
   resolveSigningKey,
@@ -391,10 +403,147 @@ describe("classifyTransactionOutcome — action-indexed semantics", () => {
     );
   });
 
+  it("the chain's real not-found shape (UNKNOWN_TRANSACTION) is unknown — terminal after grace, not silent", async () => {
+    getTransactionStatusMock.mockRejectedValue(
+      nearError("NetworkError", "RPC error [UNKNOWN_TRANSACTION]: Server error"),
+    );
+    await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
+      "unknown",
+    );
+  });
+
   it("a non-Error throw is unreachable — conservative default", async () => {
     getTransactionStatusMock.mockRejectedValue("total garbage");
     await expect(classifyTransactionOutcome("tx1", "dev.everything.near", "mainnet")).resolves.toBe(
       "unreachable",
     );
+  });
+});
+
+describe("checkPublishKeyHealth — the preflight key probe", () => {
+  const validKey = generateKey();
+  const input = {
+    account: "dev.everything.near",
+    contract: "dev.everything.near",
+    privateKey: validKey.secretKey,
+    network: "mainnet" as const,
+  };
+
+  afterEach(() => {
+    getAccessKeyMock.mockReset();
+  });
+
+  it("a correctly scoped function-call key passes", async () => {
+    getAccessKeyMock.mockResolvedValue({
+      nonce: 1,
+      permission: {
+        FunctionCall: { receiver_id: "dev.everything.near", method_names: ["__fastdata_kv"] },
+      },
+    });
+    await expect(checkPublishKeyHealth(input)).resolves.toEqual({ ok: true });
+  });
+
+  it("a function-call key with ample allowance passes", async () => {
+    getAccessKeyMock.mockResolvedValue({
+      nonce: 1,
+      permission: {
+        FunctionCall: {
+          receiver_id: "dev.everything.near",
+          method_names: ["__fastdata_kv"],
+          allowance: "1000000000000000000000000",
+        },
+      },
+    });
+    await expect(checkPublishKeyHealth(input)).resolves.toEqual({ ok: true });
+  });
+
+  it("a function-call key below one publish's prepaid gas fails with the allowance named", async () => {
+    getAccessKeyMock.mockResolvedValue({
+      nonce: 1,
+      permission: {
+        FunctionCall: {
+          receiver_id: "dev.everything.near",
+          method_names: ["__fastdata_kv"],
+          allowance: "100000000000000000000000",
+        },
+      },
+    });
+    const health = await checkPublishKeyHealth(input);
+    expect(health.ok).toBe(false);
+    expect(health.error).toContain("allowance");
+    expect(health.error).toContain("re-add the key without an allowance cap");
+  });
+
+  it("a key scoped to the wrong receiver fails naming both", async () => {
+    getAccessKeyMock.mockResolvedValue({
+      nonce: 1,
+      permission: {
+        FunctionCall: { receiver_id: "contextual.near", method_names: ["__fastdata_kv"] },
+      },
+    });
+    const health = await checkPublishKeyHealth(input);
+    expect(health.ok).toBe(false);
+    expect(health.error).toContain("scoped to receiver contextual.near");
+    expect(health.error).toContain("publishes call dev.everything.near");
+  });
+
+  it("a key scoped to the wrong method fails naming the method list", async () => {
+    getAccessKeyMock.mockResolvedValue({
+      nonce: 1,
+      permission: {
+        FunctionCall: { receiver_id: "dev.everything.near", method_names: ["set"] },
+      },
+    });
+    const health = await checkPublishKeyHealth(input);
+    expect(health.ok).toBe(false);
+    expect(health.error).toContain("methods [set]");
+    expect(health.error).toContain("__fastdata_kv");
+  });
+
+  it("a full-access key passes", async () => {
+    getAccessKeyMock.mockResolvedValue({ nonce: 1, permission: "FullAccess" });
+    await expect(checkPublishKeyHealth(input)).resolves.toEqual({ ok: true });
+  });
+
+  it("a gas key scoped correctly passes on its balance", async () => {
+    getAccessKeyMock.mockResolvedValue({
+      nonce: 1,
+      permission: {
+        GasKeyFunctionCall: {
+          receiver_id: "dev.everything.near",
+          method_names: ["__fastdata_kv"],
+          balance: "500000000000000000000000",
+          num_nonces: 4,
+        },
+      },
+    });
+    await expect(checkPublishKeyHealth(input)).resolves.toEqual({ ok: true });
+  });
+
+  it("a key missing from the account fails with the on-chain add-key repair line", async () => {
+    getAccessKeyMock.mockRejectedValue(
+      nearError("AccessKeyDoesNotExistError", "the access key is not found"),
+    );
+    const health = await checkPublishKeyHealth(input);
+    expect(health.ok).toBe(false);
+    expect(health.error).toContain(validKey.publicKey.toString());
+    expect(health.error).toContain("near account add-key dev.everything.near");
+    expect(health.error).toContain("--method-names __fastdata_kv");
+  });
+
+  it("a missing publisher account fails with the account named", async () => {
+    getAccessKeyMock.mockRejectedValue(
+      nearError("AccountDoesNotExistError", "account does not exist"),
+    );
+    const health = await checkPublishKeyHealth(input);
+    expect(health.ok).toBe(false);
+    expect(health.error).toContain("does not exist on mainnet");
+  });
+
+  it("an unreachable registry RPC is a soft skip, never a block", async () => {
+    getAccessKeyMock.mockRejectedValue(nearError("TimeoutError", "request timed out"));
+    const health = await checkPublishKeyHealth(input);
+    expect(health.ok).toBe(true);
+    expect(health.warning).toContain("skipped");
   });
 });

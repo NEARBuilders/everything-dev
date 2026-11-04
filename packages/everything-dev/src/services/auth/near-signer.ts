@@ -1,4 +1,4 @@
-import { isPrivateKey, Near, type PrivateKey } from "near-kit";
+import { isPrivateKey, Near, type PrivateKey, parseKey } from "near-kit";
 import { FileKeyStore } from "near-kit/keys/file";
 import type { TxStatus } from "../registry/confirm";
 import type { NetworkId } from "../registry/fastkv";
@@ -170,9 +170,114 @@ export async function classifyTransactionOutcome(
       case "AccountDoesNotExistError":
         return "invalid";
       case "NetworkError":
-        return /not found|unknown transaction/i.test(error.message) ? "unknown" : "unreachable";
+        return /not found|unknown/i.test(error.message) ? "unknown" : "unreachable";
       default:
         return "unreachable";
     }
   }
+}
+
+/** One publish prepays 300 Tgas; the floor covers a full-price (1e9 yoctoNEAR
+ * per gas unit) inclusion burn of a failed execution. */
+const MIN_PUBLISH_ALLOWANCE_YOCTO = 300_000_000_000_000_000_000_000n;
+
+export interface PublishKeyHealth {
+  ok: boolean;
+  warning?: string;
+  error?: string;
+}
+
+interface ScopedAccessKeyPermission {
+  receiver_id: string;
+  method_names: string[];
+  allowance?: string | null;
+  balance?: string;
+}
+
+/** Verify the signing key exists on the publisher account and is scoped to
+ * exactly what a publish calls (`__fastdata_kv` on the registry namespace)
+ * before the build train runs — a rotated or exhausted key otherwise surfaces
+ * only as an UNKNOWN_TRANSACTION broadcast that never appears on-chain. Probe
+ * failures are soft: an unreachable registry RPC must not block an
+ * otherwise-valid publish. */
+export async function checkPublishKeyHealth(input: {
+  account: string;
+  contract: string;
+  privateKey: string;
+  network: NetworkId;
+}): Promise<PublishKeyHealth> {
+  const near = new Near({ network: input.network, defaultSignerId: input.account });
+  const publicKey = parseKey(input.privateKey).publicKey.toString();
+  let view: Awaited<ReturnType<Near["getAccessKey"]>>;
+  try {
+    view = await near.getAccessKey(input.account, publicKey);
+  } catch (error) {
+    if (!(error instanceof Error)) {
+      return { ok: true, warning: "key health check skipped (registry RPC unreachable)" };
+    }
+    if (error.name === "AccountDoesNotExistError") {
+      return {
+        ok: false,
+        error: `publisher account ${input.account} does not exist on ${input.network}`,
+      };
+    }
+    if (error.name === "AccessKeyDoesNotExistError") {
+      return {
+        ok: false,
+        error: publishKeyRepairHint(input.account, input.contract, publicKey),
+      };
+    }
+    return { ok: true, warning: "key health check skipped (registry RPC unreachable)" };
+  }
+  if (!view) {
+    return { ok: false, error: publishKeyRepairHint(input.account, input.contract, publicKey) };
+  }
+  const permission = view.permission as
+    | "FullAccess"
+    | { FunctionCall?: ScopedAccessKeyPermission; GasKeyFunctionCall?: ScopedAccessKeyPermission };
+  if (typeof permission !== "object") {
+    return { ok: true };
+  }
+  const isGasKey = "GasKeyFunctionCall" in permission;
+  const scoped = isGasKey ? permission.GasKeyFunctionCall : permission.FunctionCall;
+  if (!scoped) {
+    return { ok: true };
+  }
+  const kind = isGasKey ? "gas key" : "publish key";
+  if (scoped.receiver_id !== input.contract) {
+    return {
+      ok: false,
+      error:
+        `the signing ${kind} is scoped to receiver ${scoped.receiver_id}, but publishes call ` +
+        `${input.contract} — ${publishKeyRepairHint(input.account, input.contract, publicKey)}`,
+    };
+  }
+  if (scoped.method_names.length > 0 && !scoped.method_names.includes("__fastdata_kv")) {
+    return {
+      ok: false,
+      error:
+        `the signing ${kind} is scoped to methods [${scoped.method_names.join(", ")}], but ` +
+        `publishes call \`__fastdata_kv\` — ${publishKeyRepairHint(input.account, input.contract, publicKey)}`,
+    };
+  }
+  const capped = scoped.allowance ?? scoped.balance;
+  if (capped && BigInt(capped) < MIN_PUBLISH_ALLOWANCE_YOCTO) {
+    return {
+      ok: false,
+      error:
+        `the signing ${kind}'s remaining ${isGasKey ? "balance" : "allowance"} (${capped} ` +
+        `yoctoNEAR) is below one publish's prepaid gas (~${MIN_PUBLISH_ALLOWANCE_YOCTO} ` +
+        "yoctoNEAR) — re-add the key without an allowance cap",
+    };
+  }
+  return { ok: true };
+}
+
+function publishKeyRepairHint(account: string, contract: string, publicKey: string): string {
+  return (
+    `the signing key ${publicKey} is not a publish key on ${account}. Fix on-chain, then re-run: ` +
+    `\`near account add-key ${account} ${publicKey} --receiver-id ${contract} ` +
+    '--method-names __fastdata_kv network-config mainnet" ' +
+    "signed by any existing full-access signer, or re-mint with `bos login --key` and update NEAR_PRIVATE_KEY"
+  );
 }

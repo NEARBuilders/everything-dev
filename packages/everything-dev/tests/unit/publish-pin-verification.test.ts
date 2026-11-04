@@ -43,6 +43,7 @@ vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
   return {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,
+    checkPublishKeyHealth: () => Promise.resolve({ ok: true }),
     submitRegistryWrite: submitRegistryWriteMock,
   };
 });

@@ -4,12 +4,17 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeSessionHandle } from "../../src/services/auth/session";
 
-const { ensureDelegateKeyMock, submitRegistryWriteDelegatedMock, classifyTransactionOutcomeMock } =
-  vi.hoisted(() => ({
-    ensureDelegateKeyMock: vi.fn(),
-    submitRegistryWriteDelegatedMock: vi.fn(),
-    classifyTransactionOutcomeMock: vi.fn(),
-  }));
+const {
+  ensureDelegateKeyMock,
+  submitRegistryWriteDelegatedMock,
+  classifyTransactionOutcomeMock,
+  checkPublishKeyHealthMock,
+} = vi.hoisted(() => ({
+  ensureDelegateKeyMock: vi.fn(),
+  submitRegistryWriteDelegatedMock: vi.fn(),
+  classifyTransactionOutcomeMock: vi.fn(),
+  checkPublishKeyHealthMock: vi.fn(),
+}));
 
 vi.mock("../../src/services/auth/delegate-signer", () => ({
   ensureDelegateKey: ensureDelegateKeyMock,
@@ -18,7 +23,11 @@ vi.mock("../../src/services/auth/delegate-signer", () => ({
 
 vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/auth/near-signer")>();
-  return { ...actual, classifyTransactionOutcome: classifyTransactionOutcomeMock };
+  return {
+    ...actual,
+    classifyTransactionOutcome: classifyTransactionOutcomeMock,
+    checkPublishKeyHealth: checkPublishKeyHealthMock,
+  };
 });
 
 const { fetchBosConfigFromFastKvMock } = vi.hoisted(() => ({
@@ -84,6 +93,7 @@ describe("publishToFastKv publish.auth guard", () => {
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), "bos-publish-guard-"));
+    checkPublishKeyHealthMock.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
