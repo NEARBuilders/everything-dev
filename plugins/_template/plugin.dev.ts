@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { pgliteDefaultUrlForSlug, workspaceIdentityFromModuleUrl } from "everything-dev/db";
 import type { PluginConfigInput } from "every-plugin";
+import { pgliteDefaultUrlForSlug, workspaceIdentityFromModuleUrl } from "everything-dev/db";
 import type Plugin from "./src/index";
 
 // Same derivation as src/index.ts — a renamed template copy gets its own dir.

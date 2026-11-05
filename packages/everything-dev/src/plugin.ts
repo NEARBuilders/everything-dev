@@ -1,14 +1,14 @@
-import process from "node:process";
 import { dirname } from "node:path";
+import process from "node:process";
 import * as p from "@clack/prompts";
 import { Context, Effect, Layer } from "effect";
 import { buildScoped, buildScopedContext } from "every-plugin";
-import { migrateLegacyComposeState } from "./env/legacy-databases";
 import { cliDeployTrainRender } from "./cli/render/deploy-train";
 import { cliWorkspaceBuildRender } from "./cli/render/workspace-build";
 import { bosContract } from "./contract";
 import { DatabaseBindings, makeDatabaseBindings } from "./db/bindings";
 import { DrizzleKit, makeDrizzleKitLive } from "./db/drizzle-kit";
+import { migrateLegacyComposeState } from "./env/legacy-databases";
 import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
 import { registerBuild } from "./handlers/build";
 import { registerConfig } from "./handlers/config";
@@ -77,9 +77,7 @@ export default createPlugin({
       // dotenv never overrides already-set keys, so every consumer in this
       // process must see the repaired file (ADR 0044).
       yield* migrateLegacyComposeState(dirname(configPath ?? process.cwd()));
-      const session = yield* Effect.promise(() =>
-        openResolution({ path: configPath }),
-      );
+      const session = yield* Effect.promise(() => openResolution({ path: configPath }));
 
       const projectEnv = yield* buildScoped(ProjectEnv, ProjectEnvLive);
       const effectContext = yield* Effect.context();

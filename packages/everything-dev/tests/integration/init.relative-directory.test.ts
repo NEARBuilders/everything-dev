@@ -100,7 +100,7 @@ describe("bos init - relative directory", () => {
     // Substrate URLs render empty with an opt-in hint (plan 055 ticket 11).
     expect(envExample).toContain("API_DATABASE_URL=");
     expect(envExample).toContain(
-      "# Leave empty for the persistent local PGlite default (.bos/db); set a postgres:// URL for production or shared access.",
+      "# Leave empty for the per-workspace PGlite default (.bos/db/<slug>); set a postgres:// URL for production or shared access.",
     );
     expect(envExample).toContain("CORS_ORIGIN=http://localhost:3000");
     expect(envExample).not.toContain("PROJECTS_DATABASE_URL=");
