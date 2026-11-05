@@ -1,5 +1,33 @@
 # everything-dev
 
+## 2.0.0-rc.39
+
+### Minor Changes
+
+- 7363c4e: Per-identity PGlite data dirs — multiple in-process plugins no longer share one data dir (fixes #787). The zero-config default is now `pglite:.bos/db/<slug>` (slug = the workspace's migration slug, e.g. `pglite:.bos/db/api`, `pglite:.bos/db/auth`, `pglite:.bos/db/agent_connect`): multiple live PGlite instances on one data dir don't coordinate and silently corrupt committed data — heap/index divergence made `SELECT` see empty tables while `INSERT` failed with duplicate-key on empty tables (first SIWN sign-in broke). Changes: (1) `pgliteDefaultUrlForSlug(slug)` replaces the single shared default everywhere (`resolveDatabaseUrl`, bindings, conventional env templates, deploy smoke); `PGLITE_DEFAULT_URL` remains as the layout base/legacy-pin literal, `PGLITE_DEV_DATABASE_URL` is removed (use `pgliteDefaultUrlForSlug(normalizeDatabaseSlug(secret))`). (2) `createDatabaseDriver`'s pglite branch refuses a second concurrent open of one data dir in-process (decoded-absolute guard key — relative, `file://`, and bare spellings of one dir all collide), throwing with a remediation message; sequential close→reopen stays legal, in-memory stays exempt; `file://` URLs are now decoded before `mkdirSync` (the raw URL created a literal `file:` junk directory). (3) `bos dev`'s one-time repair splits `.env` pins that share the legacy `pglite:.bos/db` literal into per-identity subdirs (idempotent; only the exact legacy literal; a rewrite is skipped if its target dir is occupied by a pin that stays). (4) `bos dev` preflight fails any remaining composition where two or more `*_DATABASE_URL` secrets resolve to the same pglite dir (in-memory exempt). (5) The regression-env dev-data guard refuses any `pglite:.bos/db` URL including per-slug subdirs. Scaffolded plugin defaults, dev overlays, and templates pin per-identity dirs; ADR 0044 records the decision and supersedes ADR 0038's shared-dir topology. Real data sharing is unchanged on `postgres://` (plugin secrets fall back to `API_DATABASE_URL` with `plugin_<slug>` schema isolation).
+
+### Patch Changes
+
+- def20e4: Export the db support types the migration-runner signatures reference — `DriftReport`, `MigrationReport`, `MigrationDatabase`, `RunMigrationsOptions`, `LoadMigrationsOptions` are now re-exported from `everything-dev/db` alongside the functions that consume them, so external consumers (the sync-owned plugin `src/db/layer.ts` template and any child workspace calling `runMigrations`/`detectDrift` directly) typecheck without local structural copies.
+
+  Fixes #789.
+
+- c2a2926: Dev-boot composition audit stops flagging coherent rc.38 children (surfaced by the opencrosspost.com boot — three divergence lines whose named repairs could never clear them):
+
+  - Subpath singletons (`everything-dev/ui/auth`, `everything-dev/ui/i18n`) resolve through their base package's installed version when probed locally. The subpath has no own package.json or catalog row, so every child's ui/auth-ui remotes — whose bundles embed the subpath in their shared maps — printed `everything-dev/ui/auth@unknown` divergences forever, and the audit's own repair instructions (`bos deploy --packages ui` / `bos upgrade`) were no-ops for the actual half of the comparison.
+  - The auth mirror (`plugins.auth`, added by config.ts mirroring `app.auth` as the plugin runtime's compose surface) no longer reports "missing from the release composition — it composes live, unpinned bytes" when the manifest records `app.auth`: the mirror composes app.auth's pinned bytes, and a recorded `app.auth` covers it. A mirror over an unrecorded `app.auth` is still a genuine provisioned line.
+
+- 52370a9: Deleting `.bos/logs` mid-run no longer wedges the dev orchestrator in an ENOENT rejection loop. The dev log file sink now recreates the directory on a missing-dir write failure and retries once; when the path still can't be written (e.g. `.bos/logs` replaced by a file), entries degrade to drop-silently with a single warning instead of failing per line, and a later recovery resets the state. The writer's promise chain internalizes failures, so the fire-and-forget `logger.write` call site can never surface an unhandled rejection — which was the loop edge: each failed write rejected, the rejection handler logged through the (console-patched) bridge back into the pipeline, and every ingested line enqueued another failing write. The orchestrator's `unhandledRejection`/`uncaughtException` handlers now use the real console captured at module load, so rejection reporting can never re-enter the pipeline through `patchConsole`.
+
+  Fixes #791.
+
+- 81ba11a: `bos dev` no longer registers ports it never owned. The teardown port registry is populated from the resolved runtime config, so remote extends-chain entries (auth/ui/plugins served from `https://` URLs) contributed their derived implicit ports (443/80) — every shutdown then probed them, reporting a false "Port N still bound after teardown" attributed via lsof to an unrelated process (Chrome's network service on 443). Registration now mirrors the planner's allocation gating: only `source: "local"` services are registered, which also stops `bos kill` from refusing to unregister with "ports still bound after kill: 443" and keeps `claimedPorts()` clean.
+
+  Fixes #790.
+
+- Updated dependencies [7363c4e]
+  - better-near-auth@2.0.0-rc.7
+
 ## 2.0.0-rc.38
 
 ### Minor Changes
