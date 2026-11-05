@@ -1,5 +1,8 @@
 import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { pgliteDefaultUrlForSlug } from "./binding";
 import { pluginMigrationSlug } from "./core";
 
 export interface DatabaseDriver<TSchema extends Record<string, unknown>> {
@@ -188,6 +191,39 @@ function createCloseHandler(pool: PoolLike): () => Promise<void> {
 }
 
 /**
+ * PGlite is a single-connection, single-instance engine: every instance keeps
+ * a private buffer cache and there is no cross-instance coordination, so two
+ * live instances on one data dir checkpoint stale pages over each other's
+ * committed data — heap/index divergence, invisible rows, duplicate-key
+ * violations on empty tables (ADR 0044). This process-level registry refuses
+ * a second concurrent open instead of corrupting silently; sequential
+ * close→reopen stays legal.
+ */
+const openPgliteDirs = new Set<string>();
+
+/**
+ * The guard key is the decoded, absolute filesystem path of the data dir —
+ * `pglite:.bos/db/x` (cwd-relative), `pglite:file:///abs/x`, and any other
+ * spelling of one dir must collide. `file://` URLs decode via `fileURLToPath`;
+ * feeding the raw URL to `resolve`/`mkdirSync` would treat `file:` as a
+ * relative directory name and create junk.
+ */
+function pgliteGuardKey(rawDir: string): string | undefined {
+  if (rawDir === ":memory:" || rawDir.endsWith("/:memory:")) return undefined;
+  const withoutScheme = rawDir.startsWith("file://") ? fileURLToPath(rawDir) : rawDir;
+  return resolve(withoutScheme);
+}
+
+function pgliteDoubleOpenError(dataDir: string): Error {
+  return new Error(
+    `[db] PGlite data dir "${dataDir}" is already open in this process — refusing a second ` +
+      "instance on the same dir (multiple live PGlite instances silently corrupt committed " +
+      "data, ADR 0044). Give each workspace its own data dir: per-identity *_DATABASE_URL " +
+      `values (${pgliteDefaultUrlForSlug("your-plugin")}) or a postgres:// URL.`,
+  );
+}
+
+/**
  * Create a drizzle database driver for a plugin, choosing the engine by URL
  * scheme: `pglite:` / `:memory:` → embedded PGlite, anything else → postgres
  * (`pg.Pool`).
@@ -209,15 +245,36 @@ export async function createDatabaseDriver<TSchema extends Record<string, unknow
     const { PGlite } = await import("@electric-sql/pglite");
     const rawDir = url === ":memory:" ? ":memory:" : url.replace("pglite:", "");
     const dataDir = rawDir.endsWith("/:memory:") || rawDir === ":memory:" ? "memory://" : rawDir;
-    if (dataDir !== "memory://") {
-      // PGlite mkdirs only the leaf component — the whole prefix must exist.
-      mkdirSync(dataDir, { recursive: true });
+    const guardKey = pgliteGuardKey(rawDir);
+
+    if (guardKey) {
+      if (openPgliteDirs.has(guardKey)) throw pgliteDoubleOpenError(dataDir);
+      openPgliteDirs.add(guardKey);
     }
-    const pglite = new PGlite(dataDir);
-    if (namespace) {
-      await pglite.exec(`CREATE SCHEMA IF NOT EXISTS "${namespace}"`);
-      await pglite.exec(`SET search_path TO "${namespace}", public`);
+
+    let pglite: InstanceType<typeof PGlite>;
+    try {
+      if (guardKey) {
+        // PGlite mkdirs only the leaf component — the whole prefix must exist.
+        mkdirSync(guardKey, { recursive: true });
+      }
+      pglite = new PGlite(dataDir);
+    } catch (error) {
+      if (guardKey) openPgliteDirs.delete(guardKey);
+      throw error;
     }
+
+    try {
+      if (namespace) {
+        await pglite.exec(`CREATE SCHEMA IF NOT EXISTS "${namespace}"`);
+        await pglite.exec(`SET search_path TO "${namespace}", public`);
+      }
+    } catch (error) {
+      await pglite.close().catch(() => {});
+      if (guardKey) openPgliteDirs.delete(guardKey);
+      throw error;
+    }
+
     const db = drizzle(pglite, { schema: schema as never }) as unknown as PgDatabase<
       PgQueryResultHKT,
       TSchema
@@ -226,6 +283,7 @@ export async function createDatabaseDriver<TSchema extends Record<string, unknow
       db,
       close: async () => {
         await pglite.close();
+        if (guardKey) openPgliteDirs.delete(guardKey);
       },
     };
   }

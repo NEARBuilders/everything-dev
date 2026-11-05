@@ -240,7 +240,7 @@ pnpm install
 pnpm run dev
 
 # Zero-config: no .env needed — the local database is a persistent, file-backed
-# PGlite data dir (.bos/db per workspace, ADR 0038); BETTER_AUTH_SECRET is
+# PGlite data dir per workspace (.bos/db/<slug>, ADR 0044); BETTER_AUTH_SECRET is
 # generated per-run (dev-only, not persisted). Opt out of the default by writing
 # a postgres:// URL into *_DATABASE_URL in .env (production/shared server).
 
@@ -248,15 +248,18 @@ pnpm run dev
 bos dev --port 3100 --api-port 3101 --ui-port 3103 --auth-port 3102 --plugin-port-start 3110
 ```
 
-**Databases — PGlite only (ADR 0038):** no docker-compose, no local Postgres. Each
-workspace process persists to its own `pglite:.bos/db` data dir (`api/.bos/db`,
-`plugins/<id>/.bos/db`, …); concurrent projects (even 40 at once) can never fight over DB
-ports. The api and its in-process plugins share one data dir with `plugin_<slug>` schema
-isolation; auth keeps its own dir. pglite ≥ 0.4.6 supports multiple instances per data dir
-across processes, so dev and tools share data safely (heavy writers may queue on the file
-lock). The pglite default is a runtime-driver concern: boot migrations apply zero-config,
-but drizzle-kit commands (`db:studio`/`db:migrate`/`db:push`) require a `postgres://` URL
-in `*_DATABASE_URL` (their configs are static `dialect: "postgresql"`).
+**Databases — PGlite only (ADR 0038/0044):** no docker-compose, no local Postgres. Each
+workspace persists to its own per-identity data dir (`pglite:.bos/db/<slug>` —
+`api/.bos/db/api`, `plugins/<id>/.bos/db/<slug>`, auth at `.bos/db/auth`, …); concurrent
+projects (even 40 at once) can never fight over DB ports, and two live PGlite instances can
+never share one dir — they don't coordinate and silently corrupt committed data (heap/index
+divergence, issue #787), so the driver refuses double-opens and preflight fails any
+same-dir composition. Real data sharing stays on `postgres://`: plugin `*_DATABASE_URL`
+secrets fall back to `API_DATABASE_URL` with `plugin_<slug>` schema isolation; auth keeps
+its own database. Cross-process access (tools vs a running dev stack) queues on pglite's
+file lock. The pglite default is a runtime-driver concern: boot migrations apply
+zero-config, but drizzle-kit commands (`db:studio`/`db:migrate`/`db:push`) require a
+`postgres://` URL in `*_DATABASE_URL` (their configs are static `dialect: "postgresql"`).
 
 **Degraded/parity mode:** production or shared-server access points `*_DATABASE_URL` in
 `.env` at a real `postgres://` URL (Neon/Railway per ADR 0035). Parity testing pglite/pg
@@ -267,11 +270,12 @@ divergence sets `TEST_DATABASE=postgres` + the external URL — no committed com
 suites load `.env.test` instead of `.env`: the regression stack
 (`tests/regression/lib/start-stack.mjs`) injects it into spawned stacks,
 `tests/regression/lib/regression-env.mjs` resolves it with fail-fast guards that refuse
-to run against dev data (the per-workspace `.bos/db` default or legacy dev postgres URLs;
-override deliberately with `REGRESSION_ALLOW_DEV_DB=1`), and api unit/integration tests
+to run against dev data (any `pglite:.bos/db` URL — the bare root or a `<slug>` subdir —
+or legacy dev postgres URLs; override deliberately with `REGRESSION_ALLOW_DEV_DB=1`), and
+api unit/integration tests
 pin to in-memory pglite unless `TEST_DATABASE=postgres` opts into external URLs.
 
-The API and plugins auto-apply migrations on boot, so `pnpm run db:migrate` is optional (use it to migrate without starting the dev server). `pnpm run dev` runs `bos dev`'s preflight, which probes any `postgres://`/`redis://` URLs the operator configured (pglite URLs need no probe) before spawning. The first run also migrates state left over from the retired docker-compose era: conventional `postgres://everythingdev:…@localhost:543x/…` URLs in `.env` are rewritten to the pglite defaults and a scaffold-shaped `docker-compose.yml` is relocated to `.bos/compose-retired/`. Bootstrap-phase INFO logs (e.g. `[env] ... updated` port-drift lines) are suppressed on the console by default — pass `--log-level info` (or set `BOS_LOG_LEVEL` / `DEBUG=1`) to see them; warnings and errors always print.
+The API and plugins auto-apply migrations on boot, so `pnpm run db:migrate` is optional (use it to migrate without starting the dev server). `pnpm run dev` runs `bos dev`'s preflight, which probes any `postgres://`/`redis://` URLs the operator configured and fails loudly when two or more `pglite:` secrets resolve to the same data dir (ADR 0044). The first run also migrates state left over from retired eras: conventional `postgres://everythingdev:…@localhost:543x/…` URLs in `.env` are rewritten to the per-identity pglite defaults, `.env` pins that share the legacy `pglite:.bos/db` dir are split into per-identity subdirs, and a scaffold-shaped `docker-compose.yml` is relocated to `.bos/compose-retired/`. Bootstrap-phase INFO logs (e.g. `[env] ... updated` port-drift lines) are suppressed on the console by default — pass `--log-level info` (or set `BOS_LOG_LEVEL` / `DEBUG=1`) to see them; warnings and errors always print.
 
 Port allocation is atomic block allocation (ADR 0012): the layout derives deterministically from one base port (`--port N` → api N+1, auth N+2, ui N+3, plugins N+10+), the whole block is validated before anything spawns, and only explicitly-passed port flags persist to `.bos/infra-state.json` under `devPorts` (drift is never persisted — a busy block moves +100 with a prominent notice naming the holders, and restarts re-try the preferred base). Explicitly-passed flags are pinned: if that exact port is occupied, allocation fails loudly instead of silently moving. `bos kill` escalates SIGTERM → 5s → SIGKILL, reaps orphaned children of dead sessions, and verifies ports actually freed; new sessions adopt-and-reap orphaned children from dead same-project sessions at boot. Test-spawned stacks never persist ports (`BOS_NO_PERSIST_PORTS=1`, plus `NODE_ENV=test` / `BOS_TEST=1` are honored), so test runs can never repin your dev ports.
 `CORS_ORIGIN` in `.env.example` is derived from the actual resolved host port in development.

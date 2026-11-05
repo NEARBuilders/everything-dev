@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bindingEnv, PGLITE_DEFAULT_URL, resolveDatabaseUrl } from "../../src/db/binding";
+import { bindingEnv, pgliteDefaultUrlForSlug, resolveDatabaseUrl } from "../../src/db/binding";
 import { workspaceIdentityFromWorkspaceDir } from "../../src/db/identity";
 
 function makeWorkspace(): { workspaceDir: string; cleanup: () => void } {
@@ -51,11 +51,11 @@ describe("resolveDatabaseUrl", () => {
     }
   });
 
-  it("defaults to the persistent pglite data dir when no URL is configured", () => {
+  it("defaults to the per-identity pglite data dir when no URL is configured", () => {
     const { workspaceDir, cleanup } = makeWorkspace();
     try {
       const identity = workspaceIdentity(workspaceDir);
-      expect(resolveDatabaseUrl(identity, { env: {} })).toBe(PGLITE_DEFAULT_URL);
+      expect(resolveDatabaseUrl(identity, { env: {} })).toBe(pgliteDefaultUrlForSlug("widgets"));
     } finally {
       cleanup();
     }

@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { Context, Data, Effect, Layer } from "effect";
 import type { RuntimeConfig } from "../types";
-import { PGLITE_DEFAULT_URL } from "./binding";
+import { pgliteDefaultUrlForSlug } from "./binding";
 import { getDatabaseUrlSecretName, getMigrationStorage, pluginMigrationSlug } from "./core";
 import { type WorkspaceIdentity, workspaceIdentityFromWorkspaceDir } from "./identity";
 
@@ -112,7 +112,7 @@ function resolvePluginBinding(
       source: source ?? "remote",
       section,
       identity,
-      url: PGLITE_DEFAULT_URL,
+      url: pgliteDefaultUrlForSlug(identity.slug),
     };
   }
 

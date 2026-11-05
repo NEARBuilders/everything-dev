@@ -11,7 +11,7 @@ export default {
       privatePluginIds: ["nearcatalog"],
     },
     secrets: {
-      PROPOSALS_DATABASE_URL: process.env.PROPOSALS_DATABASE_URL || "pglite:.bos/db",
+      PROPOSALS_DATABASE_URL: process.env.PROPOSALS_DATABASE_URL || "pglite:.bos/db/proposals",
     },
   } satisfies PluginConfigInput<typeof Plugin>,
 };

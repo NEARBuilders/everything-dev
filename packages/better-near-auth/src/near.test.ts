@@ -419,6 +419,34 @@ describe("siwn plugin", () => {
       expect(error).toBeDefined();
     });
 
+    it("logs the error cause chain when verification fails unexpectedly", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const rootCause = Object.assign(new Error("duplicate key value violates unique constraint"), {
+        code: "23505",
+        detail: "Key (email)=(test@near.email) already exists.",
+        constraint: "user_email_unique",
+      });
+      const { client } = await setup({
+        getProfile: async () => {
+          throw Object.assign(new Error('Failed query: insert into "user"'), {
+            cause: rootCause,
+          });
+        },
+      });
+
+      const { error } = await client.near.verify(makeVerifyBody());
+      expect(error).toBeDefined();
+      expect(error?.status).toBe(401);
+
+      const logged = String(errorSpy.mock.calls[0]?.[0]);
+      expect(logged).toContain("[siwn] Verify error:");
+      expect(logged).toContain('Failed query: insert into "user"');
+      expect(logged).toContain("— cause:");
+      expect(logged).toContain("23505");
+      expect(logged).toContain("user_email_unique");
+      errorSpy.mockRestore();
+    });
+
     it("should create a user with near.email for .near accounts", async () => {
       const { client, db } = await setup();
       const { data } = await client.near.verify(makeVerifyBody());

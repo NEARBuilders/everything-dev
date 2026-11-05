@@ -1,4 +1,5 @@
 import { createConnection } from "node:net";
+import { resolve } from "node:path";
 import { Data, Effect } from "effect";
 
 class PreflightConnectionError extends Data.TaggedError("PreflightConnectionError")<{
@@ -124,13 +125,54 @@ function preflightTargetsFromEnv(env: Record<string, string>): PreflightTarget[]
   return targets;
 }
 
+/**
+ * The one corruption preflight can catch without I/O: two or more
+ * `*_DATABASE_URL` secrets resolving to the same file-backed PGlite data dir.
+ * Multiple live PGlite instances share no coordination — they checkpoint
+ * stale pages over each other's committed data (ADR 0044). In-memory dirs are
+ * exempt (instances never share state), and a single occupant is fine. This
+ * fires after the one-time repair (`env/legacy-databases`) has rewritten the
+ * known-broken shape, so what remains is operator-authored — fail loudly
+ * rather than boot a corrupting composition.
+ */
+function pgliteDirCollisions(env: Record<string, string>): PreflightFailure[] {
+  const byDir = new Map<string, string[]>();
+  for (const [secret, value] of Object.entries(env)) {
+    if (!secret.endsWith("_DATABASE_URL") || !value?.startsWith("pglite:")) continue;
+    const rawDir = value.slice("pglite:".length);
+    if (rawDir === ":memory:" || rawDir.endsWith("/:memory:")) continue;
+    const dir = resolve(rawDir);
+    const secrets = byDir.get(dir);
+    if (secrets) secrets.push(secret);
+    else byDir.set(dir, [secret]);
+  }
+
+  const failures: PreflightFailure[] = [];
+  for (const [dir, secrets] of byDir) {
+    if (secrets.length < 2) continue;
+    failures.push({
+      secret: secrets.join(", "),
+      host: dir,
+      port: 0,
+      error:
+        `${secrets.join(" and ")} resolve to the same PGlite data dir "${dir}". Multiple live ` +
+        "PGlite instances on one data dir silently corrupt committed data (ADR 0044) — give " +
+        "each workspace its own data dir (pglite:.bos/db/<slug>) or point the extras at " +
+        "postgres:// URLs.",
+      tcpReachable: false,
+    });
+  }
+  return failures;
+}
+
 export function preflightLocalInfra(
   env: Record<string, string>,
   overrides?: Record<string, string>,
 ): Effect.Effect<PreflightFailure[], never> {
   const merged = overrides ? { ...env, ...overrides } : env;
   const targets = preflightTargetsFromEnv(merged);
-  if (targets.length === 0) return Effect.succeed([]);
+  const collisions = pgliteDirCollisions(merged);
+  if (targets.length === 0) return Effect.succeed(collisions);
 
   return Effect.forEach(
     targets,
@@ -143,8 +185,8 @@ export function preflightLocalInfra(
           const appDb =
             target.secret === "API_DATABASE_URL" || target.secret === "AUTH_DATABASE_URL";
           const pluginContext = appDb
-            ? " Point it at a postgres:// URL you control (local persistence needs no server — clear the URL to fall back to the persistent .bos/db PGlite)."
-            : ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Point it at a postgres:// URL you control or clear the URL to fall back to the persistent .bos/db PGlite.`;
+            ? " Point it at a postgres:// URL you control (local persistence needs no server — clear the URL to fall back to the per-workspace .bos/db/<slug> PGlite)."
+            : ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Point it at a postgres:// URL you control or clear the URL to fall back to the per-workspace .bos/db/<slug> PGlite.`;
           if (tcpOk) {
             return {
               secret: target.secret,
@@ -174,5 +216,10 @@ export function preflightLocalInfra(
         } satisfies PreflightFailure;
       }),
     { concurrency: "unbounded" },
-  ).pipe(Effect.map((results) => results.filter((r): r is PreflightFailure => r !== null)));
+  ).pipe(
+    Effect.map((results) => [
+      ...collisions,
+      ...results.filter((r): r is PreflightFailure => r !== null),
+    ]),
+  );
 }

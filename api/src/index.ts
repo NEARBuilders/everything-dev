@@ -66,9 +66,9 @@ export default createPlugin.withPlugins<PluginsClient>()({
   secrets: z.object({
     API_DATABASE_URL: z
       .string()
-      .default("pglite:.bos/db")
+      .default("pglite:.bos/db/api")
       .describe(
-        "Database connection string. pglite: is a persistent local data dir (.bos/db); postgres:// for production or shared access.",
+        "Database connection string. pglite: is a persistent local data dir (.bos/db/<workspace>); postgres:// for production or shared access.",
       ),
     BETTER_AUTH_SECRET: z
       .string()

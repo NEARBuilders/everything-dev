@@ -13,7 +13,7 @@
  */
 
 // workspace configs
-export { PGLITE_DEFAULT_URL, resolveDatabaseUrl } from "./binding";
+export { PGLITE_DEFAULT_URL, pgliteDefaultUrlForSlug, resolveDatabaseUrl } from "./binding";
 export type { MigrationStorage } from "./core";
 // host
 export { getMigrationStorage, pluginMigrationSlug, suppressPgQueryQueueDeprecation } from "./core";

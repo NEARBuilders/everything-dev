@@ -279,9 +279,9 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
 
     if (!operatorEnvRecord().API_DATABASE_URL && !operatorEnvRecord().AUTH_DATABASE_URL) {
       warnings.push(
-        "No *_DATABASE_URL set — plugins without explicit URLs boot on the local persistent PGlite " +
-          "default (.bos/db, per process). Set API_DATABASE_URL/AUTH_DATABASE_URL in .env to a " +
-          "postgres:// URL for production durability.",
+        "No *_DATABASE_URL set — workspaces boot on per-identity local PGlite defaults " +
+          "(.bos/db/<slug>, one data dir per workspace). Set API_DATABASE_URL/AUTH_DATABASE_URL " +
+          "in .env to a postgres:// URL for production durability.",
       );
     }
 

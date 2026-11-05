@@ -153,7 +153,7 @@ describe("DatabaseBindings.forPluginKey", () => {
     const widgetsDir = tempWorkspace("@everything-dev/widgets-plugin");
     const bindings = makeBindings(fixtureRuntimeConfig(widgetsDir), {});
     const binding = await Effect.runPromise(bindings.forPluginKey("widgets"));
-    expect(binding.url).toBe("pglite:.bos/db");
+    expect(binding.url).toBe("pglite:.bos/db/widgets");
     expect(binding.source).toBe("local");
   });
 

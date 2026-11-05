@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
+import { normalizeSlug } from "./core";
 import defaults from "./defaults.json";
 import type { WorkspaceIdentity } from "./identity";
 
@@ -15,11 +16,17 @@ export function bindingEnv(binding: { secretName: string; url: string }): Record
 }
 
 /**
- * The zero-config local database: a persistent, file-backed PGlite data dir
- * resolved per workspace process (`.bos/db` relative to the workspace cwd).
- * No ports, no docker — concurrent projects never collide. This default is a
- * runtime-driver concern only: drizzle-kit commands (db:push/db:studio/
- * db:migrate) need a real postgres DSN in the environment.
+ * The zero-config local database root: a persistent, file-backed PGlite data
+ * dir (`.bos/db`). No ports, no docker — concurrent projects never collide.
+ * This is the *layout base*, not a driver target: multiple live PGlite
+ * instances on one data dir silently corrupt committed data (heap/index
+ * divergence — ADR 0044), so every workspace opens its own subdirectory via
+ * `pgliteDefaultUrlForSlug`. The literal remains exported for legacy-pin
+ * matching (the compose-era and shared-dir rewrite in `env/legacy-databases`)
+ * — never hand a driver the bare base.
+ *
+ * This default is a runtime-driver concern only: drizzle-kit commands
+ * (db:push/db:studio/db:migrate) need a real postgres DSN in the environment.
  *
  * Single-sourced in `defaults.json` (read by plain-node tooling like the
  * regression env too) — never hardcode the literal elsewhere. Scaffolded
@@ -27,7 +34,18 @@ export function bindingEnv(binding: { secretName: string; url: string }): Record
  * copy: a database location is pinned at init, it must not silently follow
  * a framework upgrade.
  */
-export const PGLITE_DEFAULT_URL = defaults.pgliteDefaultUrl;
+export const PGLITE_DEFAULT_URL = `pglite:${defaults.pgliteDefaultDir}`;
+
+/**
+ * The per-identity default: `<PGLITE_DEFAULT_URL>/<slug>` (e.g.
+ * `pglite:.bos/db/api`, `pglite:.bos/db/agent_connect`). The slug matches the
+ * `pluginMigrationSlug`/`normalizeDatabaseSlug` naming used for schemas,
+ * journals, and secret names — one workspace, one data dir, collisions
+ * impossible by package-name uniqueness (ADR 0044).
+ */
+export function pgliteDefaultUrlForSlug(slug: string): string {
+  return `${PGLITE_DEFAULT_URL}/${normalizeSlug(slug)}`;
+}
 
 function findEnvFile(startDir: string | undefined): string | undefined {
   if (!startDir) return undefined;
@@ -50,9 +68,10 @@ function findEnvFile(startDir: string | undefined): string | undefined {
  *   2. the canonical secret in the nearest `.env` walked up from the
  *      workspace directory (existing environment wins — values are not
  *      overridden, matching dotenv semantics)
- *   3. the persistent local default (`PGLITE_DEFAULT_URL`) — consumed by the
- *      runtime driver (`createDatabaseDriver`), so boot migrations apply
- *      zero-config against the workspace's `.bos/db` data dir
+ *   3. the per-identity default (`pgliteDefaultUrlForSlug(identity.slug)`) —
+ *      consumed by the runtime driver (`createDatabaseDriver`), so boot
+ *      migrations apply zero-config against the workspace's own
+ *      `.bos/db/<slug>` data dir
  *
  * drizzle-kit commands need a postgres DSN; feeding them the pglite default
  * fails loudly at connect time.
@@ -79,5 +98,5 @@ export function resolveDatabaseUrl(
     }
   }
 
-  return PGLITE_DEFAULT_URL;
+  return pgliteDefaultUrlForSlug(identity.slug);
 }

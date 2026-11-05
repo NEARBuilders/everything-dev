@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { PGLITE_DEFAULT_URL } from "../db/binding";
+import { pgliteDefaultUrlForSlug } from "../db/binding";
 import defaults from "../db/defaults.json";
 import type { RuntimeConfig } from "../types";
 import { frameworkOwnedHeaderComment } from "./scaffold/ownership";
@@ -16,12 +16,12 @@ const VESTIGIAL_SECRETS = new Set([
 
 /**
  * Local development conventions. Databases default to a persistent,
- * file-backed PGlite data dir per workspace process (`.bos/db`) — no ports,
+ * file-backed PGlite data dir per workspace identity (`.bos/db/<slug>` —
+ * multiple live PGlite instances cannot share one dir, ADR 0044) — no ports,
  * no docker. Operators point a secret at a `postgres://` URL to demand a
  * shared server. The two-database split (auth separate from everything
  * else) survives independent of compose.
  */
-export const PGLITE_DEV_DATABASE_URL = PGLITE_DEFAULT_URL;
 export const PGLITE_TEST_DATABASE_URL = defaults.pgliteTestUrl;
 
 export interface DatabaseConvention {
@@ -95,8 +95,8 @@ function normalizeRedisSlug(secret: string): string {
   return secret.replace(/_REDIS_URL$/, "").toLowerCase();
 }
 
-function databaseUrl(): string {
-  return PGLITE_DEV_DATABASE_URL;
+function databaseUrl(secret: string): string {
+  return pgliteDefaultUrlForSlug(normalizeDatabaseSlug(secret));
 }
 
 export function buildConventionalDatabases(secrets: string[]): DatabaseConvention[] {
@@ -108,7 +108,7 @@ export function buildConventionalDatabases(secrets: string[]): DatabaseConventio
     .sort((a, b) => normalizeDatabaseSlug(a).localeCompare(normalizeDatabaseSlug(b)))
     .map((secret) => {
       const slug = normalizeDatabaseSlug(secret);
-      return { secret, slug, url: databaseUrl() };
+      return { secret, slug, url: databaseUrl(secret) };
     });
 }
 
@@ -249,7 +249,7 @@ function renderEnvFile(
         lines.push(
           secret.endsWith("_REDIS_URL")
             ? "# Leave empty for dev defaults; set a redis:// URL to opt into a real Redis."
-            : "# Leave empty for the persistent local PGlite default (.bos/db); set a postgres:// URL for production or shared access.",
+            : "# Leave empty for the per-workspace PGlite default (.bos/db/<slug>); set a postgres:// URL for production or shared access.",
         );
       }
       lines.push(`${secret}=${defaultSecretValue(secret, databaseMap, redisMap, options)}`);

@@ -2,6 +2,7 @@ import { MemoryPublisher } from "@orpc/publisher/memory";
 import { getEventMeta, ORPCError } from "@orpc/server";
 import { Clock, Context, DateTime, Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
+import { pgliteDefaultUrlForSlug, workspaceIdentityFromModuleUrl } from "everything-dev/db";
 import { z } from "zod";
 import { contract } from "./contract";
 import { DatabaseLive } from "./db/layer";
@@ -9,6 +10,13 @@ import { ContextSchema } from "./lib/context";
 import type { PluginsClient } from "./lib/plugins-client.gen";
 import { TemplateService } from "./service";
 import { ThingsService } from "./services/things";
+
+// Derived from this workspace's own package name at load — copying and
+// renaming the template moves the local pglite data dir with it (one PGlite
+// instance per data dir, ADR 0044). No literal to forget.
+const TEMPLATE_PGLITE_DEFAULT = pgliteDefaultUrlForSlug(
+  workspaceIdentityFromModuleUrl(import.meta.url).slug,
+);
 
 type TemplateEvents = {
   "background-updates": {
@@ -68,9 +76,9 @@ export default createPlugin.withPlugins<PluginsClient>()({
     TEMPLATE_API_KEY: z.string().min(1, "TEMPLATE_API_KEY is required").default("template-dev-key"),
     TEMPLATE_DATABASE_URL: z
       .string()
-      .default("pglite:.bos/db")
+      .default(TEMPLATE_PGLITE_DEFAULT)
       .describe(
-        "Database connection string. pglite: is a persistent local data dir (.bos/db); postgres:// for production or shared access.",
+        "Database connection string. pglite: is a persistent local data dir (.bos/db/<workspace>); postgres:// for production or shared access.",
       ),
   }),
 

@@ -89,7 +89,7 @@ describe("generated env templates", () => {
     // so a fresh `bos dev` with no .env picks the persistent .bos/db default.
     expect(envExample).not.toContain("postgres://everythingdev");
     expect(envExample).toContain(
-      "# Leave empty for the persistent local PGlite default (.bos/db); set a postgres:// URL for production or shared access.",
+      "# Leave empty for the per-workspace PGlite default (.bos/db/<slug>); set a postgres:// URL for production or shared access.",
     );
     expect(envExample).toContain("BETTER_AUTH_SECRET=");
     expect(envExample).toContain("# plugins.example");
