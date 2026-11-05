@@ -1,7 +1,7 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createDevLogger,
   readDevLatestLog,
@@ -131,5 +131,57 @@ describe("dated log pruning (#596)", () => {
     expect(files).toContain(datedName(80));
     expect(files).toContain("dev-latest.log");
     expect(files).toContain("regression-dev-ssr.log");
+  });
+});
+
+describe("log-file resilience (#791)", () => {
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const entry = (line: string) => ({
+    source: "host",
+    line,
+    isError: false,
+    timestamp: Date.now(),
+  });
+
+  it("recreates a deleted .bos/logs dir on the next write and keeps both files current", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "dev-logs-"));
+    const logger = await createDevLogger(tempDir, "recovery session");
+
+    rmSync(join(tempDir, ".bos", "logs"), { recursive: true, force: true });
+
+    await logger.write(entry("post-deletion line"));
+
+    expect(readFileSync(logger.logFile, "utf8")).toContain("post-deletion line");
+    expect(readFileSync(logger.latestFile, "utf8")).toContain("post-deletion line");
+  });
+
+  it("degrades to drop-once-warn when the dir cannot be recreated, then self-heals", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "dev-logs-"));
+    const logger = await createDevLogger(tempDir, "degraded session");
+    const logsDir = join(tempDir, ".bos", "logs");
+
+    const warnings: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warnings.push(args.join(" "));
+    });
+
+    rmSync(logsDir, { recursive: true, force: true });
+    writeFileSync(logsDir, "not a directory");
+
+    await logger.write(entry("first dropped"));
+    await logger.write(entry("second dropped"));
+    await logger.write(entry("third dropped"));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("log file unavailable");
+
+    rmSync(logsDir);
+    await logger.write(entry("recovered line"));
+    expect(warnings).toHaveLength(1);
+    expect(readFileSync(logger.latestFile, "utf8")).toContain("recovered line");
+
+    warnSpy.mockRestore();
   });
 });

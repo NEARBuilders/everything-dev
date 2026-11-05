@@ -453,9 +453,23 @@ export async function createDevLogger(configDir: string, description: string): P
 
   let chain = Promise.resolve();
   const enqueue = (fn: () => Promise<void>) => {
-    chain = chain.then(fn, fn);
-    return chain;
+    const next = chain.then(fn, fn).catch(() => {});
+    chain = next;
+    return next;
   };
+
+  const isEnoent = (error: unknown): boolean =>
+    typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT";
+  const appendRecovered = async (file: string, line: string) => {
+    try {
+      await appendFile(file, line);
+    } catch (error) {
+      if (!isEnoent(error)) throw error;
+      await mkdir(dir, { recursive: true });
+      await appendFile(file, line);
+    }
+  };
+  let dropping = false;
 
   return {
     logFile,
@@ -463,8 +477,15 @@ export async function createDevLogger(configDir: string, description: string): P
     write: (entry) =>
       enqueue(async () => {
         const line = `${formatLogLine(entry)}\n`;
-        await appendFile(logFile, line);
-        await appendFile(latestFile, line);
+        try {
+          await appendRecovered(logFile, line);
+          await appendRecovered(latestFile, line);
+          dropping = false;
+        } catch {
+          if (dropping) return;
+          dropping = true;
+          console.warn(`[Dev] log file unavailable (${dir}) — dropping entries until it returns`);
+        }
       }),
     readLatest: async (opts) => {
       const text = await readFile(latestFile, "utf8").catch(() => "");
