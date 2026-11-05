@@ -6,6 +6,7 @@ import { siwn } from "./index.js";
 const MOCK_ACCOUNT_ID = "test.near";
 const MOCK_RECIPIENT = "example.near";
 const MOCK_PUBLIC_KEY = "ed25519:abcdefghijklmnopqrstuvwxyz0123456789ABCD";
+const MOCK_SIGNING_PUBLIC_KEY = "ed25519:signing-full-access-key000000000000000000000000000";
 
 const GAS_KEY_VIEW = {
   nonce: 0,
@@ -30,7 +31,13 @@ vi.mock("near-kit", async (importOriginal) => {
     ...actual,
     Near: vi.fn(function NearMock() {
       return {
-        getAccessKey: vi.fn(() => Promise.resolve(mockAccessKeyView)),
+        getAccessKey: vi.fn((_accountId: string, publicKey: string) =>
+          Promise.resolve(
+            publicKey === MOCK_SIGNING_PUBLIC_KEY
+              ? { nonce: 0, permission: "FullAccess" }
+              : mockAccessKeyView,
+          ),
+        ),
         transaction: vi.fn(() => ({
           transferToGasKey,
           send: sendTx,
@@ -51,7 +58,7 @@ function makeUniqueNonce(): Uint8Array {
 
 const mockSignedMessage = {
   accountId: MOCK_ACCOUNT_ID,
-  publicKey: MOCK_PUBLIC_KEY,
+  publicKey: MOCK_SIGNING_PUBLIC_KEY,
   signature: "mock-signature-base64",
 };
 

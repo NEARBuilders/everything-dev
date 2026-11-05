@@ -54,6 +54,7 @@ export const permissionsSchema = z.object({
 export const authSiwnBaseSchema = z.object({
   apiKey: z.string().optional(),
   rpcUrl: z.string().optional(),
+  readRpcUrl: z.string().optional(),
   relayer: z
     .object({
       mainnet: relayerNetworkSchema.optional(),

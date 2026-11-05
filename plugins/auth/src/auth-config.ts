@@ -22,6 +22,7 @@ export interface AuthPasskeyConfig {
 export interface AuthSiwnBaseConfig {
   apiKey?: string;
   rpcUrl?: string;
+  readRpcUrl?: string;
   relayer?: RelayerDualNetworkConfig;
   sessionGasKey?: SessionGasKeyDualNetworkConfig;
   subAccount?: SubAccountConfig | DualNetworkConfig<SubAccountConfig>;

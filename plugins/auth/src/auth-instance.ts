@@ -159,6 +159,7 @@ export function buildSiwnOptions(config: AuthConfig): Parameters<typeof siwn>[0]
     passkeyWalletRelyingParty: { rpID: relyingParty.rpID, origins: relyingParty.origin },
     apiKey: config.siwn.apiKey,
     rpcUrl: config.siwn.rpcUrl,
+    readRpcUrl: config.siwn.readRpcUrl,
     relayer: config.siwn.relayer,
     sessionGasKey: config.siwn.sessionGasKey,
     subAccount: config.siwn.subAccount,
