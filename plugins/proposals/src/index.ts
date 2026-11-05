@@ -37,7 +37,7 @@ export default createPlugin({
   }),
 
   secrets: z.object({
-    PROPOSALS_DATABASE_URL: z.string().default("pglite:.bos/db"),
+    PROPOSALS_DATABASE_URL: z.string().default("pglite:.bos/db/proposals"),
   }),
 
   context: ProposalContextSchema,

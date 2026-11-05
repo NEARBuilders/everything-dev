@@ -1,7 +1,9 @@
 import process from "node:process";
+import { dirname } from "node:path";
 import * as p from "@clack/prompts";
 import { Context, Effect, Layer } from "effect";
 import { buildScoped, buildScopedContext } from "every-plugin";
+import { migrateLegacyComposeState } from "./env/legacy-databases";
 import { cliDeployTrainRender } from "./cli/render/deploy-train";
 import { cliWorkspaceBuildRender } from "./cli/render/workspace-build";
 import { bosContract } from "./contract";
@@ -69,8 +71,14 @@ export default createPlugin({
   contract: bosContract,
   initialize: (config, _plugins) =>
     Effect.gen(function* () {
+      const configPath = config.variables.configPath;
+      // One-time repair of retired local conventions (compose-era URLs, the
+      // shared pre-0044 pglite dir) BEFORE resolution and any env loading —
+      // dotenv never overrides already-set keys, so every consumer in this
+      // process must see the repaired file (ADR 0044).
+      yield* migrateLegacyComposeState(dirname(configPath ?? process.cwd()));
       const session = yield* Effect.promise(() =>
-        openResolution({ path: config.variables.configPath }),
+        openResolution({ path: configPath }),
       );
 
       const projectEnv = yield* buildScoped(ProjectEnv, ProjectEnvLive);

@@ -101,6 +101,18 @@ void test("dev pglite data dir rejection names the secret and never reveals data
   );
 });
 
+void test("per-identity pglite dirs under the dev root are dev data too", () => {
+  const repoRoot = fixture();
+  writeFileSync(
+    join(repoRoot, ".env"),
+    "API_DATABASE_URL=pglite:.bos/db/api\nBETTER_AUTH_SECRET=private-dev\n",
+  );
+  assert.throws(
+    () => computeRegressionEnv({ repoRoot, env: {} }),
+    (error) => error.message.includes("API_DATABASE_URL") && error.message.includes("dev database"),
+  );
+});
+
 void test("in-memory pglite and external postgres URLs are accepted test targets", () => {
   const repoRoot = fixture();
   writeFileSync(

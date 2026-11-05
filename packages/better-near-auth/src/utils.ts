@@ -2,6 +2,30 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes));
 }
 
+/**
+ * Format an error's cause chain for one-line diagnostics. Drizzle wraps driver
+ * errors in a "Failed query" Error with the real database error on `cause`, so
+ * logging `message` alone hides the actual failure (code, detail, constraint).
+ * Bounded walk; a self-referential cause terminates it.
+ */
+export function formatErrorCauseChain(error: unknown, maxDepth = 5): string {
+  const links: string[] = [];
+  let current: unknown = error instanceof Error ? error.cause : error;
+  for (let depth = 0; current && depth < maxDepth; depth++) {
+    const link = current as {
+      message?: string;
+      code?: string;
+      detail?: string;
+      constraint?: string;
+      cause?: unknown;
+    };
+    const parts = [link.message, link.code, link.detail, link.constraint].filter(Boolean);
+    if (parts.length > 0) links.push(parts.join(" | "));
+    current = link.cause === current ? undefined : link.cause;
+  }
+  return links.join(" ← ");
+}
+
 function base64ToBytes(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 }

@@ -100,7 +100,12 @@ export {
 } from "./passkey-wallet-link.js";
 export * from "./types.js";
 
-import { bytesToHex, decryptPrivateKey, encryptPrivateKey } from "./utils.js";
+import {
+  bytesToHex,
+  decryptPrivateKey,
+  encryptPrivateKey,
+  formatErrorCauseChain,
+} from "./utils.js";
 
 async function hashNonce(nonce: Uint8Array): Promise<string> {
   const data = new TextEncoder().encode(hex.encode(nonce));
@@ -1582,6 +1587,7 @@ export const siwn = (options: SIWNPluginOptions) => {
           } catch (error: unknown) {
             if (error instanceof APIError) throw error;
             const msg = error instanceof Error ? error.message : "Unknown error";
+            const causeChain = formatErrorCauseChain(error);
             const at =
               error instanceof Error && error.stack
                 ? error.stack
@@ -1590,7 +1596,9 @@ export const siwn = (options: SIWNPluginOptions) => {
                     .map((s) => s.trim())
                     .join(" <- ")
                 : "";
-            console.error(`[siwn] Verify error: ${msg}${at ? ` (${at})` : ""}`);
+            console.error(
+              `[siwn] Verify error: ${msg}${causeChain ? ` — cause: ${causeChain}` : ""}${at ? ` (${at})` : ""}`,
+            );
             throw new APIError("UNAUTHORIZED", {
               message: "Something went wrong. Please try again later.",
               error: msg,

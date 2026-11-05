@@ -90,6 +90,30 @@ describe("resolveSecretsWithDatabaseFallback", () => {
     expect(secrets).toEqual({});
   });
 
+  it("does not fall back to the API's pglite dir — plugins keep their own defaults (ADR 0044)", async () => {
+    process.env.API_DATABASE_URL = "pglite:.bos/db/api";
+    const secrets = await runWithFreshEnv(
+      resolveSecretsWithDatabaseFallback(["VOTES_DATABASE_URL", "TEMPLATE_DATABASE_URL"]),
+    );
+    expect(secrets).toEqual({});
+  });
+
+  it("does not fall back to non-postgres API database URLs", async () => {
+    process.env.API_DATABASE_URL = "file:/var/lib/postgres/data";
+    const secrets = await runWithFreshEnv(
+      resolveSecretsWithDatabaseFallback(["VOTES_DATABASE_URL"]),
+    );
+    expect(secrets).toEqual({});
+  });
+
+  it("accepts the postgresql:// scheme for the shared-database fallback", async () => {
+    process.env.API_DATABASE_URL = "postgresql://api@localhost:5432/api_db";
+    const secrets = await runWithFreshEnv(
+      resolveSecretsWithDatabaseFallback(["VOTES_DATABASE_URL"]),
+    );
+    expect(secrets.VOTES_DATABASE_URL).toBe("postgresql://api@localhost:5432/api_db");
+  });
+
   it("passes non-database secrets through untouched", async () => {
     process.env.API_DATABASE_URL = "postgres://api@localhost:5432/api_db";
     process.env.AI_API_KEY = "sk-test";

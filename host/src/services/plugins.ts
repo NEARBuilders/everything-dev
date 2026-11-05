@@ -174,6 +174,12 @@ const PLATFORM_ROOT_SECRET = "BETTER_AUTH_SECRET";
  * platform's two-database contract (`AUTH_DATABASE_URL` + `API_DATABASE_URL`
  * only; plugins isolate their tables in `plugin_<slug>` schemas). Explicit
  * per-plugin values always win.
+ *
+ * The fallback only applies to real postgres (`postgres://`): on the
+ * per-identity PGlite default, handing plugins the API's data dir would put
+ * multiple live PGlite instances on one dir — they don't coordinate and
+ * silently corrupt committed data (ADR 0044). On pglite every workspace
+ * keeps its own `.bos/db/<slug>` default.
  */
 export function resolveSecretsWithDatabaseFallback(
   keys: string[],
@@ -192,7 +198,7 @@ export function resolveSecretsWithDatabaseFallback(
     const apiDbUrl = yield* Config.Redacted("API_DATABASE_URL").pipe(Config.option);
     if (Option.isNone(apiDbUrl)) return secrets;
     const fallback = Redacted.value(apiDbUrl.value);
-    if (fallback.length === 0) return secrets;
+    if (!/^postgres(ql)?:\/\//.test(fallback)) return secrets;
 
     for (const key of missingDbKeys) secrets[key] = fallback;
     return secrets;

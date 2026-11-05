@@ -118,7 +118,7 @@ The plugin uses PostgreSQL via `pg` in production and `@electric-sql/pglite` for
 
 ```bash
 # Local development (zero-config, no Docker needed — persistent PGlite data dir)
-AUTH_DATABASE_URL=pglite:.bos/db
+AUTH_DATABASE_URL=pglite:.bos/db/auth
 
 # Production (Railway, etc.)
 AUTH_DATABASE_URL=postgres://user:pass@host:5432/dbname
@@ -218,7 +218,7 @@ export default {
         },
       },
       secrets: {
-        AUTH_DATABASE_URL: "pglite:.bos/db",
+        AUTH_DATABASE_URL: "pglite:.bos/db/auth",
         BETTER_AUTH_SECRET: "dev-only-secret",
       },
   } satisfies PluginConfigInput<typeof Plugin>,

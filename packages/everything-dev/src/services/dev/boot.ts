@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Data, Effect } from "effect";
 import type { DevOptions, PhaseTiming } from "../../contract";
-import { migrateLegacyComposeState } from "../../env/legacy-databases";
 import { getProcessEnv, operatorEnvRecord, setProcessEnv } from "../../env/process-env";
 import {
   captureShellEnv,
@@ -231,6 +230,7 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
       try: () => materializeViaLayer(session.root, plan.runtimeConfig),
       catch: (cause) => new DevStepError({ phase: "materialize infra", cause }),
     });
+
     yield* loadEnvStep(projectEnv, session.root);
 
     yield* projectEnv
@@ -242,18 +242,6 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
           ),
         ),
       );
-
-    const legacy = yield* migrateLegacyComposeState(session.root);
-    for (const { key, to } of legacy.databaseUrlDrift) {
-      yield* Effect.logInfo(
-        `[env] ${key} migrated from the retired compose-era Postgres convention → ${to}`,
-      );
-    }
-    if (legacy.composeRelocated) {
-      yield* Effect.logInfo(
-        `[env] scaffold-era docker-compose.yml relocated to .bos/compose-retired — local databases are the persistent .bos/db PGlite now`,
-      );
-    }
 
     const needsEphemeralSecret =
       !("BETTER_AUTH_SECRET" in operatorEnv) || operatorEnv.BETTER_AUTH_SECRET === "";

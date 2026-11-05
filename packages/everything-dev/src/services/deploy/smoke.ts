@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { PGLITE_DEFAULT_URL } from "../../db/binding";
+import { pgliteDefaultUrlForSlug } from "../../db/binding";
 
 /**
  * The runtime-image boot gate: boots a runtime image the way production
@@ -215,12 +215,18 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
   const envPairs: Record<string, string> = {
     BOS_ACCOUNT: options.account ?? process.env.SMOKE_BOS_ACCOUNT ?? "dev.everything.near",
     BOS_GATEWAY: options.gateway ?? process.env.SMOKE_BOS_GATEWAY ?? "everything.dev",
-    // Boot-gate only: the container's own persistent-by-path PGlite default
-    // (in-container fs) is enough — no external postgres involved.
+    // Boot-gate only: the container's own persistent-by-path PGlite defaults
+    // (in-container fs, one data dir per workspace) are enough — no external
+    // postgres involved. Distinct dirs: two live PGlite instances cannot share
+    // one data dir (ADR 0044).
     API_DATABASE_URL:
-      options.apiDatabaseUrl ?? process.env.SMOKE_API_DATABASE_URL ?? PGLITE_DEFAULT_URL,
+      options.apiDatabaseUrl ??
+      process.env.SMOKE_API_DATABASE_URL ??
+      pgliteDefaultUrlForSlug("api"),
     AUTH_DATABASE_URL:
-      options.authDatabaseUrl ?? process.env.SMOKE_AUTH_DATABASE_URL ?? PGLITE_DEFAULT_URL,
+      options.authDatabaseUrl ??
+      process.env.SMOKE_AUTH_DATABASE_URL ??
+      pgliteDefaultUrlForSlug("auth"),
     BETTER_AUTH_SECRET:
       options.authSecret ??
       process.env.SMOKE_BETTER_AUTH_SECRET ??

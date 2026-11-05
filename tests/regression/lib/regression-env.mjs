@@ -19,8 +19,8 @@ const DB_DEFAULTS = JSON.parse(
     "utf-8",
   ),
 );
-/** The developer's persistent dev data dir default (per workspace process). */
-const DEV_PGLITE_URL = DB_DEFAULTS.pgliteDefaultUrl;
+/** The developer's persistent dev data dir root (per workspace: `.bos/db/<slug>`). */
+const DEV_PGLITE_URL = `pglite:${DB_DEFAULTS.pgliteDefaultDir}`;
 const TEST_DATABASE_DEFAULT = DB_DEFAULTS.pgliteTestUrl;
 
 export function findRepoRoot(startDir = process.cwd()) {
@@ -120,7 +120,9 @@ function legacyDevDatabaseUrl(url) {
 }
 
 function isDevDatabaseUrl(url) {
-  return url === DEV_PGLITE_URL || legacyDevDatabaseUrl(url);
+  return (
+    url === DEV_PGLITE_URL || url.startsWith(`${DEV_PGLITE_URL}/`) || legacyDevDatabaseUrl(url)
+  );
 }
 
 export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {

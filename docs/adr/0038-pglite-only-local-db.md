@@ -1,6 +1,6 @@
 # 0038 — PGlite is the only local database
 
-Date: 2026-10-30 · Status: accepted
+Date: 2026-10-30 · Status: accepted (the shared data-dir topology is superseded by ADR 0044)
 
 ## Context
 
@@ -26,7 +26,9 @@ retired entirely (dev and test).**
 - The zero-config dev default is `pglite:.bos/db` — persistent, per
   workspace process (processes spawn with cwd = the workspace, so `api/`,
   `plugins/<id>/`, each keep their own data dir; no ports, no docker, no
-  cross-project collision is possible by construction).
+  cross-project collision is possible by construction). *(Superseded by
+  ADR 0044: the default is per identity — `pglite:.bos/db/<slug>` — and
+  workspaces never share one dir.)*
 - The two-database contract is unchanged: auth keeps its own data dir; api and
   its in-process plugins share one dir, with plugins schema-isolated under
   `plugin_<slug>` (the fallback `*_DATABASE_URL` → `API_DATABASE_URL` now
@@ -52,7 +54,10 @@ retired entirely (dev and test).**
   a second process reads what a first wrote, and tools can run while `bos dev`
   holds the dir. Two dev sessions in one repo share data rather than failing —
   heavy concurrent writers queue on the file lock, which is acceptable at dev
-  scale.
+  scale. *(Correction, ADR 0044: multiple instances **inside one process** on
+  one data dir do not coordinate at all — they silently corrupt. The shared-dir
+  topology was wrong; every workspace now opens its own `.bos/db/<slug>` and
+  the driver refuses double-opens.)*
 - **drizzle-kit configs are static postgres.** The original version of this ADR
   claimed drizzle-kit needs a `pglite` dialect — wrong: drizzle-kit 0.31
   validates `dialect` against `postgresql|mysql|sqlite|turso|singlestore|gel`
