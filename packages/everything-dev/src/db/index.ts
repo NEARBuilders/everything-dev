@@ -27,5 +27,13 @@ export {
 } from "./identity";
 // layer seam (ADR 0033)
 export { databaseLayer } from "./layer";
-export type { LoadedMigrations, Migration } from "./run-migrations";
+export type {
+  DriftReport,
+  LoadedMigrations,
+  LoadMigrationsOptions,
+  Migration,
+  MigrationDatabase,
+  MigrationReport,
+  RunMigrationsOptions,
+} from "./run-migrations";
 export { detectDrift, loadMigrations, runMigrations } from "./run-migrations";
