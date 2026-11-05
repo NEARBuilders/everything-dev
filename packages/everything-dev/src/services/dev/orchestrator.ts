@@ -20,12 +20,14 @@ export const markForceExitInFlight = () => {
   forceExitInFlight = true;
 };
 
+const realConsoleError = console.error.bind(console);
+
 process.on("unhandledRejection", (reason) => {
-  console.error("[Orchestrator] Unhandled rejection:", reason);
+  realConsoleError("[Orchestrator] Unhandled rejection:", reason);
 });
 
 process.on("uncaughtException", (err) => {
-  console.error("[Orchestrator] Uncaught exception:", err);
+  realConsoleError("[Orchestrator] Uncaught exception:", err);
   if (forceExitInFlight) process.exit(1);
 });
 
