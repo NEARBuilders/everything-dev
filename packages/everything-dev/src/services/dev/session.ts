@@ -150,15 +150,18 @@ export const runDevSession = (
         if (value != null) regPorts[key] = value;
       };
       addPort("host", runtimeConfig.host.port);
-      addPort("api", runtimeConfig.api.port);
-      addPort("ui", runtimeConfig.ui.port);
-      addPort("auth", runtimeConfig.auth?.port);
+      if (runtimeConfig.api.source === "local") addPort("api", runtimeConfig.api.port);
+      if (runtimeConfig.ui.source === "local") addPort("ui", runtimeConfig.ui.port);
+      if (runtimeConfig.auth?.source === "local") addPort("auth", runtimeConfig.auth.port);
       if (runtimeConfig.plugins) {
         for (const [id, plugin] of Object.entries(runtimeConfig.plugins)) {
-          if (!isAuthMirrorPluginEntry(runtimeConfig.auth, id, plugin)) {
+          if (
+            plugin.source === "local" &&
+            !isAuthMirrorPluginEntry(runtimeConfig.auth, id, plugin)
+          ) {
             addPort(`plugin:${id}`, plugin.port);
           }
-          addPort(`plugin-ui:${id}`, plugin.ui?.port);
+          if (plugin.ui?.source === "local") addPort(`plugin-ui:${id}`, plugin.ui.port);
         }
       }
       registerStandalone({
