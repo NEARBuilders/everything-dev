@@ -526,7 +526,7 @@ export function buildChildRootScripts(sections: {
   if (sections.ui) testTargets.push("pnpm --dir ui --if-present run test");
   if (sections.plugins) {
     testTargets.push(
-      'for d in plugins/*; do [ -f "$d/package.json" ] && pnpm --dir "$d" --if-present run test; done',
+      'if [ -d plugins ]; then for d in plugins/*; do if [ -f "$d/package.json" ]; then pnpm --dir "$d" --if-present run test; fi; done; fi',
     );
   }
   scripts.test =

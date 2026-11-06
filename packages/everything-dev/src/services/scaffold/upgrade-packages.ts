@@ -354,6 +354,12 @@ export async function migrateChildRootPackageJson(projectDir: string): Promise<b
     "changeset",
     "version",
     "release",
+    // ADR 0038 retired docker-compose; children scaffolded before that still
+    // carry the dead dev:postgres* trio (issue #802) — they fail with "no
+    // configuration file provided" against the retired compose file.
+    "dev:postgres",
+    "dev:postgres:down",
+    "dev:postgres:reset",
   ]) {
     if (obsoleteScript in scripts) {
       delete scripts[obsoleteScript];
