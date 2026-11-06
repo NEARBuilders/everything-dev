@@ -62,6 +62,18 @@ async function fetchBindingsFromApi(apiUrl: string): Promise<TenantBinding[]> {
     throw new Error(`Failed to reach API at ${endpoint}: ${String(cause)}`, { cause });
   }
 
+  if (response.status === 404) {
+    // No runtime ships the tenants route today (issue #665): a 404 means
+    // "no tenants configured on this API", not a resolution failure. Serving
+    // the base runtime for every non-base hostname beats a sitewide 500 —
+    // e.g. the *.up.railway.app URL before a custom domain is attached. 503
+    // stays the distinct "API plugin failed to load" hard error.
+    logger.warn(
+      `[BindingResolver] ${endpoint} responded 404 — no tenants route on this API; serving the base runtime for all hostnames`,
+    );
+    return [];
+  }
+
   if (!response.ok) {
     const hint =
       response.status === 503

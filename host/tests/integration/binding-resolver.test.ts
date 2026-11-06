@@ -6,6 +6,7 @@ import {
   type TenantBinding,
 } from "../../src/services/binding-resolver";
 import type { RuntimeConfig } from "../../src/services/config";
+import { logger } from "../../src/utils/logger";
 
 const config: RuntimeConfig = {
   env: "production",
@@ -104,6 +105,18 @@ describe("binding resolver failure handling", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("treats a 404 as no tenants configured and serves the base runtime (issue #665)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const notFoundFetch = vi.fn().mockResolvedValue(new Response("Not Found", { status: 404 }));
+    vi.stubGlobal("fetch", notFoundFetch);
+    const resolver = createBindingResolver(config);
+
+    await expect(resolver.resolve("chicago.citynode.app")).resolves.toBeNull();
+    await expect(resolver.resolve("www.citynode.app")).resolves.toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("no tenants route"));
+    warnSpy.mockRestore();
   });
 
   it("reports API-unavailable responses clearly and caches the failure briefly", async () => {
