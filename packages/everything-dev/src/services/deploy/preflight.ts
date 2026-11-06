@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { config as loadDotenv } from "dotenv";
 import { selectWorkspaceTargets } from "../../services/workspace/build-train";
 import type { BosConfig, PublishConfig } from "../../types";
 import { fetchResponse } from "../../utils/http-client";
@@ -260,16 +259,6 @@ interface PreflightInput {
 export async function preflightPublish(input: PreflightInput): Promise<PublishPreflight> {
   const { configDir } = input;
   const bosConfig = input.bosConfig;
-
-  // Interactive deploys never loaded the project `.env` (only dev/start flows
-  // did), so per-project defaults like BOS_STORAGE_ORIGIN present on disk were
-  // invisible to origin resolution (issue #666). dotenv's no-override
-  // semantics keep shell-exported variables authoritative.
-  const envPath = join(configDir, ".env");
-  if (existsSync(envPath)) {
-    loadDotenv({ path: envPath, processEnv: process.env, quiet: true });
-    console.log(colors.dim("  Loaded .env (shell-exported variables take precedence)"));
-  }
 
   const isStaging = input.env === "staging";
   const account = isStaging ? (bosConfig.staging?.account ?? bosConfig.account) : bosConfig.account;
