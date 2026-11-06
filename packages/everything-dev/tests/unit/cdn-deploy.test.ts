@@ -284,6 +284,15 @@ describe("probeStorageOrigin", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("skips the upload-route probe for local origins (test harnesses, local stacks)", async () => {
+    const fetchImpl = originFetch({
+      "http://127.0.0.1:62464/.well-known/mcp.json": ok({ mcp: { endpoint: "/api/mcp" } }),
+    });
+    await expect(
+      probeStorageOrigin("http://127.0.0.1:62464", fetchImpl as typeof fetch),
+    ).resolves.toBeUndefined();
+  });
+
   it("distinguishes an app host from the upload service via the upload route (#666)", async () => {
     const fetchImpl = originFetch({
       "https://everything.dev/health": ok("OK"),

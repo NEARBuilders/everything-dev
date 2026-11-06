@@ -225,6 +225,13 @@ export async function probeStorageOrigin(
       return "did not return the platform MCP descriptor (non-JSON response)";
     }
   }
+  // The upload-route capability check is for real deploys. Local/private
+  // origins (test harnesses, deliberate local stacks — already warned) may
+  // only implement the probe contract: a POST there could be socket-killed
+  // by failure injection or mutate a mock's batch records.
+  if (isLocalOrigin(storageOrigin)) {
+    return undefined;
+  }
   let uploadProbe: Response;
   try {
     uploadProbe = await fetchImpl(`${base}/api/storage/bundles`, { method: "POST" });
