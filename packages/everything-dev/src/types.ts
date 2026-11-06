@@ -75,7 +75,13 @@ export const RemoteDigestSchema = z.object({
 export type RemoteDigest = z.infer<typeof RemoteDigestSchema>;
 
 export const PluginUiConfigSchema = z.object({
-  name: z.string(),
+  // Optional (#800): the release-scoped stamper canonicalizes inherited
+  // remotes to the digest-bearing descriptor `{ production, digest }` — no
+  // name. Resolution derives the runtime container name from the plugin
+  // workspace, never from this field (resolveUiRuntimeName), so a nameless
+  // stamped ui is valid everywhere the schema is enforced — including
+  // BootSnapshotSchema's re-parse of the stored config.
+  name: z.string().optional(),
   development: z.string().optional(),
   production: z.string().optional(),
   /** browser-facing base overriding `production` when server-side loading

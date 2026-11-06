@@ -1100,9 +1100,15 @@ export async function runPublishTrain(
         { dir: join(configDir, ".bos", "snapshot") },
       );
     } catch (error) {
+      // A deterministic staging failure silently disabled the deploy-integrity
+      // feature for every extends child (#800) — it must not hide in a dim
+      // note. Yellow warning: the deploy itself is unaffected, but the
+      // generation is unstaged and nothing will boot from it.
       console.log(
-        colors.dim(
-          `  Note: could not stage the boot snapshot — ${error instanceof Error ? error.message : String(error)}`,
+        colors.yellow(
+          `  ! Boot snapshot NOT staged — restarts will resolve from the live registry instead of the pinned generation: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         ),
       );
     }

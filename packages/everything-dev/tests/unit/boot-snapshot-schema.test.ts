@@ -239,4 +239,33 @@ describe("the staging stamp (ADR 0043) — lockfileDigest on the approved snapsh
       parseBootSnapshot(JSON.stringify({ ...snapshot, lockfileDigest: "nope" })),
     ).toThrow();
   });
+
+  it("stages a stamped extends-chain payload whose app.auth.ui carries no name (#800)", async () => {
+    const stamped = BosConfigSchema.parse({
+      ...config,
+      app: {
+        ...config.app,
+        auth: {
+          ...(config.app as Record<string, unknown>).auth,
+          ui: {
+            production: "https://cdn/auth-ui/",
+            digest: { manifest: "versions/eee.json", integrity: "sha384-auth-ui-manifest-sri" },
+          },
+        },
+      },
+    });
+    const dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-stamped-"));
+    const staged = bootSnapshotOf({
+      account: ACCOUNT,
+      gateway: GATEWAY,
+      config: stamped,
+      manifestTag: { version: "2.0.0-rc.38", digest: "b143bf5f" },
+    });
+    await writeBootSnapshot(staged, { dir });
+    const loaded = parseBootSnapshot(
+      await readFile(snapshotPath(ACCOUNT, GATEWAY, { dir }), "utf8"),
+    );
+    expect(snapshotFingerprintMatches(loaded)).toBe(true);
+    expect(loaded.remotes["plugins.auth.ui"]).toBeDefined();
+  });
 });
