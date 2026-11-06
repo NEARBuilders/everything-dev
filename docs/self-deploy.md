@@ -54,6 +54,8 @@ Run your own host instance on your own NEAR account while inheriting the base pl
 
 7. **Your instance boots** `bos start`, fetches your published config from FastKV at `bos://<your-account>/citynode.app`, loads host/api/auth logic from the base's bundles (stale-if-error cached under `BOS_BUNDLE_CACHE_DIR`), and serves your version live at the Railway-assigned URL. Changes take minutes, not hours.
 
+8. **Rate limiting** — the host limits `/api/*` per client (default 2000 requests / 15 min, plus a stricter 60/15-min bucket for non-exempt mutations). Tune with `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_MS` on your instance (mutation tier: `RATE_LIMIT_MUTATION_MAX`). `GET /api/auth/get-session` is exempt from the general bucket — a 429 must never present as "signed out" (#634). People behind one IP (offices, conference wifi) share a bucket; raise the limit if that's your audience.
+
 ## Same gateway, own account
 
 `BOS_GATEWAY` (`domain` in `bos.config.json`) is the **FastKV lookup key**, not the DNS domain your Railway instance serves on. By keeping `BOS_GATEWAY=citynode.app` while using your own `BOS_ACCOUNT`, your config lives at a separate FastKV path (`bos://<your-account>/citynode.app`) that `extends` the base runtime (`bos://v1.citynode.near/citynode.app`). You inherit the full platform — host, API, auth, plugins — and override only what you change. Your Railway URL is the ingress; point your own domain's DNS at it if you want a custom domain.
