@@ -412,7 +412,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
     const probeError = await probeStorageOrigin(cdnDeploy.storageOrigin);
     if (probeError) {
       return fail(
-        `The bundle upload origin ${cdnDeploy.storageOrigin} is not running the platform API — ` +
+        `The bundle upload origin ${cdnDeploy.storageOrigin} is not a bundle-upload origin — ` +
           `${probeError}. Check BOS_STORAGE_ORIGIN / the bos login session, then re-run.`,
       );
     }

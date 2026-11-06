@@ -14,6 +14,15 @@ export interface CdnDeployInputs {
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0", "local"]);
 
+/**
+ * The platform CDN and its standalone write path (ADR 0027). A runtime whose
+ * effective `cdn.origin` is the platform CDN uploads bundles through the
+ * platform upload service — never through an app site, which only serves the
+ * platform API and 404s the upload route.
+ */
+export const PLATFORM_CDN_ORIGIN = "https://cdn.everything.dev";
+export const PLATFORM_UPLOAD_ORIGIN = "https://upload.everything.dev";
+
 /** Local/private destinations can never serve production bundles. */
 export function isLocalOrigin(url: string): boolean {
   try {
@@ -41,12 +50,14 @@ export function isLocalOrigin(url: string): boolean {
  * Deploy origin resolution (ADR 0020, as amended): the CDN origin comes from
  * the env or the authored `cdn.origin` (inherited via extends) — a hard
  * requirement when uploads are planned, because the host never serves
- * `/bundles` itself. The upload origin is the env, the `bos login` session's
- * siteUrl, or the runtime's own gateway. A session pinned to a local site is
- * a hard error (the origin can only ever be a squatter's port); an env-pinned
- * local origin is deliberate local testing and only warns. Config-only
- * publishes (`uploadsPlanned: false`) ship the committed config verbatim —
- * no origins are resolved and nothing is required.
+ * `/bundles` itself. The upload origin is the env, the platform upload
+ * service when the effective CDN is the platform CDN (an app-site session
+ * URL is not an upload origin by design), the `bos login` session's siteUrl,
+ * or the runtime's own gateway. A session pinned to a local site is a hard
+ * error (the origin can only ever be a squatter's port); an env-pinned local
+ * origin is deliberate local testing and only warns. Config-only publishes
+ * (`uploadsPlanned: false`) ship the committed config verbatim — no origins
+ * are resolved and nothing is required.
  */
 export function resolveCdnDeployInputs(input: {
   env: Record<string, string | undefined>;
@@ -108,6 +119,8 @@ export function resolveCdnDeployInputs(input: {
     if (isLocalOrigin(storageEnvOrigin) && !warning) {
       warning = `BOS_STORAGE_ORIGIN is a local URL (${storageEnvOrigin}) — uploading to a local stack.`;
     }
+  } else if (cdnOrigin === PLATFORM_CDN_ORIGIN) {
+    storageOrigin = PLATFORM_UPLOAD_ORIGIN;
   } else if (sessionSite) {
     if (isLocalOrigin(sessionSite)) {
       return {
@@ -166,8 +179,12 @@ export function resolveCdnDeployInputs(input: {
 /**
  * Pre-upload probe: the storage origin must actually be the bundle-upload
  * service.
- * `/health` is the primary readiness check, with MCP kept as a compatibility
- * fallback for older fixtures and legacy hosts.
+ * `/health` is the readiness check, with MCP kept as a compatibility fallback
+ * for older fixtures and legacy hosts — but an app host running the platform
+ * API answers both without serving uploads (issue #666), so the upload route
+ * itself is probed last: the upload service guards `POST /api/storage/bundles`
+ * behind auth (401/400), while an app host 404s it. Only 404/405 fail the
+ * probe.
  */
 export async function probeStorageOrigin(
   storageOrigin: string,
@@ -176,32 +193,57 @@ export async function probeStorageOrigin(
   const base = storageOrigin.replace(/\/$/, "");
   const healthUrl = `${base}/health`;
   const mcpUrl = `${base}/.well-known/mcp.json`;
+  let healthOk = false;
+  let healthStatus = 0;
   let response: Response;
   try {
     response = await fetchImpl(healthUrl, { headers: { accept: "text/plain" } });
   } catch (error) {
     return `unreachable (${String(error instanceof Error ? error.message : error)})`;
   }
+  healthStatus = response.status;
   if (response.ok) {
     const body = await response.text().catch(() => "");
-    if (body.trim() === "OK" || body.trim().length === 0) return undefined;
+    healthOk = body.trim() === "OK" || body.trim().length === 0;
   }
-  let mcpResponse: Response;
-  try {
-    mcpResponse = await fetchImpl(mcpUrl, { headers: { accept: "application/json" } });
-  } catch {
-    return `GET /health responded ${response.status}; fallback /.well-known/mcp.json unreachable`;
-  }
-  if (!mcpResponse.ok) {
-    return `GET /health responded ${response.status}; GET /.well-known/mcp.json responded ${mcpResponse.status}`;
-  }
-  try {
-    const body = await mcpResponse.json();
-    if (!body || typeof body !== "object") {
-      return "did not return the platform MCP descriptor";
+  if (!healthOk) {
+    let mcpResponse: Response;
+    try {
+      mcpResponse = await fetchImpl(mcpUrl, { headers: { accept: "application/json" } });
+    } catch {
+      return `GET /health responded ${healthStatus}; fallback /.well-known/mcp.json unreachable`;
     }
-    return undefined;
-  } catch {
-    return "did not return the platform MCP descriptor (non-JSON response)";
+    if (!mcpResponse.ok) {
+      return `GET /health responded ${healthStatus}; GET /.well-known/mcp.json responded ${mcpResponse.status}`;
+    }
+    try {
+      const body = await mcpResponse.json();
+      if (!body || typeof body !== "object") {
+        return "did not return the platform MCP descriptor";
+      }
+    } catch {
+      return "did not return the platform MCP descriptor (non-JSON response)";
+    }
   }
+  // The upload-route capability check is for real deploys. Local/private
+  // origins (test harnesses, deliberate local stacks — already warned) may
+  // only implement the probe contract: a POST there could be socket-killed
+  // by failure injection or mutate a mock's batch records.
+  if (isLocalOrigin(storageOrigin)) {
+    return undefined;
+  }
+  let uploadProbe: Response;
+  try {
+    uploadProbe = await fetchImpl(`${base}/api/storage/bundles`, { method: "POST" });
+  } catch (error) {
+    return `the platform API answered, but POST /api/storage/bundles was unreachable (${String(error instanceof Error ? error.message : error)})`;
+  }
+  if (uploadProbe.status === 404 || uploadProbe.status === 405) {
+    return (
+      `POST /api/storage/bundles responded ${uploadProbe.status} — this origin is an app host, ` +
+      "not the platform upload service. Set BOS_STORAGE_ORIGIN=https://upload.everything.dev " +
+      "(the platform CDN's write path) or re-run `bos login` against the production site."
+    );
+  }
+  return undefined;
 }
