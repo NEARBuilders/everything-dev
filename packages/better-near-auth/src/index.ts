@@ -131,35 +131,61 @@ interface Nep413Payload {
   callbackUrl?: string;
 }
 
+type SiwnAccessKey = Awaited<ReturnType<Near["getAccessKey"]>>;
+
+interface VerifiedSiwnSignature {
+  valid: boolean;
+  accessKey: SiwnAccessKey | null;
+}
+
 async function verifySignedMessage(
   accountId: string,
   signedMessage: { publicKey: string; signature: string },
   payload: Nep413Payload,
   near: Near,
   relyingParty?: { rpID: string; origins: string[] },
-): Promise<boolean> {
+): Promise<VerifiedSiwnSignature> {
   if (isDeterministicAccountId(accountId)) {
-    return verifyPasskeyNep413Signature({
-      accountId,
-      publicKey: signedMessage.publicKey,
-      signature: signedMessage.signature,
-      message: payload.message,
-      recipient: payload.recipient,
-      nonce: payload.nonce,
-      relyingParty,
-    });
+    return {
+      valid: verifyPasskeyNep413Signature({
+        accountId,
+        publicKey: signedMessage.publicKey,
+        signature: signedMessage.signature,
+        message: payload.message,
+        recipient: payload.recipient,
+        nonce: payload.nonce,
+        relyingParty,
+      }),
+      accessKey: null,
+    };
   }
+  // Signature checks are local crypto. The single on-chain read is the
+  // access-key residency + permission query below — fetch it exactly once
+  // and hand the result to the caller. Re-querying per check meant 2-3
+  // sequential RPC round trips per login, which dominates login latency
+  // on rate-limited RPC endpoints.
   const verify = (candidate: Nep413Payload) =>
     signedMessage.publicKey.startsWith("ml-dsa-65:")
       ? verifyMlDsa65Nep413Signature(signedMessage as never, candidate, {
-          near,
           maxAge: 15 * 60 * 1000,
         })
-      : verifyNep413Signature(signedMessage as never, candidate, { near, maxAge: 15 * 60 * 1000 });
-  if (await verify(payload)) return true;
-  if (!payload.callbackUrl) return false;
-  const { callbackUrl: _omitted, ...withoutCallbackUrl } = payload;
-  return verify(withoutCallbackUrl);
+      : verifyNep413Signature(signedMessage as never, candidate, { maxAge: 15 * 60 * 1000 });
+  const signatureValid =
+    (await verify(payload)) ||
+    (payload.callbackUrl ? await verify(withoutCallbackUrl(payload)) : false);
+  if (!signatureValid) {
+    return { valid: false, accessKey: null };
+  }
+  const accessKey = await near.getAccessKey(accountId, signedMessage.publicKey);
+  if (!accessKey || accessKey.permission !== "FullAccess") {
+    return { valid: false, accessKey: accessKey ?? null };
+  }
+  return { valid: true, accessKey };
+}
+
+function withoutCallbackUrl(payload: Nep413Payload): Nep413Payload {
+  const { callbackUrl: _omitted, ...rest } = payload;
+  return rest;
 }
 
 function nearAccountKey(account: Pick<NearAccount, "accountId" | "network">): string {
@@ -504,17 +530,11 @@ function matchesSessionGasKeyScope(key: GasKeyPermissionView, cfg: SessionGasKey
   return cfg.methodNames.every((method) => key.method_names.includes(method));
 }
 
-async function defaultValidateLimitedAccessKey(
-  accountId: string,
-  publicKey: string,
-  recipient: string,
-  near: Near,
-): Promise<boolean> {
-  const key = await near.getAccessKey(accountId, publicKey);
-  if (!key) return false;
-  if (key.permission === "FullAccess") return true;
-  if ("FunctionCall" in key.permission) {
-    return key.permission.FunctionCall.receiver_id === recipient;
+function validateAccessKeyForRecipient(accessKey: SiwnAccessKey, recipient: string): boolean {
+  if (!accessKey) return false;
+  if (accessKey.permission === "FullAccess") return true;
+  if ("FunctionCall" in accessKey.permission) {
+    return accessKey.permission.FunctionCall.receiver_id === recipient;
   }
   return false;
 }
@@ -571,7 +591,6 @@ function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
 }
 
 interface MlDsa65VerifyOptions {
-  near: Near;
   maxAge?: number;
 }
 
@@ -586,7 +605,7 @@ async function verifyMlDsa65Nep413Signature(
   options: MlDsa65VerifyOptions,
 ): Promise<boolean> {
   try {
-    const { near, maxAge = 5 * 60 * 1000 } = options;
+    const { maxAge = 5 * 60 * 1000 } = options;
 
     if (!signedMessage.publicKey.startsWith(ML_DSA_65_KEY_PREFIX)) {
       return false;
@@ -608,11 +627,6 @@ async function verifyMlDsa65Nep413Signature(
       const age = Date.now() - timestamp;
       if (age > maxAge) return false;
       if (age < 0) return false;
-    }
-
-    const accessKey = await near.getAccessKey(signedMessage.accountId, signedMessage.publicKey);
-    if (!accessKey || accessKey.permission !== "FullAccess") {
-      return false;
     }
 
     const combined = serializeNep413Message(params);
@@ -654,9 +668,18 @@ export interface SIWNPluginOptions {
     accountId: AccountId;
     publicKey: string;
     recipient?: string;
+    /** The access key already fetched during signature verification — reuse it
+     * instead of re-querying the RPC. */
+    accessKey?: SiwnAccessKey | null;
   }) => Promise<boolean>;
   apiKey?: string;
   rpcUrl?: string | DualNetworkConfig<string>;
+  /** RPC endpoint for on-chain READS (SIWN verification, view calls,
+   * availability checks). Falls back to `rpcUrl`. The 2026-11-04 fastnear
+   * incident was about silently dropped broadcasts — reads stayed safe on the
+   * free tier, so reads can point at a faster endpoint than `rpcUrl`, which
+   * must keep a real transaction pool. */
+  readRpcUrl?: string | DualNetworkConfig<string>;
   relayer?: RelayerConfig | RelayerDualNetworkConfig;
   sessionGasKey?: SessionGasKeyConfig | SessionGasKeyDualNetworkConfig;
   secrets?: {
@@ -709,6 +732,13 @@ export const siwn = (options: SIWNPluginOptions) => {
     if (typeof options.rpcUrl === "object")
       return (options.rpcUrl as DualNetworkConfig<string>)[network];
     return options.rpcUrl as string;
+  };
+
+  const getReadRpcUrl = (network: "mainnet" | "testnet"): string | undefined => {
+    if (!options.readRpcUrl) return getRpcUrl(network);
+    if (typeof options.readRpcUrl === "object")
+      return (options.readRpcUrl as DualNetworkConfig<string>)[network];
+    return options.readRpcUrl as string;
   };
 
   const getSubAccountConfig = (network: "mainnet" | "testnet"): SubAccountConfig | undefined => {
@@ -810,19 +840,38 @@ export const siwn = (options: SIWNPluginOptions) => {
     return initPromise;
   };
 
-  const getNear = (network: "mainnet" | "testnet") => {
-    const networkRpcUrl = getRpcUrl(network);
-    if (networkRpcUrl) {
+  // Reads (SIWN verification, view calls, availability checks) tolerate a
+  // faster, more rate-limited endpoint than broadcasts: the 2026-11-04
+  // fastnear incident was about silently dropped transactions, not bad
+  // reads. Read clients also retry faster — a login must fail fast instead
+  // of stalling on the write path's patient backoff.
+  const SIWN_READ_RETRY_CONFIG = { maxRetries: 2, initialDelayMs: 250 } as const;
+
+  const buildNearClient = (
+    network: "mainnet" | "testnet",
+    rpcUrl: string | undefined,
+    retryConfig?: { maxRetries: number; initialDelayMs: number },
+  ): Near => {
+    const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+    if (rpcUrl) {
       return new Near({
-        network: { rpcUrl: networkRpcUrl, networkId: network },
-        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+        network: { rpcUrl, networkId: network },
+        headers,
+        retryConfig,
       });
     }
     return new Near({
       network,
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      headers,
+      retryConfig,
     });
   };
+
+  const getNear = (network: "mainnet" | "testnet"): Near =>
+    buildNearClient(network, getReadRpcUrl(network), SIWN_READ_RETRY_CONFIG);
+
+  const getWriteNear = (network: "mainnet" | "testnet"): Near =>
+    buildNearClient(network, getRpcUrl(network));
 
   return {
     id: "siwn",
@@ -907,7 +956,7 @@ export const siwn = (options: SIWNPluginOptions) => {
             const near = getNear(network);
             const nonceBytes = hex.decode(nonce);
 
-            const isValid = await verifySignedMessage(
+            const { valid: isValid, accessKey } = await verifySignedMessage(
               accountId,
               signedMessage,
               { message, recipient, nonce: nonceBytes, callbackUrl },
@@ -936,6 +985,7 @@ export const siwn = (options: SIWNPluginOptions) => {
                 accountId: accountId,
                 publicKey: publicKey,
                 recipient: expectedRecipient,
+                accessKey,
               });
 
               if (!isValidKey) {
@@ -1396,7 +1446,7 @@ export const siwn = (options: SIWNPluginOptions) => {
             const near = getNear(network);
             const nonceBytes = hex.decode(nonce);
 
-            const isValid = await verifySignedMessage(
+            const { valid: isValid, accessKey } = await verifySignedMessage(
               accountId,
               signedMessage,
               { message, recipient, nonce: nonceBytes, callbackUrl },
@@ -1438,18 +1488,22 @@ export const siwn = (options: SIWNPluginOptions) => {
             if (!options.requireFullAccessKey && !isDeterministicAccountId(accountId)) {
               const validateKey =
                 options.validateLimitedAccessKey ||
-                ((args: { accountId: string; publicKey: string; recipient?: string }) =>
-                  defaultValidateLimitedAccessKey(
-                    args.accountId,
-                    args.publicKey,
+                ((args: {
+                  accountId: string;
+                  publicKey: string;
+                  recipient?: string;
+                  accessKey?: SiwnAccessKey | null;
+                }) =>
+                  validateAccessKeyForRecipient(
+                    args.accessKey ?? null,
                     args.recipient || expectedRecipient,
-                    near,
                   ));
 
               const isValidKey = await validateKey({
                 accountId: accountId,
                 publicKey: publicKey,
                 recipient: expectedRecipient,
+                accessKey,
               });
 
               if (!isValidKey) {
@@ -2333,7 +2387,7 @@ export const siwn = (options: SIWNPluginOptions) => {
             network,
           };
 
-          const signingNear = rState?.near ?? near;
+          const signingNear = rState?.near ?? getWriteNear(network);
           let txBuilder = signingNear
             .transaction(parentAccount)
             .createAccount(newAccountId)
@@ -2441,7 +2495,7 @@ export const siwn = (options: SIWNPluginOptions) => {
               try {
                 const key = getRawParentKey(network);
                 if (key) {
-                  const rollbackNear = getNear(network);
+                  const rollbackNear = getWriteNear(network);
                   await rollbackNear
                     .transaction(newAccountId)
                     .deleteAccount({ beneficiary: parentAccount })

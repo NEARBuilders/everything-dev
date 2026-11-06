@@ -83,6 +83,9 @@ describe("descriptor golden fixture — bos.app.ts ↔ bos.config.json", () => {
       // the root's authored relayer bring-up (#772) rides the extends lineage:
       // the flat relayer fields + rpcUrl merge into every child's flattened siwn
       rpcUrl: "https://rpc.mainnet.near.org",
+      // reads stay on the fast endpoint (PR #806) — the fastnear incident was
+      // broadcast drops, not bad reads
+      readRpcUrl: "https://free.rpc.fastnear.com",
       recipients: { mainnet: "child.example", testnet: "child.testnet" },
       permissions: {
         statements: {

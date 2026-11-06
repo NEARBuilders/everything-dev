@@ -50,7 +50,8 @@ It runs inside the **everything-plugin** framework (oRPC + Effect) and is design
 | `siwn.recipient` | `string` | — | Single-network SIWN recipient |
 | `siwn.recipients.mainnet` | `string` | — | Mainnet SIWN recipient |
 | `siwn.recipients.testnet` | `string` | — | Testnet SIWN recipient |
-| `siwn.rpcUrl` | `string` | — | Optional NEAR RPC endpoint |
+| `siwn.rpcUrl` | `string` | — | Optional NEAR RPC endpoint for on-chain writes (relayer broadcasts, rollbacks) |
+| `siwn.readRpcUrl` | `string` | — | Optional NEAR RPC endpoint for on-chain reads (SIWN verification, view calls); falls back to `siwn.rpcUrl` |
 | `siwn.relayer.mainnet.accountId` | `string` | — | Optional mainnet relayer account ID |
 | `siwn.relayer.testnet.accountId` | `string` | — | Optional testnet relayer account ID |
 | `siwn.subAccount.mainnet.parentAccount` | `string` | — | Optional mainnet sub-account parent |

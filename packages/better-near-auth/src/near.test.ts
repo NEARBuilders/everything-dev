@@ -120,7 +120,26 @@ vi.mock("near-kit", () => {
       secretKey: MOCK_GENERATED_SECRET_KEY,
       sign: vi.fn(),
     })),
-    verifyNep413Signature: vi.fn(() => Promise.resolve(true)),
+    verifyNep413Signature: vi.fn(
+      async (
+        signed: { accountId: string; publicKey: string },
+        _payload: unknown,
+        options?: {
+          near?: {
+            getAccessKey: (
+              accountId: string,
+              publicKey: string,
+            ) => Promise<{ permission: unknown } | null>;
+          };
+        },
+      ) => {
+        if (options?.near) {
+          const accessKey = await options.near.getAccessKey(signed.accountId, signed.publicKey);
+          if (!accessKey || accessKey.permission !== "FullAccess") return false;
+        }
+        return true;
+      },
+    ),
     decodeSignedDelegateAction: vi.fn(() => ({
       signedDelegate: {
         delegateAction: {
@@ -407,6 +426,98 @@ describe("siwn plugin", () => {
       });
 
       expect(error?.status).toBe(401);
+    });
+
+    it("performs exactly one on-chain access-key query per successful verify", async () => {
+      const { Near, verifyNep413Signature } = await import("near-kit");
+      const nearHandle = new (Near as any)() as { getAccessKey: ReturnType<typeof vi.fn> };
+      const { client } = await setup();
+
+      nearHandle.getAccessKey.mockClear();
+      (verifyNep413Signature as any).mockReset();
+      const { data, error } = await client.near.verify(makeVerifyBody());
+
+      expect(error).toBeNull();
+      expect(data?.success).toBe(true);
+      expect(nearHandle.getAccessKey).toHaveBeenCalledTimes(1);
+    });
+
+    it("performs exactly one access-key query when retrying without the callbackUrl", async () => {
+      const { Near, verifyNep413Signature } = await import("near-kit");
+      const nearHandle = new (Near as any)() as { getAccessKey: ReturnType<typeof vi.fn> };
+      (verifyNep413Signature as any).mockReset();
+      (verifyNep413Signature as any).mockImplementation(
+        async (
+          signed: { accountId: string; publicKey: string },
+          payload: { callbackUrl?: string },
+          options?: {
+            near?: {
+              getAccessKey: (
+                accountId: string,
+                publicKey: string,
+              ) => Promise<{ permission: unknown } | null>;
+            };
+          },
+        ) => {
+          if (options?.near) {
+            const accessKey = await options.near.getAccessKey(signed.accountId, signed.publicKey);
+            if (!accessKey || accessKey.permission !== "FullAccess") return false;
+          }
+          return !payload.callbackUrl;
+        },
+      );
+      try {
+        const { client } = await setup();
+
+        nearHandle.getAccessKey.mockClear();
+        const { data, error } = await client.near.verify({
+          ...makeVerifyBody(),
+          callbackUrl: "http://localhost:3000/login",
+        });
+
+        expect(error).toBeNull();
+        expect(data?.success).toBe(true);
+        expect(nearHandle.getAccessKey).toHaveBeenCalledTimes(1);
+      } finally {
+        (verifyNep413Signature as any).mockReset();
+      }
+    });
+
+    it("rejects limited-access keys as invalid signatures with a single query", async () => {
+      const { Near, verifyNep413Signature } = await import("near-kit");
+      const nearHandle = new (Near as any)() as { getAccessKey: ReturnType<typeof vi.fn> };
+      (verifyNep413Signature as any).mockReset();
+      const { client } = await setup();
+
+      nearHandle.getAccessKey.mockClear();
+      nearHandle.getAccessKey.mockResolvedValue({
+        nonce: 0,
+        permission: { FunctionCall: { receiver_id: MOCK_RECIPIENT, method_names: [] } },
+      });
+      try {
+        const { error } = await client.near.verify(makeVerifyBody());
+
+        expect(error?.status).toBe(401);
+        expect(nearHandle.getAccessKey).toHaveBeenCalledTimes(1);
+      } finally {
+        nearHandle.getAccessKey.mockResolvedValue({ nonce: 0, permission: "FullAccess" });
+      }
+    });
+
+    it("passes the fetched access key to the custom key validator", async () => {
+      const validateLimitedAccessKey = vi.fn().mockResolvedValue(true);
+      const { client } = await setup({ validateLimitedAccessKey });
+
+      const { data, error } = await client.near.verify(makeVerifyBody());
+
+      expect(error).toBeNull();
+      expect(data?.success).toBe(true);
+      expect(validateLimitedAccessKey).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: MOCK_RECIPIENT,
+          accessKey: expect.objectContaining({ permission: "FullAccess" }),
+        }),
+      );
     });
 
     it("should detect nonce replay", async () => {

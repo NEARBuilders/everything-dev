@@ -56,11 +56,18 @@ export default App({
         },
         // near-kit's default mainnet RPC (free.rpc.fastnear.com) accepted
         // signed broadcasts and silently dropped them post-acceptance
-        // (2026-11-04 incident). Pin every on-chain read/write this plugin
-        // makes — SIWN verification, the relayer's submission, gas keys —
-        // to an endpoint with a real transaction pool. Children inherit
-        // this through extends.
+        // (2026-11-04 incident). Pin every on-chain WRITE this plugin makes —
+        // the relayer's submission, gas keys, sub-account rollbacks — to an
+        // endpoint with a real transaction pool. Children inherit this
+        // through extends.
         rpcUrl: "https://rpc.mainnet.near.org",
+        // Reads (SIWN verification, view calls, availability checks) stay on
+        // the fast endpoint — the incident was broadcast drops, not bad
+        // reads, and rpc.mainnet.near.org answers a login's access-key query
+        // ~25x slower (~3.2s vs ~130ms), which put seconds on every
+        // named-account login. Combined with better-near-auth fetching the
+        // access key exactly once per verify.
+        readRpcUrl: "https://free.rpc.fastnear.com",
         // The permission surface is fully config-declared (ADR 0028) — the
         // plugin ships no defaults. This is the canonical posture for the
         // root runtime; child runtimes inherit it through extends and

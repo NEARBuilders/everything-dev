@@ -173,6 +173,7 @@ export function normalizeAuthConfig(
   const commonSiwn = {
     apiKey: variables.siwn.apiKey,
     rpcUrl: variables.siwn.rpcUrl,
+    readRpcUrl: variables.siwn.readRpcUrl,
     relayer,
     sessionGasKey,
     subAccount,
