@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import process from "node:process";
 import { sql } from "drizzle-orm";
 import { Effect, Option, Schedule, Schema } from "effect";
 import {
@@ -125,6 +126,18 @@ async function readAppliedHashesIn(
 ): Promise<Set<string>> {
   const result = await executor.execute(sql`SELECT hash FROM ${ref}`);
   return new Set(normalizeRows<{ hash: string }>(result).map((r) => r.hash));
+}
+
+/** Read journal rows (hash + created_at) for the ahead-of-plugin check. */
+async function readJournalRowsIn(
+  executor: QueryExecutor,
+  ref: ReturnType<typeof sql.raw>,
+): Promise<Array<{ hash: string; createdAt: number | null }>> {
+  const result = await executor.execute(sql`SELECT hash, created_at FROM ${ref}`);
+  return normalizeRows<{ hash: string; created_at: number | null }>(result).map((row) => ({
+    hash: row.hash,
+    createdAt: row.created_at,
+  }));
 }
 
 export interface LoadMigrationsOptions {
@@ -407,6 +420,46 @@ export function runMigrations(
     const journal = opts.journal ?? getMigrationStorage();
     const schemaName = opts.schemaName;
     const duplicateSqlStates = opts.duplicateSqlStates ?? DEFAULT_DUPLICATE_SQLSTATES;
+
+    // Ahead-of-plugin guard (issue #805): journal rows this build doesn't
+    // know mean the database was migrated by a NEWER plugin build. The
+    // behind direction is this call (migrate forward); the ahead direction
+    // is silent misbehavior waiting for the first rename migration — fail
+    // closed with the unknown hashes and the remediation. A missing journal
+    // (first boot) or an unreadable one degrades to "no ahead rows" — the
+    // locked run below creates the table.
+    const knownHashes = new Set<string>();
+    for (const migration of sorted) {
+      knownHashes.add(migration.hash);
+      knownHashes.add(migration.hash.slice(0, 12));
+    }
+    const journaledRows = yield* Effect.tryPromise({
+      try: () => readJournalRowsIn(db, journalRef(journal)),
+      catch: (cause) =>
+        cause instanceof DatabaseError
+          ? cause
+          : new DatabaseError({ stage: "migration", migrationTag: "journal-read", cause }),
+    }).pipe(
+      Effect.catch(() => Effect.succeed([] as Array<{ hash: string; createdAt: number | null }>)),
+    );
+    const unknownRows = journaledRows.filter((row) => !knownHashes.has(row.hash));
+    if (unknownRows.length > 0 && process.env.BOS_ALLOW_SCHEMA_AHEAD !== "1") {
+      const unknown = unknownRows
+        .map(
+          (row) =>
+            `${row.hash.slice(0, 12)}${row.createdAt ? ` (${new Date(row.createdAt).toISOString()})` : ""}`,
+        )
+        .join(", ");
+      return yield* new DatabaseError({
+        stage: "migration",
+        migrationTag: "journal-ahead",
+        cause: new Error(
+          `This database's migration journal contains ${unknownRows.length} migration(s) this plugin build doesn't know: ${unknown}. ` +
+            "The database was migrated by a newer plugin build — upgrade/redeploy this app to catch up before it can boot. " +
+            "Deliberate rollouts can set BOS_ALLOW_SCHEMA_AHEAD=1 to allow once.",
+        ),
+      });
+    }
 
     const { appliedTags, logs } = yield* Effect.retry(
       Effect.tryPromise({

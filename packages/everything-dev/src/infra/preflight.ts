@@ -185,7 +185,7 @@ export function preflightLocalInfra(
           const appDb =
             target.secret === "API_DATABASE_URL" || target.secret === "AUTH_DATABASE_URL";
           const pluginContext = appDb
-            ? " Point it at a postgres:// URL you control (local persistence needs no server — clear the URL to fall back to the per-workspace .bos/db/<slug> PGlite)."
+            ? " Point it at a postgres:// URL you control (local persistence needs no server — clear the URL to fall back to the per-workspace .bos/db/<slug> PGlite in development; production hosts refuse the unset default)."
             : ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Point it at a postgres:// URL you control or clear the URL to fall back to the per-workspace .bos/db/<slug> PGlite.`;
           if (tcpOk) {
             return {
