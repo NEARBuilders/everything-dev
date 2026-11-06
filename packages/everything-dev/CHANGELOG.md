@@ -1,5 +1,79 @@
 # everything-dev
 
+## 2.0.0-rc.40
+
+### Patch Changes
+
+- d30ae8f: Auth production-safety family (#803/#804/#805):
+
+  - **Fail closed in production when `AUTH_DATABASE_URL` is unset.** The auth
+    plugin's secrets schema no longer silently defaults a deployed host to a
+    fresh, empty PGlite data dir — production boots without the URL now refuse
+    with an error naming the variable and the fix. The zero-config default
+    stays for local dev; `AUTH_ALLOW_PGLITE_DEFAULT=1` accepts it deliberately.
+  - **Fail closed when the shared auth DB's migration journal is ahead of the
+    plugin's known set.** `runMigrations` compares the journal against the
+    build's known hashes before migrating: unknown rows (a newer plugin build
+    migrated this DB) fail the boot with the unknown hashes, timestamps, and
+    remediation instead of silently writing on top of an unseen schema.
+    `BOS_ALLOW_SCHEMA_AHEAD=1` permits a deliberate rollout.
+  - Preflight no longer recommends clearing `AUTH_DATABASE_URL` without a
+    production caveat.
+
+- cb8710a: The auth plugin derives `isProduction` from the served origin's protocol
+  (`https:` ⇒ production) instead of `NODE_ENV` (#635): the published bundle
+  bakes `NODE_ENV` at build time, so localhost ran with production cookie
+  settings — secure cookies plus the 5-minute cookie cache — and sessions
+  silently dropped on plain http after about five minutes. Production behavior
+  is unchanged.
+- 32df683: Boot snapshots now stage for extends-chain children (#800): the authored
+  `app.<plugin>.ui` descriptor's `name` is optional, matching the release-scoped
+  stamper's canonical `{ production, digest }` form — the schema requirement was
+  silenty disabling snapshot staging for every child inheriting platform auth
+  (the stage failure surfaced as a dim `Note:` while deploys "succeeded" with no
+  staged generation). Resolution never consumed the authored name (the runtime
+  container name derives from the plugin workspace), so nothing downstream
+  changes. A deterministic staging failure now also prints as a yellow warning
+  naming the consequence ("restarts will resolve from the live registry")
+  instead of a dim note.
+- a580ea5: Contract/error-surface fixes (#678, #798): the auth `getContext` contract now
+  declares the host-injected `nearAccountId` (nullable, optional), so plugin
+  ContextSchemas derived from the contract see it without a local widening and
+  output validation doesn't strip it; and `unwrapDatabaseError` stringifies
+  non-Error causes without ever throwing — a null-prototype cause (a rewrapped
+  fiber failure) used to raise `TypeError: Cannot convert object to primitive
+value` from the message getter, masking the real database error everywhere it
+  was read.
+- c061bb7: Interactive `bos deploy` bundle-upload resolution (#666): the upload origin now
+  defaults to the platform upload service (`https://upload.everything.dev`) when
+  the effective CDN is the platform CDN, instead of reusing the `bos login`
+  session's app-site URL (which 404s uploads after a full build). The preflight
+  probe distinguishes an app host from the upload service via the guarded
+  `POST /api/storage/bundles` route and fails fast with the fix. Local/private
+  origins (test harnesses, deliberate local stacks) skip the upload-route probe.
+- 262fd23: Rate-limit hardening for the signed-out symptom (#634): `GET
+/api/auth/get-session` is exempt from the general `/api/*` bucket — a 429 on
+  the session read is what made the UI present "signed out" — while the
+  mutation tier is unchanged. `docs/self-deploy.md` documents `RATE_LIMIT_MAX`
+  / `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MUTATION_MAX` as instance tunables.
+  (The limit raise to 2000 and trusted-proxy keying already shipped; the
+  client-side false-empty flashes are #683.)
+- e0d2aef: Router pending defaults (#683, trivial slice): the default pending boundary
+  renders a spinner instead of bare "Loading..." text, and `defaultPendingMs`
+  drops to 100ms (from the router's 1000ms default) on both the client and SSR
+  routers — cold authed navigations no longer sit blank for up to a second, and
+  children no longer need to re-declare `pendingMs` + `pendingComponent` per
+  layout. The session-cache unification (double fetch, false-empty flashes)
+  remains a separate design discussion under #683.
+- b470469: Template/upgrade script hygiene (#799, #802): the child root `test` script's
+  plugins loop is guarded with `[ -d plugins ]` (matching the typecheck script),
+  so plugin-less children no longer exit 1 with all suites green; and `bos
+upgrade` retires the dead `dev:postgres` / `dev:postgres:down` /
+  `dev:postgres:reset` scripts left in children scaffolded before ADR 0038
+  retired docker-compose.
+- Updated dependencies [6084c5b]
+  - better-near-auth@2.0.0-rc.8
+
 ## 2.0.0-rc.39
 
 ### Minor Changes

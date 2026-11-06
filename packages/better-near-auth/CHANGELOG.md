@@ -1,5 +1,11 @@
 # better-near-auth
 
+## 2.0.0-rc.8
+
+### Patch Changes
+
+- 6084c5b: SIWN verification now performs exactly one on-chain access-key query per named-account login instead of 2-3. Signature verification is local crypto; the single RPC read is the access-key residency + FullAccess check, whose result is reused by the limited-key validation and handed to custom `validateLimitedAccessKey` hooks as a new optional `accessKey` arg (the hook contract stays backward compatible). This matters because sequential RPC round trips dominate login latency on slow or rate-limited endpoints — a root-runtime measurement showed ~9.6s of pure RPC wait per login after the 2026-11-04 pin to rpc.mainnet.near.org (~3.2s per query) versus ~130ms on fastnear. Also adds a `readRpcUrl` option: on-chain reads (SIWN verification, view calls, availability checks) can point at a faster endpoint than `rpcUrl`, which keeps owning broadcasts — the fastnear incident was silent broadcast drops, not bad reads. Read clients retry faster (2 retries, 250ms backoff) so interactive logins fail fast instead of stalling on the write path's patient backoff.
+
 ## 2.0.0-rc.7
 
 ### Patch Changes
