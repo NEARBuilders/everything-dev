@@ -105,6 +105,8 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
       },
       defaultNotFoundComponent,
       defaultPendingComponent,
+      // Same fast-pending default as the client router (#683)
+      defaultPendingMs: 100,
       defaultPendingMinMs: 0,
       dehydrate: () => {
         if (typeof window === "undefined") {
