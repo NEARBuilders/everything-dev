@@ -119,6 +119,10 @@ export const requestContextSchema = z.object({
   permissions: z.record(z.string(), z.array(z.string())).nullable(),
   session: contextSessionSchema.nullable(),
   near: nearCapabilitiesSchema,
+  // Host-injected: the session's primary NEAR account on the request context
+  // (#678). Declared here so plugin ContextSchemas derived from the contract
+  // see it without a local widening, and so output validation doesn't strip it.
+  nearAccountId: z.string().nullable().optional(),
   organization: organizationContextSchema,
   organizations: z
     .array(
