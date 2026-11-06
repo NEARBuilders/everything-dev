@@ -200,7 +200,12 @@ export function normalizeAuthConfig(
     network: resolveAuthNetwork(variables),
     organizationMembershipLimit: variables.organizationMembershipLimit,
     trustedOrigins,
-    isProduction: process.env.NODE_ENV === "production",
+    // Derived from the served origin, not NODE_ENV: the published bundle bakes
+    // NODE_ENV at build time (#635), so localhost ran with production cookie
+    // settings — secure cookies plus the 5-minute cookie cache — and sessions
+    // silently dropped on plain http. https-vs-not is the actual condition the
+    // cookie settings care about.
+    isProduction: new URL(baseUrl).protocol === "https:",
     rateLimit: variables.rateLimit,
     ipAddress: variables.ipAddress,
     socialProviders: {
