@@ -164,9 +164,27 @@ export const authVariablesSchema = z.object({
 export const authSecretsSchema = z.object({
   AUTH_DATABASE_URL: z
     .string()
-    .default("pglite:.bos/db/auth")
+    .optional()
+    .transform((value, ctx) => {
+      if (value) return value;
+      // Fail closed in production (issues #803/#804): an unset URL here
+      // silently bound a deployed host to a fresh, empty PGlite auth DB —
+      // every user signs in as a brand-new identity and orgs/memberships
+      // appear missing. The zero-config default stays dev-only; an operator
+      // running pglite in production deliberately can set
+      // AUTH_ALLOW_PGLITE_DEFAULT=1.
+      if (process.env.NODE_ENV === "production" && process.env.AUTH_ALLOW_PGLITE_DEFAULT !== "1") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "AUTH_DATABASE_URL is unset in a production host — refusing to bind auth to a fresh, empty PGlite data dir. Set AUTH_DATABASE_URL to a postgres:// URL (or AUTH_ALLOW_PGLITE_DEFAULT=1 to accept the local default deliberately).",
+        });
+        return z.NEVER;
+      }
+      return "pglite:.bos/db/auth";
+    })
     .describe(
-      "Database connection string. pglite: is a persistent local data dir (.bos/db/<workspace>); postgres:// for production or shared access.",
+      "Database connection string. pglite: is a persistent local data dir (.bos/db/<workspace>; dev-only default); postgres:// for production or shared access.",
     ),
   BETTER_AUTH_SECRET: z.string(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
