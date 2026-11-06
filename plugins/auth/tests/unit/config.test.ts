@@ -580,10 +580,19 @@ describe("normalizeAuthConfig", () => {
     expect(apiKeyHeaders).toEqual(["x-api-key"]);
   });
 
-  it("sets isProduction based on NODE_ENV", () => {
+  it("sets isProduction from the served origin protocol (#635)", () => {
+    process.env.NODE_ENV = "production";
+    const { authConfig } = normalizeAuthConfig(
+      { ...baseVariables, baseUrl: "https://everything.dev" },
+      baseSecrets,
+    );
+    expect(authConfig.isProduction).toBe(true);
+  });
+
+  it("localhost http is not production even with NODE_ENV=production — no secure cookies in dev (#635)", () => {
     process.env.NODE_ENV = "production";
     const { authConfig } = normalizeAuthConfig(baseVariables, baseSecrets);
-    expect(authConfig.isProduction).toBe(true);
+    expect(authConfig.isProduction).toBe(false);
   });
 });
 
