@@ -143,6 +143,16 @@ export function isSensitiveMutation(c: HonoContext): boolean {
   );
 }
 
+/**
+ * The session read is exempt from the general bucket (#634): a 429 here is
+ * the "silently signed out" symptom — the UI interprets a failed session
+ * fetch as no session. Abuse is covered by better-auth's own production
+ * limiter; the exemption is GET-only.
+ */
+export function isSessionRead(c: HonoContext): boolean {
+  return c.req.method === "GET" && c.req.path === "/api/auth/get-session";
+}
+
 export function rateLimitExceededResponse(c: HonoContext): Response {
   const acceptsHtml = (c.req.header("accept") ?? "").includes("text/html");
   if (acceptsHtml) {
@@ -259,7 +269,7 @@ export class SecurityMiddleware extends Context.Service<
         windowMs: RATE_LIMIT_WINDOW_MS,
         limit: RATE_LIMIT_MAX,
         keyGenerator: (c) => clientKeyOf(c),
-        skip: (c) => isProbeOrStatic(c) || isSensitiveMutation(c),
+        skip: (c) => isProbeOrStatic(c) || isSensitiveMutation(c) || isSessionRead(c),
         handler: (c) => rateLimitExceededResponse(c),
         message: { error: "Too many requests, please try again later." },
         store: new CappedStore(RATE_LIMIT_STORE_MAX_ENTRIES),
