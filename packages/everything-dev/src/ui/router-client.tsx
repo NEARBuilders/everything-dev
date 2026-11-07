@@ -11,7 +11,7 @@ import {
   createBrowserHistory,
   createRouter as createTanStackRouter,
 } from "@tanstack/react-router";
-import { createAuthClient } from "./auth";
+import { type AuthClient, createAuthClient, sessionQueryOptions } from "./auth";
 import { defaultNotFoundComponent, defaultPendingComponent } from "./router-defaults";
 import { RouterError } from "./router-error";
 import type { CreateRouterOptions, RouterContextWithApi } from "./types";
@@ -42,6 +42,13 @@ export function createRouter<
     );
   }
 
+  const authClient =
+    opts.context.authClient ??
+    createAuthClient({
+      runtimeConfig: opts.context.runtimeConfig,
+      cspNonce: opts.context.cspNonce,
+    });
+
   const router = createTanStackRouter({
     routeTree: routeTree as TRouteTree,
     history,
@@ -51,12 +58,10 @@ export function createRouter<
       runtimeConfig: opts.context.runtimeConfig,
       cspNonce: opts.context.cspNonce,
       apiClient: opts.context.apiClient,
-      authClient:
-        opts.context.authClient ??
-        createAuthClient({
-          runtimeConfig: opts.context.runtimeConfig,
-          cspNonce: opts.context.cspNonce,
-        }),
+      authClient,
+      // A client-rendered full load carries no host session; mount gates
+      // await this read instead of redirecting a signed-in visitor.
+      resolveSession: () => queryClient.query(sessionQueryOptions(authClient as AuthClient)),
       session: opts.context.session,
       locale: opts.context.locale,
       pluginNav: opts.context.pluginNav,

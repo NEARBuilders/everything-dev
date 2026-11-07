@@ -46,6 +46,23 @@ const route = (id: string, path: string, extra: Partial<RouteRecord> = {}): Rout
   ...extra,
 });
 
+const gateOf = (tree: { rootRoute: unknown }) =>
+  (tree.rootRoute as { children: Array<{ options: Record<string, unknown> }> }).children[0]!.options
+    .beforeLoad as (args: unknown) => Promise<unknown>;
+
+async function redirectOf(
+  beforeLoad: (args: unknown) => Promise<unknown>,
+  args: unknown,
+): Promise<{ to?: string; search?: unknown } | undefined> {
+  try {
+    await beforeLoad(args);
+    return undefined;
+  } catch (error) {
+    expect(isRedirect(error)).toBe(true);
+    return (error as { options: { to?: string; search?: unknown } }).options;
+  }
+}
+
 describe("constructTree", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -69,8 +86,9 @@ describe("constructTree", () => {
       .children[0]!;
     const beforeLoad = mount.options.beforeLoad as (args: unknown) => Promise<unknown>;
 
-    const gateThrow = () => beforeLoad({ context: {}, location: { pathname: "/", searchStr: "" } });
-    expect(gateThrow).toThrow();
+    await expect(
+      beforeLoad({ context: {}, location: { pathname: "/", searchStr: "" } }),
+    ).rejects.toSatisfy(isRedirect);
 
     const returned = await beforeLoad({
       context: { user: { id: "u1" } },
@@ -343,23 +361,21 @@ describe("constructTree", () => {
     const mount = (
       tree.rootRoute as unknown as { children: Array<{ options: Record<string, unknown> }> }
     ).children[0]!;
-    const beforeLoad = mount.options.beforeLoad as (args: unknown) => void;
+    const beforeLoad = mount.options.beforeLoad as (args: unknown) => Promise<unknown>;
 
-    let thrown: unknown;
-    try {
-      beforeLoad({ context: {}, location: { pathname: "/settings", searchStr: "" } });
-    } catch (error) {
-      thrown = error;
-    }
-    expect(isRedirect(thrown)).toBe(true);
-    expect((thrown as { options: { to: string } }).options.to).toBe("/login");
-    expect((thrown as { options: { search: unknown } }).options.search).toEqual({
-      redirect: "/settings",
-    });
+    expect(
+      await redirectOf(beforeLoad, {
+        context: {},
+        location: { pathname: "/settings", searchStr: "" },
+      }),
+    ).toEqual(expect.objectContaining({ to: "/login", search: { redirect: "/settings" } }));
 
-    expect(() =>
-      beforeLoad({ context: { user: { id: "u1" } }, location: { pathname: "/settings" } }),
-    ).not.toThrow();
+    expect(
+      await redirectOf(beforeLoad, {
+        context: { user: { id: "u1" } },
+        location: { pathname: "/settings", searchStr: "" },
+      }),
+    ).toBeUndefined();
   });
 
   it("admin gate sends anonymous users to login and non-admins home", async () => {
@@ -369,35 +385,72 @@ describe("constructTree", () => {
     };
     const tree = await construct([core]);
 
-    const beforeLoad = (
-      tree.rootRoute as unknown as { children: Array<{ options: Record<string, unknown> }> }
-    ).children[0]!.options.beforeLoad as (args: unknown) => void;
+    const beforeLoad = gateOf(tree);
 
-    const redirectOf = (args: unknown): { to: string } | undefined => {
-      try {
-        beforeLoad(args);
-        return undefined;
-      } catch (error) {
-        expect(isRedirect(error)).toBe(true);
-        return (error as { options: { to: string } }).options;
-      }
-    };
-
-    expect(redirectOf({ context: {}, location: { pathname: "/panel", searchStr: "" } })?.to).toBe(
-      "/login",
-    );
     expect(
-      redirectOf({
-        context: { user: { id: "u1", role: "member" } },
-        location: { pathname: "/panel", searchStr: "" },
-      })?.to,
+      await redirectOf(beforeLoad, {
+        context: {},
+        location: { pathname: "/panel", searchStr: "?tab=1" },
+      }),
+    ).toEqual(expect.objectContaining({ to: "/login", search: { redirect: "/panel?tab=1" } }));
+    expect(
+      (
+        await redirectOf(beforeLoad, {
+          context: { user: { id: "u1", role: "member" } },
+          location: { pathname: "/panel", searchStr: "" },
+        })
+      )?.to,
     ).toBe("/");
     expect(
-      redirectOf({
+      await redirectOf(beforeLoad, {
         context: { user: { id: "u1", role: "admin" } },
-        location: { pathname: "/panel" },
+        location: { pathname: "/panel", searchStr: "" },
       }),
     ).toBeUndefined();
+  });
+
+  it("gates wait for an unresolved session instead of redirecting a signed-in full page load", async () => {
+    const core: TestPlugin = {
+      key: "ui",
+      routes: [mountLayout("admin"), route("_admin/panel", "/panel", { parentId: "_admin" })],
+    };
+    const beforeLoad = gateOf(await construct([core]));
+    const location = { pathname: "/panel", searchStr: "" };
+
+    const resolveSession = vi.fn(async () => ({ user: { id: "u1", role: "admin" } }));
+    expect(await redirectOf(beforeLoad, { context: { resolveSession }, location })).toBeUndefined();
+    expect(resolveSession).toHaveBeenCalledOnce();
+
+    expect(
+      await redirectOf(beforeLoad, {
+        context: { resolveSession: async () => null },
+        location,
+      }),
+    ).toEqual(expect.objectContaining({ to: "/login", search: { redirect: "/panel" } }));
+  });
+
+  it("gates trust a resolved session, including an authoritative sign-out, without reading again", async () => {
+    const core: TestPlugin = {
+      key: "ui",
+      routes: [
+        mountLayout("authenticated"),
+        route("_authenticated/x", "/x", { parentId: "_authenticated" }),
+      ],
+    };
+    const beforeLoad = gateOf(await construct([core]));
+    const location = { pathname: "/x", searchStr: "" };
+    const resolveSession = vi.fn(async () => ({ user: { id: "u1" } }));
+
+    expect(
+      await redirectOf(beforeLoad, {
+        context: { session: { user: { id: "u1" } }, resolveSession },
+        location,
+      }),
+    ).toBeUndefined();
+    expect(
+      (await redirectOf(beforeLoad, { context: { session: null, resolveSession }, location }))?.to,
+    ).toBe("/login");
+    expect(resolveSession).not.toHaveBeenCalled();
   });
 
   it("reads the gate user from either context.user or context.session.user", async () => {
@@ -409,13 +462,14 @@ describe("constructTree", () => {
       ],
     };
     const tree = await construct([core]);
-    const beforeLoad = (
-      tree.rootRoute as unknown as { children: Array<{ options: Record<string, unknown> }> }
-    ).children[0]!.options.beforeLoad as (args: unknown) => void;
+    const beforeLoad = gateOf(tree);
 
-    expect(() =>
-      beforeLoad({ context: { session: { user: { id: "u1" } } }, location: { pathname: "/x" } }),
-    ).not.toThrow();
+    expect(
+      await redirectOf(beforeLoad, {
+        context: { session: { user: { id: "u1" } } },
+        location: { pathname: "/x", searchStr: "" },
+      }),
+    ).toBeUndefined();
   });
 
   it("shadows a plugin's duplicate mount declaration (core wins)", async () => {
