@@ -42,14 +42,21 @@ export interface GateUser {
 }
 
 export interface HostContext {
-  user?: GateUser;
-  session?: { user?: GateUser };
+  user?: GateUser | null;
+  /** `null` is an authoritative sign-out; `undefined` means not resolved yet. */
+  session?: { user?: GateUser } | null;
+  /**
+   * Loads the session when the context has not resolved it — a
+   * client-rendered full page load, where the host hands the browser no
+   * session. Gates await it instead of treating "unknown" as "signed out".
+   */
+  resolveSession?: () => Promise<{ user?: GateUser } | null | undefined>;
 }
 
 type GateFn = (args: {
   context: HostContext;
   location: { pathname: string; searchStr: string };
-}) => void;
+}) => void | Promise<void>;
 
 /**
  * Gate redirects are absolute: gates attach to root-level mount routes, and
@@ -66,24 +73,33 @@ const HOME_TO: string = "/";
  * mount without an entry (or `none`) renders ungated.
  */
 const GATES: Partial<Record<MountDef["gate"], GateFn>> = {
-  session: ({ context, location }) => {
-    const user = userOf(context);
-    if (!user) {
-      throw redirect({
-        to: LOGIN_TO,
-        search: { redirect: location.pathname + location.searchStr } as never,
-      });
-    }
+  session: async ({ context, location }) => {
+    const user = await gateUserOf(context);
+    if (!user) throw loginRedirect(location);
   },
-  admin: ({ context }) => {
-    const user = userOf(context);
-    if (!user) throw redirect({ to: LOGIN_TO });
+  admin: async ({ context, location }) => {
+    const user = await gateUserOf(context);
+    if (!user) throw loginRedirect(location);
     if (user.role !== "admin") throw redirect({ to: HOME_TO });
   },
 };
 
+const loginRedirect = (location: { pathname: string; searchStr: string }) =>
+  redirect({
+    to: LOGIN_TO,
+    search: { redirect: location.pathname + location.searchStr } as never,
+  });
+
 const userOf = (context: HostContext | undefined): GateUser | undefined =>
   context?.user ?? context?.session?.user;
+
+const isResolved = (context: HostContext | undefined): boolean =>
+  context?.user !== undefined || context?.session !== undefined;
+
+async function gateUserOf(context: HostContext | undefined): Promise<GateUser | undefined> {
+  if (isResolved(context) || !context?.resolveSession) return userOf(context);
+  return (await context.resolveSession())?.user ?? undefined;
+}
 
 export interface ConstructPluginRef {
   /** composition identity — plugin key; participates in the digest */
@@ -148,8 +164,8 @@ function layoutBeforeLoad(
   declared: RouteOptionsBundle["beforeLoad"],
 ): RouteOptionsBundle["beforeLoad"] {
   if (!gate) return declared;
-  return (args) => {
-    gate(args);
+  return async (args) => {
+    await gate(args);
     return declared?.(args);
   };
 }
