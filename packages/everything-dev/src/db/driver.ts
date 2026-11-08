@@ -156,18 +156,21 @@ function buildPoolConfig(url: string, namespace: string | undefined) {
   };
 }
 
-async function ensureNamespaceExists(pool: PoolLike, namespace: string): Promise<void> {
+async function ensureNamespaceExists(
+  pool: PoolLike,
+  namespace: string,
+  lockKey: string,
+): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     try {
-      // Same journal-scoped advisory lock the migration runner holds, so this
-      // CREATE SCHEMA cannot race a concurrent migration run (the runner also
-      // creates the schema inside its locked transaction). Xact-scoped: the
-      // lock releases at COMMIT/ROLLBACK or on connection death.
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-        "drizzle.__drizzle_migrations",
-      ]);
+      // Same journal-scoped advisory lock the migration runner holds (the
+      // workspace's own journal, ADR 0045), so this CREATE SCHEMA cannot race
+      // a concurrent migration run (the runner also creates the schema inside
+      // its locked transaction). Xact-scoped: the lock releases at
+      // COMMIT/ROLLBACK or on connection death.
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lockKey]);
       await client.query(`CREATE SCHEMA IF NOT EXISTS "${namespace}"`);
       await client.query("COMMIT");
     } catch (error) {
@@ -233,12 +236,15 @@ function pgliteDoubleOpenError(dataDir: string): Error {
  * only, and `drizzle-orm` appears as a runtime import for the `drizzle` entry
  * points. The `namespace` option expresses every topology the platform needs:
  * `plugin_<slug>` on a shared database, undefined for public-schema (api) or
- * dedicated-database (auth) workloads.
+ * dedicated-database (auth) workloads. `journalLockKey` is the advisory-lock
+ * coordinate the migration runner holds for this workspace (its own journal,
+ * ADR 0045) — namespace creation serializes against it.
  */
 export async function createDatabaseDriver<TSchema extends Record<string, unknown>>(
   url: string,
   schema: TSchema,
   namespace?: string,
+  journalLockKey?: string,
 ): Promise<DatabaseDriver<TSchema>> {
   if (url.startsWith("pglite:") || url === ":memory:") {
     const { drizzle } = await import("drizzle-orm/pglite");
@@ -296,7 +302,7 @@ export async function createDatabaseDriver<TSchema extends Record<string, unknow
   });
 
   if (namespace) {
-    await ensureNamespaceExists(pool, namespace);
+    await ensureNamespaceExists(pool, namespace, journalLockKey ?? "drizzle.__drizzle_migrations");
   }
 
   const db = drizzle(pool as never, { schema: schema as never }) as unknown as PgDatabase<

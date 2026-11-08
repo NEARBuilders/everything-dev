@@ -37,10 +37,10 @@ describe("getMigrationSlug", () => {
 });
 
 describe("getMigrationStorage", () => {
-  it("returns the shared journal coords with the caller's slug (phase 1)", () => {
+  it("returns per-workspace journal coords (ADR 0045)", () => {
     const storage = getMigrationStorage("api");
     expect(storage.schema).toBe("drizzle");
-    expect(storage.table).toBe("__drizzle_migrations");
+    expect(storage.table).toBe("__drizzle_migrations_api");
     expect(storage.slug).toBe("api");
   });
 
@@ -50,7 +50,7 @@ describe("getMigrationStorage", () => {
     try {
       const storage = getMigrationStorage();
       expect(storage.slug).toBe("api");
-      expect(storage.table).toBe("__drizzle_migrations");
+      expect(storage.table).toBe("__drizzle_migrations_api");
     } finally {
       process.env.npm_package_name = prev;
     }
@@ -59,7 +59,7 @@ describe("getMigrationStorage", () => {
   it("normalizes a raw plugin key without pre-normalization", () => {
     const storage = getMigrationStorage("@everything-dev/foo-plugin");
     expect(storage.slug).toBe("foo");
-    expect(storage.table).toBe("__drizzle_migrations");
+    expect(storage.table).toBe("__drizzle_migrations_foo");
   });
 });
 
@@ -77,7 +77,7 @@ describe("getMigrationStorage (isolated)", () => {
     expect(storage.table).toBe("__drizzle_migrations_foo");
   });
 
-  it("isolated: false explicitly selects the shared journal", () => {
+  it("isolated: false explicitly selects the legacy shared journal", () => {
     const storage = getMigrationStorage("api", { isolated: false });
     expect(storage.table).toBe("__drizzle_migrations");
   });

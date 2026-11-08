@@ -12,7 +12,14 @@ const DEFAULT_MIGRATION_JOURNAL = {
   table: "__drizzle_migrations",
 } as const;
 
-const PER_PLUGIN_ISOLATION = false;
+/**
+ * ADR 0045: journals are per-workspace (`__drizzle_migrations_<slug>`), so
+ * "every row in my journal is mine" holds by construction and the
+ * ahead-of-build guard is sound. `{ isolated: false }` overrides to the
+ * legacy shared coords (tests, legacy imports); boot adoption copies a
+ * workspace's known rows out of the shared journal once.
+ */
+const PER_PLUGIN_ISOLATION = true;
 
 export function normalizeSlug(name: string): string {
   const basename = name.split("/").pop() ?? name;
