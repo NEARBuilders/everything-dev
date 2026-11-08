@@ -370,6 +370,19 @@ jobs:
       - name: Test everything-dev
         run: pnpm --filter everything-dev test
 
+      - name: Get near-kit version
+        id: near-kit
+        working-directory: packages/better-near-auth
+        run: echo "version=$(node -p "require('near-kit/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache near-sandbox binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ~/.near-kit/sandbox/bin
+          key: ${{ runner.os }}-near-sandbox-${{ steps.near-kit.outputs.version }}
+          restore-keys: |
+            ${{ runner.os }}-near-sandbox-
+
       - name: Test better-near-auth
         run: pnpm --filter better-near-auth test
 
