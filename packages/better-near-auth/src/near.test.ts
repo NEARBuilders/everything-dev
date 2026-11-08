@@ -32,8 +32,16 @@ let nonceCounter = 0;
 function makeUniqueNonce(): Uint8Array {
   nonceCounter++;
   const nonce = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
+  new DataView(nonce.buffer).setBigUint64(0, BigInt(Date.now()), false);
+  for (let i = 8; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
   return nonce;
+}
+
+function makeTimestampedNonce(ms: number): string {
+  const nonce = new Uint8Array(32);
+  new DataView(nonce.buffer).setBigUint64(0, BigInt(ms), false);
+  crypto.getRandomValues(nonce.subarray(8));
+  return hex.encode(nonce);
 }
 
 vi.mock("near-kit", () => {
@@ -106,7 +114,8 @@ vi.mock("near-kit", () => {
     generateNonce: vi.fn(() => {
       nonceCounter++;
       const nonce = new Uint8Array(32);
-      for (let i = 0; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
+      new DataView(nonce.buffer).setBigUint64(0, BigInt(Date.now()), false);
+      for (let i = 8; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
       return nonce;
     }),
     generateKey: vi.fn(() => ({
@@ -528,6 +537,50 @@ describe("siwn plugin", () => {
 
       const { error } = await client.near.verify(body);
       expect(error).toBeDefined();
+    });
+
+    it("rejects stale nonces with UNAUTHORIZED_NONCE_EXPIRED", async () => {
+      const { client } = await setup();
+      const stale = Date.now() - 20 * 60 * 1000;
+      const { error } = await client.near.verify({
+        ...makeVerifyBody(),
+        nonce: makeTimestampedNonce(stale),
+      });
+      expect(error?.status).toBe(401);
+      expect((error as { code?: string })?.code).toBe("UNAUTHORIZED_NONCE_EXPIRED");
+    });
+
+    it("rejects future nonces beyond the skew tolerance with UNAUTHORIZED_NONCE_FROM_FUTURE", async () => {
+      const { client } = await setup();
+      const future = Date.now() + 5 * 60 * 1000;
+      const { error } = await client.near.verify({
+        ...makeVerifyBody(),
+        nonce: makeTimestampedNonce(future),
+      });
+      expect(error?.status).toBe(401);
+      expect((error as { code?: string })?.code).toBe("UNAUTHORIZED_NONCE_FROM_FUTURE");
+    });
+
+    it("accepts nonces slightly ahead of the server clock (skew tolerance)", async () => {
+      const { client } = await setup();
+      const slightlyAhead = Date.now() + 30 * 1000;
+      const { data, error } = await client.near.verify({
+        ...makeVerifyBody(),
+        nonce: makeTimestampedNonce(slightlyAhead),
+      });
+      expect(error).toBeNull();
+      expect(data?.success).toBe(true);
+    });
+
+    it("emits VERIFY_RPC_ERROR when the access-key lookup fails", async () => {
+      const { Near } = await import("near-kit");
+      const nearHandle = new (Near as any)() as { getAccessKey: ReturnType<typeof vi.fn> };
+      nearHandle.getAccessKey.mockRejectedValueOnce(new Error("RPC connection refused"));
+      const { client } = await setup();
+
+      const { error } = await client.near.verify(makeVerifyBody());
+      expect(error?.status).toBe(401);
+      expect((error as { code?: string })?.code).toBe("VERIFY_RPC_ERROR");
     });
 
     it("logs the error cause chain when verification fails unexpectedly", async () => {

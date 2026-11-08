@@ -326,7 +326,14 @@ interface AuthCallbacks {
 | Code | Description |
 |---|---|
 | `UNAUTHORIZED_NONCE_REPLAY` | Nonce already used (replay attack detected) |
-| `UNAUTHORIZED` | Generic auth failure (invalid signature, account mismatch, etc.) |
+| `UNAUTHORIZED_NONCE_EXPIRED` | Nonce timestamp older than the freshness window |
+| `UNAUTHORIZED_NONCE_FROM_FUTURE` | Nonce timestamp more than 60s ahead of the server clock (device clock wrong) |
+| `UNAUTHORIZED_SIGNATURE_INVALID` | NEP-413 signature failed verification |
+| `UNAUTHORIZED_PUBLIC_KEY_INVALID` | Public key malformed (bad encoding or wrong length) |
+| `UNAUTHORIZED_ACCESS_KEY_NOT_FOUND` | Signing key not found on the account on-chain |
+| `UNAUTHORIZED_NOT_FULL_ACCESS_KEY` | Signing key is not a full access key |
+| `VERIFY_RPC_ERROR` | On-chain access-key lookup failed (RPC unavailable) |
+| `UNAUTHORIZED` | Generic auth failure (account mismatch, recipient mismatch, etc.) |
 
 ### Server Endpoints
 
@@ -420,7 +427,8 @@ The plugin detects the network from the account ID:
 ## Security
 
 ### NEP-413 Compliance
-- Proper nonce handling prevents replay attacks
+- Nonces are issued by the server (`/near/nonce`, server clock) during sign-in, so client/server clock skew cannot fail login; the client falls back to a local nonce if the endpoint is unavailable
+- Nonce freshness tolerates up to 60s of future clock skew; older timestamps are rejected with `UNAUTHORIZED_NONCE_EXPIRED`, future timestamps beyond the tolerance with `UNAUTHORIZED_NONCE_FROM_FUTURE`
 - Message format and recipient validation
 - 15-minute server-side nonce expiration with DB replay detection
 

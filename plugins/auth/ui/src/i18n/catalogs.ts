@@ -53,6 +53,10 @@ export const englishLoginMessages = {
   "auth.login.error.walletUnavailable": "NEAR wallet not available",
   "auth.login.error.configuration": "Sign-in configuration error",
   "auth.login.error.expired": "Session expired, please try again",
+  "auth.login.error.clockAhead":
+    "Your device clock appears to be ahead of our server. Enable automatic time sync on this device and try again.",
+  "auth.login.error.serviceUnavailable":
+    "Verification service temporarily unavailable, please try again",
   "auth.login.error.generic": "Failed to sign in",
   "auth.login.error.passkey": "Passkey sign-in failed",
   "auth.login.error.disconnect": "Failed to disconnect wallet",
@@ -173,6 +177,10 @@ const spanishLoginMessages = {
   "auth.login.error.walletUnavailable": "La billetera NEAR no está disponible",
   "auth.login.error.configuration": "Error de configuración del inicio de sesión",
   "auth.login.error.expired": "La sesión ha caducado. Inténtalo de nuevo",
+  "auth.login.error.clockAhead":
+    "El reloj de tu dispositivo parece estar adelantado respecto a nuestro servidor. Activa la sincronización automática de hora en este dispositivo e inténtalo de nuevo.",
+  "auth.login.error.serviceUnavailable":
+    "El servicio de verificación no está disponible temporalmente, inténtalo de nuevo",
   "auth.login.error.generic": "No se pudo iniciar sesión",
   "auth.login.error.passkey": "No se pudo iniciar sesión con la clave de acceso",
   "auth.login.error.disconnect": "No se pudo desconectar la billetera",
@@ -292,6 +300,10 @@ const frenchLoginMessages = {
   "auth.login.error.walletUnavailable": "Le portefeuille NEAR n’est pas disponible",
   "auth.login.error.configuration": "Erreur de configuration de la connexion",
   "auth.login.error.expired": "La session a expiré. Veuillez réessayer",
+  "auth.login.error.clockAhead":
+    "L’horloge de votre appareil semble en avance sur notre serveur. Activez la synchronisation automatique de l’heure sur cet appareil et réessayez.",
+  "auth.login.error.serviceUnavailable":
+    "Le service de vérification est temporairement indisponible, veuillez réessayer",
   "auth.login.error.generic": "Échec de la connexion",
   "auth.login.error.passkey": "Échec de la connexion avec la clé d’accès",
   "auth.login.error.disconnect": "Impossible de déconnecter le portefeuille",
@@ -407,6 +419,9 @@ const chineseLoginMessages = {
   "auth.login.error.walletUnavailable": "NEAR 钱包不可用",
   "auth.login.error.configuration": "登录配置错误",
   "auth.login.error.expired": "会话已过期，请重试",
+  "auth.login.error.clockAhead":
+    "你的设备时钟似乎比我们的服务器快。请在此设备上启用自动时间同步后重试。",
+  "auth.login.error.serviceUnavailable": "验证服务暂时不可用，请重试",
   "auth.login.error.generic": "登录失败",
   "auth.login.error.passkey": "使用通行密钥登录失败",
   "auth.login.error.disconnect": "无法断开钱包连接",
