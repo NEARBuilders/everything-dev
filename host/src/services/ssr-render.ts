@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import type { ComposePayload } from "everything-dev/ui/manifest";
 import { renderClientShell } from "../routes/html";
 import type { RouterModule } from "../types";
+import { isClientAbortError, toError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import {
   buildRuntimeClientConfig,
@@ -236,12 +237,19 @@ export function createSsrRender(deps: SsrRenderDeps) {
         headers: responseHeaders,
       });
     } catch (error) {
-      logger.error(`[SSR] ${requestId} Streaming error for ${pathname}:`, error);
+      if (request.signal.aborted || isClientAbortError(error)) {
+        logger.debug(
+          `[SSR] ${requestId} Client disconnected during SSR for ${pathname} — skipping fallback shell`,
+        );
+        return new Response(null, { status: 499 });
+      }
+      const err = toError(error);
+      logger.error(`[SSR] ${requestId} Streaming error for ${pathname}:`, err);
       return renderClientShell(
         ctx.cspNonce,
         effectiveConfig,
         runtimeConfig,
-        error as Error,
+        err,
         ctx.cspHeader,
         requestId,
       );

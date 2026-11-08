@@ -341,6 +341,97 @@ describe("SSR fallback paths", () => {
       expect(html).toContain("React render error");
       expect(html).toContain("remoteEntry.aaa.js");
     });
+
+    it("renders a non-Error throwable into the shell without crashing escapeHtml", async () => {
+      mockCompositionSucceeds();
+      const failingModule = {
+        renderToStream: vi.fn().mockRejectedValue({ code: 42, message: undefined }),
+        getRouteHead: vi.fn(),
+        createRouter: vi.fn(),
+      };
+
+      loadRouterModuleMock.mockReturnValue(Effect.succeed(failingModule));
+      clearComposeFixtureCache();
+
+      const response = await fetch(`${baseUrl}/`);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(html).toContain("SSR unavailable");
+    });
+  });
+
+  describe("client disconnects during SSR", () => {
+    it("returns 499 without building the fallback shell for abort reasons", async () => {
+      mockCompositionSucceeds();
+      const failingModule = {
+        renderToStream: vi.fn().mockRejectedValue("Error: aborted"),
+        getRouteHead: vi.fn(),
+        createRouter: vi.fn(),
+      };
+
+      loadRouterModuleMock.mockReturnValue(Effect.succeed(failingModule));
+      clearComposeFixtureCache();
+
+      const response = await fetch(`${baseUrl}/`);
+      expect(response.status).toBe(499);
+      expect(await response.text()).toBe("");
+
+      expect(failingModule.renderToStream).toHaveBeenCalledTimes(1);
+    });
+
+    it("classifies the node-server premature-close string as an abort too", async () => {
+      mockCompositionSucceeds();
+      const failingModule = {
+        renderToStream: vi.fn().mockRejectedValue("Client connection prematurely closed."),
+        getRouteHead: vi.fn(),
+        createRouter: vi.fn(),
+      };
+
+      loadRouterModuleMock.mockReturnValue(Effect.succeed(failingModule));
+      clearComposeFixtureCache();
+
+      const response = await fetch(`${baseUrl}/`);
+      expect(response.status).toBe(499);
+    });
+  });
+
+  describe("secret-probe paths", () => {
+    it("404 scanner probes cheaply before any SSR work", async () => {
+      mockCompositionSucceeds();
+      const renderToStream = vi.fn();
+      loadRouterModuleMock.mockReturnValue(
+        Effect.succeed({ renderToStream, getRouteHead: vi.fn(), createRouter: vi.fn() }),
+      );
+      clearComposeFixtureCache();
+
+      for (const path of [
+        "/.env",
+        "/%2eenv",
+        "/.env.production",
+        "/docker-compose.staging.yml",
+        "/backup.sql",
+        "/server.key",
+        "/.git/config",
+        "/.aws/credentials",
+      ]) {
+        const response = await fetch(`${baseUrl}${path}`);
+        expect(response.status, `probe ${path}`).toBe(404);
+      }
+
+      expect(renderToStream).not.toHaveBeenCalled();
+    });
+
+    it("keeps /.well-known/ and real routes renderable", async () => {
+      mockCompositionSucceeds();
+      clearComposeFixtureCache();
+
+      const mcp = await fetch(`${baseUrl}/.well-known/mcp.json`);
+      expect(mcp.status).toBe(200);
+
+      const root = await fetch(`${baseUrl}/`);
+      expect(root.status).toBe(200);
+    });
   });
 
   describe("FederationError message propagation bug", () => {
