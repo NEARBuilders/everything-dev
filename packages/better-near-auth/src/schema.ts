@@ -64,6 +64,7 @@ export const schema = {
       },
       gasUsed: {
         type: "string",
+        required: false,
       },
       createdAt: {
         type: "date",
@@ -71,6 +72,7 @@ export const schema = {
       },
       updatedAt: {
         type: "date",
+        required: false,
       },
     },
   },
