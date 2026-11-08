@@ -134,10 +134,29 @@ async function readJournalRowsIn(
   ref: ReturnType<typeof sql.raw>,
 ): Promise<Array<{ hash: string; createdAt: number | null }>> {
   const result = await executor.execute(sql`SELECT hash, created_at FROM ${ref}`);
-  return normalizeRows<{ hash: string; created_at: number | null }>(result).map((row) => ({
-    hash: row.hash,
-    createdAt: row.created_at,
-  }));
+  return normalizeRows<{ hash: string; created_at: number | string | null }>(result).map(
+    (row) => ({
+      hash: row.hash,
+      // node-postgres returns bigint (int8) as a string; a numeric string fed
+      // to `new Date(...)` is an Invalid Date and `.toISOString()` throws
+      // RangeError. Coerce at the read seam, never trust the driver typing.
+      createdAt:
+        row.created_at === null || row.created_at === undefined
+          ? null
+          : Number.isFinite(Number(row.created_at))
+            ? Number(row.created_at)
+            : null,
+    }),
+  );
+}
+
+function formatUnknownRows(rows: Array<{ hash: string; createdAt: number | null }>): string {
+  return rows
+    .map(
+      (row) =>
+        `${row.hash.slice(0, 12)}${row.createdAt !== null ? ` (${new Date(row.createdAt).toISOString()})` : ""}`,
+    )
+    .join(", ");
 }
 
 export interface LoadMigrationsOptions {
@@ -443,22 +462,17 @@ export function runMigrations(
       Effect.catch(() => Effect.succeed([] as Array<{ hash: string; createdAt: number | null }>)),
     );
     const unknownRows = journaledRows.filter((row) => !knownHashes.has(row.hash));
-    if (unknownRows.length > 0 && process.env.BOS_ALLOW_SCHEMA_AHEAD !== "1") {
-      const unknown = unknownRows
-        .map(
-          (row) =>
-            `${row.hash.slice(0, 12)}${row.createdAt ? ` (${new Date(row.createdAt).toISOString()})` : ""}`,
-        )
-        .join(", ");
-      return yield* new DatabaseError({
-        stage: "migration",
-        migrationTag: "journal-ahead",
-        cause: new Error(
-          `This database's migration journal contains ${unknownRows.length} migration(s) this plugin build doesn't know: ${unknown}. ` +
-            "The database was migrated by a newer plugin build — upgrade/redeploy this app to catch up before it can boot. " +
-            "Deliberate rollouts can set BOS_ALLOW_SCHEMA_AHEAD=1 to allow once.",
-        ),
-      });
+    if (unknownRows.length > 0) {
+      // Advisory only: with the shared `drizzle.__drizzle_migrations` journal,
+      // sibling workspaces on the same database always look "unknown" to every
+      // reader — failing closed here (as the first cut did) refused boot for
+      // every shared-DB workspace on every boot. Per-workspace journals make
+      // this check sound again; until then it stays a warning.
+      const unknown = formatUnknownRows(unknownRows);
+      yield* Effect.logWarning(
+        `[Database] ⚠️ Migration journal contains ${unknownRows.length} migration(s) this build doesn't know: ${unknown}. ` +
+          "If this journal belongs to this workspace alone, the database was migrated by a newer build — upgrade/redeploy this app to catch up.",
+      );
     }
 
     const { appliedTags, logs } = yield* Effect.retry(

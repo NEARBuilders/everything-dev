@@ -55,36 +55,33 @@ function runApiMigration(db: MigrationDatabase, migrations: Migration[]): Promis
 }
 
 describe("db migration runners (008 characterization)", () => {
-  it("journal ahead of the plugin's known set fails closed with the unknown hashes (#805)", async () => {
+  it("unknown journal rows warn but never fail boot — string bigints included (the shared-journal crash)", async () => {
     const db = makeDb();
     await db.execute(sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
     await db.execute(
       sql`CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
     );
+    // node-postgres delivers bigint (int8) as a string — insert as text so the
+    // read seam sees the exact shape production crashed on (RangeError:
+    // Invalid time value from new Date("1730000000000").toISOString()).
     await db.execute(
-      sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ('future-hash-abcdef', 1730000000000)`,
+      sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ('sibling-plugin-hash', '1730000000000'), ('future-hash-abcdef', NULL)`,
     );
 
     const migrations = [migration(0, "mig_one", ['CREATE TABLE IF NOT EXISTS "t1" (id int)'])];
-    const exit = await Effect.runPromiseExit(
+    const applied = await runMigration(
       apiMigrationRunner(db as unknown as MigrationDatabase, migrations),
     );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const squashed = Cause.squash(exit.cause) as Error;
-      expect(String(squashed)).toContain("newer plugin build");
-      expect(String(squashed)).toContain("future-hash-");
-    }
+    expect(applied).toBe(1);
 
-    process.env.BOS_ALLOW_SCHEMA_AHEAD = "1";
-    try {
-      const applied = await runMigration(
-        apiMigrationRunner(db as unknown as MigrationDatabase, migrations),
-      );
-      expect(applied).toBe(1);
-    } finally {
-      delete process.env.BOS_ALLOW_SCHEMA_AHEAD;
-    }
+    const rows = (await db.execute(
+      sql`SELECT hash FROM "drizzle"."__drizzle_migrations" ORDER BY id`,
+    )) as { rows: { hash: string }[] };
+    expect(rows.rows.map((r) => r.hash)).toEqual([
+      "sibling-plugin-hash",
+      "future-hash-abcdef",
+      "hash-mig_one",
+    ]);
   });
 
   it("fresh schema: sequential migrations apply, journal tracks hashes, rerun is a no-op", async () => {
