@@ -444,7 +444,7 @@ The plugin detects the network from the account ID:
 - Configurable validation for limited access keys
 
 ### Post-Quantum Keys
-- `ml-dsa-65:` (FIPS 204) full-access keys are accepted on `/api/auth/near/verify` and `/api/auth/near/link-account`. Signature verification is delegated to `@noble/post-quantum`'s `ml_dsa65.verify`, while the on-chain access-key check stays the same as ed25519. The NEP-413 SHA-256 + borsh payload format is unchanged from the ed25519 path.
+- `ml-dsa-65:` (FIPS 204) full-access keys are accepted on `/api/auth/near/verify` and `/api/auth/near/link-account`. Signature verification is delegated to `@noble/post-quantum`'s `ml_dsa65.verify`, while the on-chain access-key check stays the same as ed25519. The NEP-413 payload uses true borsh serialization (1-byte Option discriminant for `callback_url`), matching Rust wallets.
 
 ## Troubleshooting
 

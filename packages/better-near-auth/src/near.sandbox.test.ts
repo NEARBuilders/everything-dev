@@ -42,9 +42,10 @@ function serializeNep413Payload(params: {
   recipient: string;
   callbackUrl?: string;
 }): Uint8Array {
+  // borsh Option<String>: one discriminant byte, Some followed by [u32 len][bytes]
   const callbackBytes = params.callbackUrl
-    ? concat([borshU32(1), borshString(params.callbackUrl)])
-    : borshU32(0);
+    ? concat([new Uint8Array([1]), borshString(params.callbackUrl)])
+    : new Uint8Array([0]);
   return concat([
     borshU32(NEP413_TAG),
     borshString(params.message),
@@ -151,7 +152,7 @@ describe.skipIf(!sandbox)("siwn sandbox integration (real chain, real crypto)", 
     const message = `Sign in to ${RECIPIENT}`;
     const callbackUrl = "http://localhost:3000/login";
     const { data, error } = await client.near.verify({
-      signedMessage: await signPqPayload({ message, nonce, recipient: RECIPIENT, callbackUrl }),
+      signedMessage: await signPqPayload({ message, nonce, recipient: RECIPIENT }),
       message,
       recipient: RECIPIENT,
       nonce: await hexNonce(nonce),

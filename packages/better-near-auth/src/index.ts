@@ -646,9 +646,10 @@ function serializeNep413Message(params: {
     throw new Error("Nonce must be exactly 32 bytes");
   }
   const tagBytes = encodeBorshU32(NEP413_TAG);
+  // borsh Option<String>: one discriminant byte, Some followed by [u32 len][bytes]
   const callbackUrlBytes: Uint8Array = params.callbackUrl
-    ? concatUint8Arrays([encodeBorshU32(1), encodeBorshString(params.callbackUrl)])
-    : encodeBorshU32(0);
+    ? concatUint8Arrays([new Uint8Array([1]), encodeBorshString(params.callbackUrl)])
+    : new Uint8Array([0]);
   const messageBytes = encodeBorshString(params.message);
   const nonceBytes = params.nonce;
   const recipientBytes = encodeBorshString(params.recipient);

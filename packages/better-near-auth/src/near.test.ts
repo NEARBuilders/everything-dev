@@ -1843,7 +1843,7 @@ describe("siwnClient getActions", () => {
       const message = `Sign in to ${MOCK_RECIPIENT}`;
       const recipient = MOCK_RECIPIENT;
       const tagBytes = borshU32(2147484061, true);
-      const callbackNone = borshU32(0, true);
+      const callbackNone = new Uint8Array([0]);
       const payload = concat([
         tagBytes,
         borshString(message),
