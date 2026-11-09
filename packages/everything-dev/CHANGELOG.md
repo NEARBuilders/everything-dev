@@ -1,5 +1,12 @@
 # everything-dev
 
+## 2.0.0-rc.42
+
+### Patch Changes
+
+- 9b5dd56: Emit declaration files for the compose, snapshot, and lockfile entrypoints — the exports map pointed their `types` at dist files the dts build never produced (chunk emission ships JS without declarations), so every generated child failed `tsc --noEmit` with TS7016 on `everything-dev/ui/compose`. The build now fails loud when any exports subpath resolves to a missing dist types file, so this class of regression cannot ship again.
+- dedaf60: De-scale the router's default pending boundary so navigations no longer blank the page: the default pending component renders a compact centered spinner instead of a full-viewport "Loading..." takeover, and `defaultPendingMs` moves from 100ms to 333ms so brief navigations keep the previous page visible with the root progress bar carrying the signal. Pairs with the login route rendering instantly from the hydrated session cache instead of blocking on a session fetch.
+
 ## 2.0.0-rc.41
 
 ### Minor Changes
