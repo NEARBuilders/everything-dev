@@ -5,6 +5,7 @@ import type { DeployLegOutcome } from "../../contract";
 import { colors, icons } from "../../utils/theme";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { readManifestTag } from "../registry/pointer";
+import { isUiOnlyDiff, type PublishedDiff } from "./changed-slots";
 import {
   buildAndPushImage,
   deployImageToRailway,
@@ -218,7 +219,21 @@ export function resolveRailwayStep(input: {
   childPin?: ChildImagePin;
   /** Root repoint: the image this train built/pinned (requires pinnedDigest). */
   image?: string;
+  /** The published diff touched only SnapshotWatch-adopted surfaces (#826
+   * follow-up) — the redeploy would restart the host and break the
+   * soft-refresh adoption it exists to serve. */
+  uiOnlyDiff?: boolean;
+  /** Override the ui-only skip (`--force-railway`). */
+  forceRailway?: boolean;
 }): RailwayStep {
+  if (input.tier === "child" && input.uiOnlyDiff && !input.forceRailway) {
+    return {
+      action: "skip",
+      detail:
+        "ui-only deploy — the host's SnapshotWatch adopts the new composition without a restart" +
+        " (pass --force-railway to redeploy anyway)",
+    };
+  }
   if (!input.token) {
     return { action: "skip", detail: "no RAILWAY_TOKEN / RAILWAY_API_TOKEN is set" };
   }
@@ -310,6 +325,11 @@ export interface PostPublishLegsInput {
   /** The framework version the release leg just published (release trains
    * only) — the smoke's manifest leg verifies the pointer serves it. */
   publishedFrameworkVersion?: string;
+  /** The published-config diff vs the previously live config (#826
+   * follow-up) — feeds the Railway leg's ui-only skip. */
+  diff?: PublishedDiff;
+  /** Override the ui-only Railway skip. */
+  forceRailway?: boolean;
 }
 
 export interface PostPublishLegsOutcome {
@@ -604,6 +624,9 @@ export async function runPostPublishLegs(
     pinnedDigest: imageDigest,
     childPin,
     image,
+    // An unreadable diff reads cold; the tier guard lives in the decision table.
+    uiOnlyDiff: input.diff ? isUiOnlyDiff(input.diff) : false,
+    forceRailway: input.forceRailway,
   });
 
   if (railwayStep.action === "skip") {

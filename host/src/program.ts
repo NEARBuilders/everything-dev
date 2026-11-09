@@ -147,6 +147,13 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           auth: plugins.auth ? "ready" : "unavailable",
           ssr: compositionHealth,
           snapshot: snapshotBoot,
+          ...(serving.restartRequired?.length
+            ? {
+                restartRequired: serving.restartRequired,
+                warning:
+                  "boot-frozen slots changed pin — the swap cannot adopt them; restart to serve the adopted generation",
+              }
+            : {}),
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
           ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
@@ -164,6 +171,12 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           return {
             fingerprint: state.config.deploymentFingerprint ?? state.fingerprint,
             remotes: state.pointer ? remoteDigests(state.pointer as never) : {},
+            ...(state.restartRequired?.length
+              ? {
+                  restartRequired: state.restartRequired,
+                  note: "boot-frozen slots changed pin — the swap cannot adopt them; restart to serve the adopted generation",
+                }
+              : {}),
             ...(platform
               ? {
                   build: {

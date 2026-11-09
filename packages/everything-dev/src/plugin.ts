@@ -25,6 +25,7 @@ import { registerProcesses } from "./handlers/processes";
 import { registerSecrets } from "./handlers/secrets";
 import { registerSmoke } from "./handlers/smoke";
 import { registerUpgrade } from "./handlers/upgrade";
+import { registerVerify } from "./handlers/verify";
 import { createPlugin, z } from "./sdk";
 import { DeviceLoginService } from "./services/auth/device-login";
 import { SessionStore } from "./services/auth/session-store";
@@ -148,6 +149,7 @@ export default createPlugin({
     ...registerInit(builder),
     ...registerImport(builder),
     ...registerUpgrade(builder),
+    ...registerVerify(builder),
     ...registerDb(builder),
     ...registerOps(builder),
   }),

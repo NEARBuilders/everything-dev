@@ -102,6 +102,7 @@ vi.mock("../../src/services/ui-compose", async (importOriginal) => {
 const fakeCdnFetch = async (input: string | URL | Request): Promise<Response> => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   if (url.endsWith("/remoteEntry.cf71.js")) return new Response(entryBytes, { status: 200 });
+  if (url.endsWith("/remoteEntry.dd01.js")) return new Response(entryBytes, { status: 200 });
   return new Response("not found", { status: 404 });
 };
 
@@ -170,6 +171,56 @@ describe("adoptPublishedPointer", () => {
     );
     expect(outcomes.first.status).toBe("swapped");
     expect(outcomes.second.status).toBe("unchanged");
+  });
+
+  it("flags boot-frozen slots whose pins the adopted pointer moved (#826 follow-up)", async () => {
+    const secondPointer = {
+      ...publishedPointer,
+      app: {
+        ...publishedPointer.app,
+        ui: {
+          ...publishedPointer.app.ui,
+          digest: { manifest: "versions/1111111111111111.json", integrity: "sha384-remote-pin-2" },
+        },
+        auth: {
+          development: "local:auth",
+          production: "https://cdn.example.test/auth/",
+          digest: { manifest: "versions/2222222222222222.json", integrity: "sha384-auth-pin" },
+        },
+      },
+    } as unknown as BosConfig;
+    const secondMerged = {
+      ...secondPointer,
+      app: {
+        ...secondPointer.app,
+        host: { development: "local:host", production: "https://cdn.example.test/host/" },
+      },
+    } as unknown as BosConfig;
+    const secondDerived = {
+      ...derivedConfig,
+      ui: { ...derivedConfig.ui, entryUrl: "https://cdn.example.test/ui/remoteEntry.dd01.js" },
+    } as unknown as RuntimeConfig;
+    resolveMergedConfigInputMock
+      .mockResolvedValueOnce(mergedPointer)
+      .mockResolvedValueOnce(secondMerged);
+    buildRuntimeConfigMock
+      .mockReturnValueOnce(Effect.succeed(derivedConfig))
+      .mockReturnValueOnce(Effect.succeed(secondDerived));
+    composeUiMock
+      .mockReturnValueOnce(Effect.succeed({ digest: "digest-prewarm" }))
+      .mockReturnValueOnce(Effect.succeed({ digest: "digest-prewarm-2" }));
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const snapshot = yield* RuntimeSnapshot;
+        yield* adoptPublishedPointer({ snapshot, publishedConfig: publishedPointer });
+        const outcome = yield* adoptPublishedPointer({ snapshot, publishedConfig: secondPointer });
+        const after = yield* snapshot.get;
+        return { outcome, after };
+      }).pipe(Effect.provide(snapshotLayer)),
+    );
+    expect(result.outcome.status).toBe("swapped");
+    // the ui pin move is adopted; the auth pin move is boot-frozen and flagged
+    expect(result.after.restartRequired).toEqual(["app.auth"]);
   });
 
   it("a failed derivation leaves the live snapshot untouched", async () => {

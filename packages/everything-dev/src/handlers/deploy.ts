@@ -385,6 +385,7 @@ async function deployBody(
     imageDigest?: string;
     fullUpload: boolean;
     smoke: boolean;
+    forceRailway: boolean;
   },
 ): Promise<DeployResult> {
   if (input.statusList) {
@@ -515,6 +516,8 @@ async function deployBody(
     repository: nextSession.config?.repository,
     release: result.releaseLeg,
     publishedFrameworkVersion: result.frameworkVersion,
+    diff: result.diff,
+    forceRailway: input.forceRailway,
   });
 
   if (legsOutcome.failure) {

@@ -48,6 +48,7 @@ jobs:
       regression-http: ${{ steps.changes.outputs.regression-http }}
       regression-framework: ${{ steps.changes.outputs.regression-framework }}
       regression-browser: ${{ steps.changes.outputs.regression-browser }}
+      regression-browser-smoke: ${{ steps.changes.outputs.regression-browser-smoke }}
       regression-unit: ${{ steps.changes.outputs.regression-unit }}
       workflows: ${{ steps.changes.outputs.workflows }}
     steps:
@@ -75,6 +76,7 @@ jobs:
               echo "regression-http=false"
               echo "regression-framework=false"
               echo "regression-browser=false"
+              echo "regression-browser-smoke=false"
               echo "regression-unit=false"
             } >> "$GITHUB_OUTPUT"
           }
@@ -127,6 +129,7 @@ jobs:
               echo "regression-http=true"
               echo "regression-framework=true"
               echo "regression-browser=true"
+              echo "regression-browser-smoke=false"
               echo "regression-unit=true"
               echo "workflows=true"
             } >> "$GITHUB_OUTPUT"
@@ -151,6 +154,7 @@ jobs:
               echo "regression-http=true"
               echo "regression-framework=true"
               echo "regression-browser=true"
+              echo "regression-browser-smoke=false"
               echo "regression-unit=true"
               echo "workflows=true"
             } >> "$GITHUB_OUTPUT"
@@ -205,6 +209,16 @@ jobs:
             echo "regression-browser=true" >> "$GITHUB_OUTPUT"
           else
             echo "regression-browser=false" >> "$GITHUB_OUTPUT"
+          fi
+          # ui-only smoke (#826 follow-up): a diff confined to the ui
+          # workspace cannot break the host, api, or framework planes — the
+          # app-load spec (boot + hydration + runtime-config shape) is the
+          # one ui-only risk gate, so the full sharded browser matrix is
+          # replaced by it. Anything outside `ui/` reads full.
+          if [ -n "$DIFF" ] && ! echo "$DIFF" | grep -qvE '^ui/'; then
+            echo "regression-browser-smoke=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "regression-browser-smoke=false" >> "$GITHUB_OUTPUT"
           fi
 
   lint-and-typecheck:
@@ -851,7 +865,9 @@ jobs:
     name: Regression Browser (dev)
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
-    if: needs.detect-changes.outputs.regression-browser == 'true'
+    if: >-
+      needs.detect-changes.outputs.regression-browser == 'true' &&
+      needs.detect-changes.outputs.regression-browser-smoke != 'true'
     timeout-minutes: 20
     env:
       CI: true
@@ -921,6 +937,67 @@ jobs:
             playwright-report/**
             test-results/**
 
+  # ui-only diffs (#826 follow-up): a diff confined to the ui workspace
+  # replaces the full sharded browser matrix with the app-load spec (boot +
+  # hydration + runtime-config shape) — the one ui-only risk gate, minutes
+  # instead of the full matrix.
+  regression-browser-smoke:
+    name: Regression Browser Smoke (app-load)
+    runs-on: ubuntu-24.04
+    needs: [detect-changes, lint-and-typecheck]
+    if: >-
+      needs.detect-changes.outputs.regression-browser-smoke == 'true' &&
+      needs.detect-changes.outputs.regression-browser == 'true'
+    timeout-minutes: 15
+    env:
+      CI: true
+      CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin dist
+        run: pnpm run build template
+
+      - uses: ./.github/actions/install-playwright
+
+      - name: Run ui smoke spec (dev:ssr)
+        run: pnpm run test:regression:browser:smoke
+
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-browser-artifacts-smoke
+          path: |
+            .bos/logs/**
+            playwright-report/**
+            test-results/**
+
   # start:* = the deployment image via `bos start --config` (full suite).
   # The image is built once per run by the regression-image job and pulled
   # here — three start suites used to pay three identical full docker builds.
@@ -962,6 +1039,7 @@ jobs:
       !cancelled() &&
       needs.lint-and-typecheck.result == 'success' &&
       needs.detect-changes.outputs.regression-browser == 'true' &&
+      needs.detect-changes.outputs.regression-browser-smoke != 'true' &&
       (needs.regression-image.result == 'success' || needs.regression-image.result == 'skipped' || needs.regression-image.result == 'failure')
     timeout-minutes: ${{ matrix.timeout }}
     env:
@@ -1114,6 +1192,7 @@ jobs:
       - regression-http-start
       - regression-framework
       - regression-browser
+      - regression-browser-smoke
       - regression-browser-start
     if: always()
     runs-on: ubuntu-24.04

@@ -49,6 +49,7 @@ import {
   buildWorkspaceTargets,
   resolveWorkspaceTarget,
 } from "../workspace/build-train";
+import { classifyPublishedDiff, type PublishedDiff } from "./changed-slots";
 import {
   resolveReleaseManifestForDeploy,
   runCompositionGate,
@@ -823,6 +824,21 @@ export async function runPublishTrain(
   // version identity printed + returned for every deploy (atomic-deploys 12)
   const fingerprint = pointerFingerprint(publishPayload as never);
   const publishRemoteDigests = remoteDigests(publishPayload as never);
+  // The published-config diff (#826 follow-up): what changed vs the live
+  // config decides the Railway leg's ui-only skip — SnapshotWatch adopts the
+  // ui surfaces without a restart, so a restart would break the soft-refresh
+  // story it exists to serve. A failed read (first publish, registry
+  // offline) leaves the diff undefined and the legs read cold.
+  let diff: PublishedDiff | undefined;
+  try {
+    const liveConfig = await deps.registry.fetchConfig<BosConfigInput>(
+      `bos://${account}/${gateway}`,
+      input.registry,
+    );
+    diff = classifyPublishedDiff(liveConfig, publishPayload as BosConfigInput);
+  } catch {
+    diff = undefined;
+  }
   const registryEntries: Record<string, string> = {
     [registryKey]: JSON.stringify(publishPayload),
   };
@@ -1320,6 +1336,7 @@ export async function runPublishTrain(
       publishConfig: publishPayload,
       releaseLeg: platformManifest !== null,
       ...(platformManifest ? { frameworkVersion: platformManifest.manifest.frameworkVersion } : {}),
+      ...(diff ? { diff } : {}),
     };
   } catch (error) {
     if (error instanceof PublishTrainError) throw error;

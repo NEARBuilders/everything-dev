@@ -4,6 +4,7 @@ import {
   buildRuntimeConfigEffect,
   resolveConfigComposableEntries,
 } from "everything-dev/config";
+import { remoteDigests } from "everything-dev/fingerprint";
 import { verifySriForUrl } from "everything-dev/integrity";
 import { resolveMergedConfigInput } from "everything-dev/resolution";
 import { bootSnapshotOf, writeBootSnapshot } from "everything-dev/snapshot";
@@ -37,6 +38,31 @@ const describeCause = (cause: unknown): string =>
 
 const adoptFailure = (message: string, cause: unknown) =>
   new SnapshotAdoptError({ message: `${message}: ${describeCause(cause)}`, cause });
+
+/**
+ * Boot-frozen slots whose pins the newly adopted pointer moved (#826
+ * follow-up): the swap adopts UI/SSR/compose surfaces only, so a moved
+ * api/auth/plugin-backend pin keeps the previous generation serving until a
+ * restart — surfaced at /.well-known/version and /health instead of
+ * silently running stale. Comparison is against the previously adopted
+ * pointer; a first adopt after boot has no baseline and reports nothing.
+ */
+const bootFrozenRestartRemotes = (
+  previous: Record<string, unknown> | undefined,
+  next: BosConfig,
+): string[] => {
+  if (!previous) return [];
+  const before = remoteDigests(previous as never);
+  const after = remoteDigests(next as never);
+  return Object.keys(before)
+    .concat(Object.keys(after))
+    .filter((remote, index, all) => all.indexOf(remote) === index)
+    .filter(
+      (remote) =>
+        /^(app\.(api|auth|host)|plugins\.[^.]+)$/.test(remote) && before[remote] !== after[remote],
+    )
+    .sort();
+};
 
 /**
  * Persist the approved snapshot (ADR 0041): one writer seam — every verified
@@ -138,6 +164,7 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
     fingerprint: nextFingerprint,
     config: nextConfig,
     pointer: publishedConfig,
+    restartRequired: bootFrozenRestartRemotes(current.pointer, publishedConfig),
   });
   const composed = yield* composeUi(nextConfig, nextState.composeState).pipe(
     Effect.catch((cause) => adoptFailure("pre-warm compose failed", cause)),

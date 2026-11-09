@@ -45,6 +45,7 @@
     "smoke:image": "pnpm run bos smoke --image everything-dev-smoke:local",
     "test:regression:browser:install": "pnpm exec playwright install --with-deps chromium",
     "test:regression:browser:dev:ssr": "REGRESSION_MODE=dev:ssr pnpm exec playwright test -c tests/regression/browser/playwright.config.mjs --project=dev:ssr",
+    "test:regression:browser:smoke": "REGRESSION_MODE=dev:ssr pnpm exec playwright test -c tests/regression/browser/playwright.config.mjs --project=dev:ssr tests/regression/browser/specs/app-load.spec.ts",
     "test:regression:browser:dev:csr": "REGRESSION_MODE=dev:csr pnpm exec playwright test -c tests/regression/browser/playwright.config.mjs --project=dev:csr",
     "test:regression:browser:start:ssr": "REGRESSION_MODE=start:ssr pnpm exec playwright test -c tests/regression/browser/playwright.config.mjs --project=start:ssr",
     "test:regression:browser:start:csr": "REGRESSION_MODE=start:csr pnpm exec playwright test -c tests/regression/browser/playwright.config.mjs --project=start:csr",

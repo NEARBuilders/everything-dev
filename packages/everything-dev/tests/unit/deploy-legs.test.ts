@@ -339,6 +339,44 @@ describe("resolveRailwayStep", () => {
       }).action,
     ).toBe("redeploy");
   });
+
+  it("skips for a ui-only child deploy even with token + service — SnapshotWatch adopts without a restart (#826)", () => {
+    const step = resolveRailwayStep({
+      tier: "child",
+      token: "token",
+      service: "app",
+      uiOnlyDiff: true,
+    });
+    expect(step.action).toBe("skip");
+    expect(step.action === "skip" && step.detail).toContain("ui-only deploy");
+    expect(step.action === "skip" && step.detail).toContain("SnapshotWatch");
+  });
+
+  it("forceRailway overrides the ui-only skip", () => {
+    expect(
+      resolveRailwayStep({
+        tier: "child",
+        token: "token",
+        service: "app",
+        uiOnlyDiff: true,
+        forceRailway: true,
+      }).action,
+    ).toBe("redeploy");
+  });
+
+  it("the ui-only skip never touches a root train", () => {
+    expect(
+      resolveRailwayStep({
+        tier: "root",
+        token: "workspace-token",
+        workspaceToken: "workspace-token",
+        service: "app",
+        pinnedDigest: digest64,
+        image: imageRef.image,
+        uiOnlyDiff: true,
+      }).action,
+    ).toBe("repoint-and-redeploy");
+  });
 });
 
 describe("resolveChildImagePin", () => {

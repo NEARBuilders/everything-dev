@@ -1,6 +1,7 @@
 import { Data } from "effect";
 import type { WorkspaceDeployResult } from "../../contract";
 import type { BosConfigInput } from "../../types";
+import type { PublishedDiff } from "./changed-slots";
 
 /**
  * The publish train's typed error channel (ticket #422): every terminal
@@ -44,6 +45,11 @@ export interface PublishTrainOk {
   /** The framework version the release leg published (release trains only)
    * — the post-publish smoke's manifest leg verifies the pointer serves it. */
   frameworkVersion?: string;
+  /** The published-config diff vs the previously live config (#826 follow-up)
+   * — the Railway leg's ui-only skip decision. Undefined when the live
+   * config was unreadable (first publish, registry offline): the legs then
+   * read cold and redeploy. */
+  diff?: PublishedDiff;
 }
 
 /** The wire shape the train's caller sees on terminal failure. */

@@ -108,3 +108,32 @@ jobs:
       - name: Deploy (preflight → build → upload → publish → image → smoke → Railway)
         timeout-minutes: 35
         run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}${{ inputs.smoke == true && ' --smoke' || '' }}
+
+      # Drift alarm (#826): the pin→bytes proof — SRI every pinned version
+      # manifest and hash every file it names against the served bytes;
+      # compare the authored release against the parent's live release.
+      # NON-BLOCKING by policy: rot names the files and the runbook, drift is
+      # advisory. A child CLI predating the `verify` command fails here too —
+      # still non-blocking (upgrade the framework to get the command).
+      - name: Verify published pins (drift alarm, non-blocking)
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          if pnpm run bos verify --json 2>&1 | tee verify-report.txt; then
+            {
+              echo "### Pin verification — every published pin resolves byte-for-byte"
+              echo '```'
+              cat verify-report.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "::warning::Pin verification FAILED — a published pin no longer resolves byte-for-byte (rot, #826). Run \`bos upgrade && bos deploy\` to re-pin."
+              echo "### Pin verification FAILED (rot, #826)"
+              echo '```'
+              cat verify-report.txt
+              echo '```'
+              echo "Run \`bos upgrade && bos deploy\` to re-pin."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

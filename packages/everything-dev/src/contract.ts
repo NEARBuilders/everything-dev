@@ -429,6 +429,12 @@ export const DeployOptionsSchema = z.object({
     .describe(
       "After publish, boot the runtime image against the just-published config and gate the Railway promotion on it — a red smoke rolls the config back to the previous snapshot",
     ),
+  forceRailway: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Run the Railway redeploy even when the published diff touches only SnapshotWatch-adopted surfaces (ui-only deploys skip it by default)",
+    ),
 });
 
 export const DeployManifestListEntrySchema = z.object({
@@ -1111,6 +1117,47 @@ export const ManifestOptionsSchema = z.object({
     .describe("Also run the release compat check against the local workspace"),
 });
 
+export const VerifyFileMismatchSchema = z.object({
+  file: z.string(),
+  expected: z.string(),
+  actual: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const VerifyRemoteResultSchema = z.object({
+  remote: z.string(),
+  base: z.string(),
+  manifest: z.string(),
+  manifestOk: z.boolean(),
+  manifestReason: z.string().optional(),
+  /** the immutable version directory the pin resolves into (absent on legacy pins) */
+  dir: z.string().optional(),
+  legacy: z.boolean(),
+  filesChecked: z.number(),
+  mismatches: z.array(VerifyFileMismatchSchema),
+});
+
+export const VerifyFreshnessSchema = z.object({
+  behind: z.boolean(),
+  pinned: z.string().optional(),
+  published: z.string().optional(),
+  message: z.string(),
+});
+
+export const VerifyOptionsSchema = z.object({
+  json: z.boolean().default(false).describe("Print the report as JSON"),
+  registry: z.string().optional().describe("Registry base URL override"),
+});
+
+export const VerifyResultSchema = z.object({
+  /** fail = a pin no longer resolves byte-for-byte (rot); drift = behind the
+   * parent's release (advisory — never blocks); ok = verified */
+  status: z.enum(["ok", "drift", "fail"]),
+  remotes: z.array(VerifyRemoteResultSchema),
+  freshness: VerifyFreshnessSchema.optional(),
+  error: z.string().optional(),
+});
+
 export const ManifestResultSchema = z.object({
   status: z.enum(["ok", "absent", "fail"]),
   version: z.string().nullable(),
@@ -1210,6 +1257,7 @@ export const commandOptionSchemas = {
   typesGen: TypesGenOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
   manifest: ManifestOptionsSchema,
+  verify: VerifyOptionsSchema,
   secretsSet: SecretsSetOptionsSchema,
   secretsList: SecretsListOptionsSchema,
   secretsRemove: SecretsRemoveOptionsSchema,
@@ -1333,6 +1381,17 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/manifest" })
     .input(ManifestOptionsSchema)
     .output(ManifestResultSchema),
+  verify: oc
+    .route({
+      method: "POST",
+      path: "/verify",
+      summary: "Verify published pins against served bytes",
+      description:
+        "The drift alarm (#826): for every pinned remote, SRI-verify the pinned version manifest and hash every file it names against the served bytes. Rot (any mismatch) fails; being behind the parent's release is advisory only.",
+      tags: ["Deploy"],
+    })
+    .input(VerifyOptionsSchema)
+    .output(VerifyResultSchema),
   secretsSet: oc
     .route({ method: "POST", path: "/secrets/set" })
     .input(SecretsSetOptionsSchema)
@@ -1578,6 +1637,12 @@ export const cliCommandMeta = {
     commandPath: ["manifest"],
     summary:
       "Show the release manifest — the booted host or the resolved release self-describes (ADR 0034)",
+    interactive: false,
+  },
+  verify: {
+    commandPath: ["verify"],
+    summary:
+      "Verify published pins against served bytes — SRI the manifests, hash every pinned file (drift alarm, #826)",
     interactive: false,
   },
   secretsSet: {

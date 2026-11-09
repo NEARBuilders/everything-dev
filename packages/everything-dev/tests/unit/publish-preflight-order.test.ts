@@ -358,10 +358,17 @@ describe("publishToFastKv preflight ordering", () => {
     const result = await publishToFastKv({ ...baseInput, configDir, packages: "votes" });
 
     expect(result.status).toBe("published");
-    expect(uploadWorkspaceDistMock).toHaveBeenCalledTimes(1);
+    // Flat slot-root upload + the immutable version-dir copy (#826) — both scoped to the selected workspace.
+    expect(uploadWorkspaceDistMock).toHaveBeenCalledTimes(2);
     expect(uploadWorkspaceDistMock).toHaveBeenCalledWith(
       expect.objectContaining({ workspace: "votes" }),
     );
+    const distCalls = uploadWorkspaceDistMock.mock.calls as Array<
+      [{ workspace: string; files: Array<{ path: string }> }]
+    >;
+    for (const [call] of distCalls) {
+      expect(call.workspace).toBe("votes");
+    }
   }, 120_000);
 
   it("aborts before publish when the receiving storage backend is in-memory", async () => {

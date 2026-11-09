@@ -14,6 +14,11 @@ export interface RuntimeSnapshotState {
   /** the adopted published pointer — set by the coordinator on every swap;
    * absent at boot (the fingerprint is the identity until the first adopt) */
   pointer?: Record<string, unknown>;
+  /** Boot-frozen slots (api, auth, plugin backends) whose pins the adopted
+   * pointer moved — the swap cannot adopt them (MAP decision 3), so the
+   * running host serves the previous generation until restart (#826
+   * follow-up). Surfaced at /.well-known/version and /health. */
+  restartRequired?: string[];
   /** THE serving compose cache: requests compose through the state they
    * captured, so the pre-warmed state the coordinator installs IS the serving
    * state — no re-compose on adopt, and a swap under traffic flips readers
@@ -41,6 +46,7 @@ export function createRuntimeSnapshotState(input: {
   fingerprint: string;
   config: RuntimeConfig;
   pointer?: Record<string, unknown>;
+  restartRequired?: string[];
   composeState?: UiComposeCacheState;
   clientConfigState?: ClientConfigCacheState;
 }): RuntimeSnapshotState {
@@ -50,6 +56,7 @@ export function createRuntimeSnapshotState(input: {
     fingerprint: input.fingerprint,
     config: input.config,
     pointer: input.pointer,
+    ...(input.restartRequired ? { restartRequired: input.restartRequired } : {}),
     composeState,
     clientConfigState,
     release: Effect.sync(() => {

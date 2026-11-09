@@ -311,6 +311,64 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
+  verify: async (result, ctx) => {
+    if ((ctx.input as { json?: boolean }).json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === "fail") process.exit(1);
+      return;
+    }
+    console.log();
+    if (result.error) {
+      console.error(`[CLI] ${result.error}`);
+      console.log();
+      process.exit(1);
+    }
+    if (result.freshness) {
+      const tag = result.freshness.behind ? colors.yellow("DRIFT") : colors.green("OK  ");
+      console.log(`  ${colors.dim("release".padEnd(10))} ${tag}  ${result.freshness.message}`);
+    }
+    for (const remote of result.remotes) {
+      const tag =
+        remote.manifestOk && remote.mismatches.length === 0
+          ? colors.green("OK  ")
+          : colors.error("FAIL");
+      const scope = remote.legacy ? "legacy" : (remote.dir ?? "dir");
+      console.log(
+        `  ${colors.dim(remote.remote.padEnd(16))} ${tag} ${remote.manifest}  (${scope}, ${remote.filesChecked} files)`,
+      );
+      if (remote.manifestReason) {
+        console.log(`    ${colors.error(`↳ manifest: ${remote.manifestReason}`)}`);
+      }
+      for (const mismatch of remote.mismatches) {
+        const detail = mismatch.actual
+          ? `expected ${mismatch.expected}, served ${mismatch.actual}`
+          : (mismatch.error ?? "mismatch");
+        console.log(`    ${colors.error(`↳ ${mismatch.file}: ${detail}`)}`);
+      }
+    }
+    console.log();
+    if (result.status === "fail") {
+      console.log(
+        colors.error(
+          "  verify: ✗ a published pin no longer resolves byte-for-byte — mixed-build rot (#826). Run `bos upgrade && bos deploy` to re-pin.",
+        ),
+      );
+      console.log();
+      process.exit(1);
+    }
+    if (result.status === "drift") {
+      console.log(
+        colors.yellow(
+          "  verify: ⚠ behind the parent's release — advisory only, deploys proceed. Run `bos upgrade && bos deploy` to realign.",
+        ),
+      );
+      console.log();
+      return;
+    }
+    console.log(colors.green("  verify: ✓ every published pin resolves byte-for-byte"));
+    console.log();
+  },
+
   manifest: async (result, _ctx) => {
     console.log();
     if (result.status === "fail") {
