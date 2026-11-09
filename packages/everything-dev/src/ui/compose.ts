@@ -1,6 +1,4 @@
 import {
-  CORE_UI_PLUGIN_KEY,
-  ComposePayloadSchema,
   type ConstructInput,
   constructTree as constructEngineTree,
 } from "every-plugin/ui/manifest";
@@ -13,7 +11,6 @@ import { requireAdmin, requireSession } from "./auth-guards";
  * where the auth client is already present: the client boot and the
  * ./compose expose the host loads for SSR. input.guards overrides per mount.
  */
-export { CORE_UI_PLUGIN_KEY, ComposePayloadSchema };
 export const constructTree = (input: ConstructInput) =>
   constructEngineTree({
     ...input,
