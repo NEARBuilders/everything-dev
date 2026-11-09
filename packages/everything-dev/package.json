@@ -414,6 +414,15 @@
       "types": "./dist/ui/version-check.d.mts",
       "import": "./dist/ui/version-check.mjs",
       "require": "./dist/ui/version-check.cjs"
+    },
+    "./verify": {
+      "development": {
+        "types": "./src/services/verify/index.ts",
+        "import": "./src/services/verify/index.ts"
+      },
+      "types": "./dist/services/verify/index.d.mts",
+      "import": "./dist/services/verify/index.mjs",
+      "require": "./dist/services/verify/index.cjs"
     }
   },
   "files": [

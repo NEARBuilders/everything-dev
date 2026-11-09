@@ -5,10 +5,10 @@ import {
   resolveConfigComposableEntries,
 } from "everything-dev/config";
 import { remoteDigests } from "everything-dev/fingerprint";
-import { verifySriForUrl } from "everything-dev/integrity";
 import { resolveMergedConfigInput } from "everything-dev/resolution";
 import { bootSnapshotOf, writeBootSnapshot } from "everything-dev/snapshot";
 import type { BosConfig, BosConfigInput } from "everything-dev/types";
+import { formatChainFailures, verifyChain } from "everything-dev/verify";
 import { logger } from "../utils/logger";
 import {
   createRuntimeSnapshotState,
@@ -170,23 +170,20 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
     Effect.catch((cause) => adoptFailure("pre-warm compose failed", cause)),
   );
 
-  const verifyTargets = (
-    [
-      { url: nextConfig.ui.entryUrl, integrity: nextConfig.ui.integrity },
-      nextConfig.ui.ssrEntryUrl
-        ? { url: nextConfig.ui.ssrEntryUrl, integrity: nextConfig.ui.ssrIntegrity }
-        : null,
-    ] satisfies Array<{ url?: string; integrity?: string } | null>
-  ).filter((target): target is { url: string; integrity: string } =>
-    Boolean(target?.url && target?.integrity),
+  const chain = yield* Effect.tryPromise(() =>
+    verifyChain({
+      config: resolvedPointer as unknown as BosConfigInput,
+      depth: "entries",
+    }),
+  ).pipe(
+    Effect.catch((cause) =>
+      adoptFailure("the candidate composition failed chain verification", cause),
+    ),
   );
-  for (const target of verifyTargets) {
-    yield* Effect.tryPromise(() =>
-      verifySriForUrl(target.url, target.integrity, { resolveEntryUrl: false }),
-    ).pipe(
-      Effect.catch((cause) =>
-        adoptFailure(`pinned entry failed verification (${target.url})`, cause),
-      ),
+  if (!chain.ok) {
+    return yield* adoptFailure(
+      "the candidate composition failed chain verification",
+      new Error(formatChainFailures(chain)),
     );
   }
 

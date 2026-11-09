@@ -1,6 +1,9 @@
 import type { BosConfigInput } from "../../types";
-import { walkRemotes } from "../remotes";
-import { fetchVerifiedManifest } from "./manifest-verify";
+import {
+  collectPinnedRemotes,
+  digestOf,
+  verifyChain,
+} from "../verify/chain";
 
 /**
  * Rollback safety gate (atomic-deploys 11): before republishing a historical
@@ -26,84 +29,44 @@ export interface RollbackVerification {
   remotes: RollbackRemoteCheck[];
 }
 
-interface PinnedRemoteRef {
-  production?: unknown;
-  digest?: { manifest?: unknown; integrity?: unknown };
-}
-
-function collectPinnedRemotes(
-  config: BosConfigInput,
-): Array<{ remote: string; ref: PinnedRemoteRef }> {
-  const remotes: Array<{ remote: string; ref: PinnedRemoteRef }> = [];
-  walkRemotes(config as unknown as Record<string, unknown>, ({ remote, entry }) => {
-    if (entry && typeof entry === "object") remotes.push({ remote, ref: entry as PinnedRemoteRef });
-  });
-  return remotes;
-}
-
-function digestOf(ref: PinnedRemoteRef): { manifest: string; integrity: string } | null {
-  const manifest = typeof ref.digest?.manifest === "string" ? ref.digest.manifest : undefined;
-  const integrity = typeof ref.digest?.integrity === "string" ? ref.digest.integrity : undefined;
-  return manifest && integrity ? { manifest, integrity } : null;
-}
-
-export interface RemoteDescriptor {
-  remote: string;
-  /** the remote's production base URL (…/bundles/<account>/<gateway>/<workspace>/) */
-  base: string;
-  digest: { manifest: string; integrity: string };
-}
-
-/** Every pinned remote with both a production base and a verifiable pin. */
-export function collectRemoteDescriptors(config: BosConfigInput): RemoteDescriptor[] {
-  return collectPinnedRemotes(config)
-    .map(({ remote, ref }) => {
-      const digest = digestOf(ref);
-      const base = typeof ref.production === "string" ? ref.production : undefined;
-      return digest && base ? { remote, base, digest } : null;
-    })
-    .filter((entry): entry is RemoteDescriptor => entry !== null);
-}
-
-async function verifyRemote(
-  remote: string,
-  ref: PinnedRemoteRef,
-  fetchImpl: typeof fetch,
-): Promise<RollbackRemoteCheck> {
-  const base = typeof ref.production === "string" ? ref.production : undefined;
-  const digest = digestOf(ref);
-  if (!digest) return { remote, ok: true };
-  const { manifest, integrity } = digest;
-
-  if (!base)
-    return { remote, manifest, ok: false, reason: "no production URL to fetch the manifest from" };
-
-  const verified = await fetchVerifiedManifest({
-    base,
-    digest: { manifest, integrity },
-    fetchImpl,
-  });
-  if (!verified.ok) {
-    return { remote, manifest, ok: false, reason: verified.reason };
-  }
-  return { remote, manifest, ok: true };
-}
+export { collectRemoteDescriptors, type RemoteDescriptor } from "../verify/chain";
 
 export async function verifyRollbackSnapshot(
   config: BosConfigInput,
   opts?: { fetchImpl?: typeof fetch },
 ): Promise<RollbackVerification> {
-  const fetchImpl = opts?.fetchImpl ?? fetch;
   const pinned = collectPinnedRemotes(config).filter((entry) => digestOf(entry.ref) !== null);
 
   if (pinned.length === 0) {
     return { verifiable: false, ok: false, remotes: [] };
   }
 
-  const remotes = await Promise.all(
-    pinned.map((entry) => verifyRemote(entry.remote, entry.ref, fetchImpl)),
-  );
-  return { verifiable: true, ok: remotes.every((check) => check.ok), remotes };
+  const chain = await verifyChain({
+    config,
+    depth: "pointer",
+    ...(opts?.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  const walked = new Map(chain.remotes.map((remote) => [remote.remote, remote]));
+
+  const remotes: RollbackRemoteCheck[] = pinned.map((entry) => {
+    const digest = digestOf(entry.ref)!;
+    const check = walked.get(entry.remote);
+    if (!check) {
+      return {
+        remote: entry.remote,
+        manifest: digest.manifest,
+        ok: false,
+        reason: "no production URL to fetch the manifest from",
+      };
+    }
+    return {
+      remote: entry.remote,
+      manifest: check.manifest,
+      ok: check.manifestOk,
+      ...(check.manifestReason !== undefined ? { reason: check.manifestReason } : {}),
+    };
+  });
+  return { verifiable: true, ok: remotes.every((remote) => remote.ok), remotes };
 }
 
 export function summarizeRemoteDigests(config: BosConfigInput): string {

@@ -346,6 +346,13 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
         console.log(`    ${colors.error(`↳ ${mismatch.file}: ${detail}`)}`);
       }
     }
+    for (const entry of result.entries ?? []) {
+      if (entry.ok) continue;
+      console.log(`  ${colors.dim(entry.remote.padEnd(16))} ${colors.error("FAIL")} entry`);
+      console.log(
+        `    ${colors.error(`↳ ${entry.url}: ${entry.reason ?? "verification failed"}`)}`,
+      );
+    }
     console.log();
     if (result.status === "fail") {
       console.log(

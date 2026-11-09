@@ -12,7 +12,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const manifestBody = JSON.stringify({ entry: "ui/entry.abc123.js" });
+const manifestBody = JSON.stringify({
+  version: "aaaabbbbccccdddd",
+  entry: "ui/entry.abc123.js",
+  entryIntegrity: "sha384-AAAAAA==",
+});
 
 function sriFor(body: string): string {
   return `sha384-${createHash("sha384").update(body).digest("base64")}`;
@@ -82,7 +86,7 @@ describe("verifyRollbackSnapshot", () => {
     const report = await verifyRollbackSnapshot(config, { fetchImpl: fetchMock as typeof fetch });
 
     expect(report.ok).toBe(false);
-    expect(report.remotes[0]?.reason).toContain("integrity");
+    expect(report.remotes[0]?.reason).toContain("SRI mismatch");
   });
 
   it("rejects a partial pin (manifest without integrity) at the schema boundary — the pin is atomic", () => {

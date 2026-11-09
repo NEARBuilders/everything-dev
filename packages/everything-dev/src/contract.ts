@@ -1137,6 +1137,13 @@ export const VerifyRemoteResultSchema = z.object({
   mismatches: z.array(VerifyFileMismatchSchema),
 });
 
+export const VerifyChainEntryResultSchema = z.object({
+  remote: z.string(),
+  url: z.string(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
 export const VerifyFreshnessSchema = z.object({
   behind: z.boolean(),
   pinned: z.string().optional(),
@@ -1147,6 +1154,12 @@ export const VerifyFreshnessSchema = z.object({
 export const VerifyOptionsSchema = z.object({
   json: z.boolean().default(false).describe("Print the report as JSON"),
   registry: z.string().optional().describe("Registry base URL override"),
+  depth: z
+    .enum(["pointer", "entries", "files"])
+    .default("files")
+    .describe(
+      "How deep the chain walk goes: pointer = the pinned manifest documents; entries = + the pinned remoteEntry/ssr bytes; files = + every file in each manifest's files map (the full sweep)",
+    ),
 });
 
 export const VerifyResultSchema = z.object({
@@ -1154,6 +1167,7 @@ export const VerifyResultSchema = z.object({
    * parent's release (advisory — never blocks); ok = verified */
   status: z.enum(["ok", "drift", "fail"]),
   remotes: z.array(VerifyRemoteResultSchema),
+  entries: z.array(VerifyChainEntryResultSchema).optional(),
   freshness: VerifyFreshnessSchema.optional(),
   error: z.string().optional(),
 });

@@ -73,6 +73,7 @@ export default defineConfig({
     "src/db/index.ts",
     "src/services/federation/service.ts",
     "src/services/deploy/integrity.ts",
+    "src/services/verify/index.ts",
     "src/plugin.ts",
     "src/sdk.ts",
     "src/cli.ts",

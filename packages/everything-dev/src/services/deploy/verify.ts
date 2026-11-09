@@ -1,15 +1,11 @@
-import {
-  type WorkspaceVersionManifest,
-  WorkspaceVersionManifestSchema,
-} from "every-plugin/version-manifest";
-import { ZodError } from "zod";
 import type { BosConfigInput } from "../../types";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { parseRuntimeRef } from "../registry/keys";
 import { readManifestTag } from "../registry/pointer";
-import { asDigest, fetchVerified, isVerifyError, verifyDocument } from "../verify/engine";
-import { manifestDocumentUrl } from "./manifest-verify";
-import { collectRemoteDescriptors, type RemoteDescriptor } from "./rollback";
+import {
+  type VerifyReport,
+  verifyChain,
+} from "../verify/chain";
 
 /**
  * The pin→bytes proof (#826 drift alarm, the 061 `bos verify` core): for
@@ -20,144 +16,18 @@ import { collectRemoteDescriptors, type RemoteDescriptor } from "./rollback";
  * children; this names the file instead of a webpack TypeError.
  */
 
-export interface VerifyFileMismatch {
-  file: string;
-  expected: string;
-  actual?: string;
-  error?: string;
-}
-
-export interface VerifyRemoteResult {
-  remote: string;
-  base: string;
-  manifest: string;
-  manifestOk: boolean;
-  manifestReason?: string;
-  /** the immutable version directory the pin resolves into (absent on legacy pins) */
-  dir?: string;
-  legacy: boolean;
-  filesChecked: number;
-  mismatches: VerifyFileMismatch[];
-}
-
-export interface VerifyReport {
-  remotes: VerifyRemoteResult[];
-}
-
-const fileBaseOf = (base: string, dir: string | undefined): string =>
-  dir ? `${base.replace(/\/$/, "")}/${dir}` : base.replace(/\/$/, "");
-
-const messageOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
-
-const manifestLegReason = (error: unknown): string => {
-  if (!isVerifyError(error)) return messageOf(error);
-  if (error._tag === "IntegrityMismatch") {
-    return `manifest SRI mismatch — pin ${error.expected}, served ${error.actual}`;
-  }
-  if (error._tag === "ProvenanceUnknown") {
-    if (error.cause instanceof ZodError) return `manifest schema: ${error.cause.message}`;
-    if (error.status !== undefined) return `manifest GET ${error.status}`;
-    return `manifest fetch failed: ${messageOf(error.cause)}`;
-  }
-  return `manifest signature: ${error.reason}`;
-};
-
-const VERIFY_CONCURRENCY = 8;
-
-/** Verify one pinned remote: manifest document SRI, then every file it names. */
-async function verifyRemotePin(
-  descriptor: RemoteDescriptor,
-  fetchImpl: typeof fetch,
-): Promise<VerifyRemoteResult> {
-  const manifestUrl = manifestDocumentUrl(descriptor.base, descriptor.digest.manifest);
-  const result: VerifyRemoteResult = {
-    remote: descriptor.remote,
-    base: descriptor.base,
-    manifest: descriptor.digest.manifest,
-    manifestOk: false,
-    legacy: true,
-    filesChecked: 0,
-    mismatches: [],
-  };
-
-  let manifest: WorkspaceVersionManifest;
-  try {
-    manifest = await verifyDocument({
-      url: manifestUrl,
-      expected: asDigest(descriptor.digest.integrity),
-      schema: WorkspaceVersionManifestSchema,
-      fetchImpl,
-      cache: false,
-    });
-  } catch (error) {
-    result.manifestReason = manifestLegReason(error);
-    return result;
-  }
-
-  result.manifestOk = true;
-  if (manifest.dir) {
-    result.dir = manifest.dir;
-    result.legacy = false;
-  }
-
-  const fileBase = fileBaseOf(descriptor.base, manifest.dir);
-  const entries = Object.entries(manifest.files ?? {});
-  result.filesChecked = entries.length;
-
-  const check = async ([path, expected]: [string, string]): Promise<VerifyFileMismatch | null> => {
-    try {
-      await fetchVerified({
-        url: `${fileBase}/${path}`,
-        expected: asDigest(expected),
-        fetchImpl,
-        cache: false,
-      });
-      return null;
-    } catch (error) {
-      if (isVerifyError(error)) {
-        if (error._tag === "IntegrityMismatch") {
-          return { file: path, expected, actual: error.actual };
-        }
-        if (error._tag === "ProvenanceUnknown") {
-          return {
-            file: path,
-            expected,
-            error: error.status !== undefined ? `GET ${error.status}` : messageOf(error.cause),
-          };
-        }
-        return { file: path, expected, error: error.reason };
-      }
-      return { file: path, expected, error: messageOf(error) };
-    }
-  };
-
-  const mismatches: VerifyFileMismatch[] = [];
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(VERIFY_CONCURRENCY, entries.length) }, async () => {
-    while (cursor < entries.length) {
-      const entry = entries[cursor++];
-      if (!entry) continue;
-      const mismatch = await check(entry);
-      if (mismatch) mismatches.push(mismatch);
-    }
-  });
-  await Promise.all(workers);
-  result.mismatches = mismatches.sort((a, b) => a.file.localeCompare(b.file));
-  return result;
-}
+export type { VerifyFileMismatch, VerifyRemoteResult, VerifyReport } from "../verify/chain";
 
 export async function verifyPublishedPins(input: {
   config: BosConfigInput;
   fetchImpl?: typeof fetch;
 }): Promise<VerifyReport> {
-  const fetchImpl = input.fetchImpl ?? fetch;
-  const descriptors = collectRemoteDescriptors(input.config);
-  const remotes: VerifyRemoteResult[] = [];
-  for (const descriptor of descriptors) {
-    remotes.push(await verifyRemotePin(descriptor, fetchImpl));
-  }
-  return { remotes };
+  const chain = await verifyChain({
+    config: input.config,
+    depth: "files",
+    ...(input.fetchImpl !== undefined ? { fetchImpl: input.fetchImpl } : {}),
+  });
+  return { remotes: chain.remotes };
 }
 
 export interface VerifyFreshness {
