@@ -32,6 +32,50 @@ const bootConfig = {
   },
 } as unknown as RuntimeConfig;
 
+// the entry bytes the fake CDN serves for the hashed entry — the adopt
+// transaction walks the pinned composition at entries depth before swapping,
+// so the CDN fixture serves schema-valid manifests whose pins derive from
+// the served bytes
+const entryBytes = "console.log('hashed entry');";
+const entrySri = `sha384-${createHash("sha384").update(entryBytes).digest("base64")}`;
+
+const manifestFor = (input: {
+  version: string;
+  entry: string;
+  entryIntegrity?: string;
+}): string =>
+  JSON.stringify({
+    version: input.version,
+    entry: input.entry,
+    entryIntegrity: input.entryIntegrity ?? entrySri,
+  });
+
+const sriOf = (content: string): string =>
+  `sha384-${createHash("sha384").update(content).digest("base64")}`;
+
+const uiManifest = manifestFor({ version: "8f3ac1d2feedbeef", entry: "remoteEntry.cf71.js" });
+const uiPin = sriOf(uiManifest);
+const secondUiManifest = manifestFor({ version: "1111111111111111", entry: "remoteEntry.dd01.js" });
+const secondUiPin = sriOf(secondUiManifest);
+const authManifest = manifestFor({ version: "2222222222222222", entry: "remoteEntry.auth.js" });
+const authPin = sriOf(authManifest);
+
+const cdnRoutes: Record<string, string> = {
+  "https://cdn.example.test/ui/versions/8f3ac1d2feedbeef.json": uiManifest,
+  "https://cdn.example.test/ui/versions/1111111111111111.json": secondUiManifest,
+  "https://cdn.example.test/auth/versions/2222222222222222.json": authManifest,
+  "https://cdn.example.test/ui/remoteEntry.cf71.js": entryBytes,
+  "https://cdn.example.test/ui/remoteEntry.dd01.js": entryBytes,
+  "https://cdn.example.test/auth/remoteEntry.auth.js": entryBytes,
+};
+
+const fakeCdnFetch = async (input: string | URL | Request): Promise<Response> => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const body = cdnRoutes[url];
+  return body === undefined
+    ? new Response("not found", { status: 404 })
+    : new Response(body, { status: 200 });
+};
 const publishedPointer = {
   account: "v1.citynode.near",
   domain: "citynode.app",
@@ -41,7 +85,7 @@ const publishedPointer = {
       production: "https://cdn.example.test/ui/",
       digest: {
         manifest: "versions/8f3ac1d2feedbeef.json",
-        integrity: "sha384-remote-pin",
+        integrity: uiPin,
       },
     },
     api: { development: "local:api", production: "https://cdn.example.test/api/" },
@@ -58,10 +102,6 @@ const mergedPointer = {
   },
 } as unknown as BosConfig;
 
-// the entry bytes the fake CDN serves for the hashed entry — the adopt
-// transaction verifies the pinned entry (SRI) before swapping
-const entryBytes = "console.log('hashed entry');";
-const entrySri = `sha384-${createHash("sha384").update(entryBytes).digest("base64")}`;
 
 const derivedConfig = {
   ...bootConfig,
@@ -98,13 +138,6 @@ vi.mock("../../src/services/ui-compose", async (importOriginal) => {
     composeUi: composeUiMock,
   };
 });
-
-const fakeCdnFetch = async (input: string | URL | Request): Promise<Response> => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  if (url.endsWith("/remoteEntry.cf71.js")) return new Response(entryBytes, { status: 200 });
-  if (url.endsWith("/remoteEntry.dd01.js")) return new Response(entryBytes, { status: 200 });
-  return new Response("not found", { status: 404 });
-};
 
 beforeAll(() => {
   vi.stubGlobal("fetch", vi.fn(fakeCdnFetch) as unknown as typeof fetch);
@@ -180,12 +213,12 @@ describe("adoptPublishedPointer", () => {
         ...publishedPointer.app,
         ui: {
           ...publishedPointer.app.ui,
-          digest: { manifest: "versions/1111111111111111.json", integrity: "sha384-remote-pin-2" },
+          digest: { manifest: "versions/1111111111111111.json", integrity: secondUiPin },
         },
         auth: {
           development: "local:auth",
           production: "https://cdn.example.test/auth/",
-          digest: { manifest: "versions/2222222222222222.json", integrity: "sha384-auth-pin" },
+          digest: { manifest: "versions/2222222222222222.json", integrity: authPin },
         },
       },
     } as unknown as BosConfig;
@@ -288,7 +321,8 @@ describe("adoptPublishedPointer", () => {
     );
     if (!Exit.isFailure(result.exit)) throw new Error("expected adopt failure");
     const squashed = Cause.squash(result.exit.cause);
-    expect((squashed as SnapshotAdoptError).message).toContain("failed verification");
+    expect((squashed as SnapshotAdoptError).message).toContain("chain verification");
+    expect((squashed as SnapshotAdoptError).message).toContain("manifest SRI mismatch");
     expect(result.after).toBe(result.before);
     // restore the good CDN for the tests that follow
     vi.stubGlobal("fetch", vi.fn(fakeCdnFetch) as unknown as typeof fetch);
@@ -386,11 +420,11 @@ describe("adoptPublishedPointer", () => {
     expect(snapshotFingerprintMatches(stored)).toBe(true);
     expect(stored.config.app.ui).toMatchObject({
       production: "https://cdn.example.test/ui/",
-      digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-remote-pin" },
+      digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: uiPin },
     });
     expect(stored.remotes["app.ui"]).toEqual({
       base: "https://cdn.example.test/ui/",
-      digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-remote-pin" },
+      digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: uiPin },
     });
   });
 

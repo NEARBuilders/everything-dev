@@ -71,11 +71,23 @@ const entryBytes = (gen: number) => `console.log('web entry gen ${gen}');`;
 const ssrEntryBytes = (gen: number) => `console.log('ssr entry gen ${gen}');`;
 const sriOf = (bytes: string) => `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
 
+// the ui pin's manifest document — schema-valid, its pin derived from the
+// served bytes, so the adopt's entries-depth chain walk verifies
+const uiManifestDoc = JSON.stringify({
+  version: "8f3ac1d2feedbeef",
+  entry: "remoteEntry.gen-1.js",
+  entryIntegrity: sriOf(entryBytes(1)),
+});
+const uiPin = sriOf(uiManifestDoc);
+
 const fakeCdnFetch = async (input: string | URL | Request): Promise<Response> => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const genMatch = url.match(/gen-(\d+)/);
   if (url.endsWith("/manifest.gen.json")) {
     return new Response(JSON.stringify(CORE_MANIFEST), { status: 200 });
+  }
+  if (url.endsWith("/ui/versions/x.json")) {
+    return new Response(uiManifestDoc, { status: 200 });
   }
   if (genMatch) {
     const gen = Number(genMatch[1]);
@@ -130,7 +142,7 @@ const publishedPointer = {
     ui: {
       development: "local:ui",
       production: `${assetBaseUrl}/ui/`,
-      digest: { manifest: "versions/x.json", integrity: "sha384-remote-pin" },
+      digest: { manifest: "versions/x.json", integrity: uiPin },
     },
   },
 } as unknown as BosConfig;
