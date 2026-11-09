@@ -1130,6 +1130,14 @@ export const VerifyRemoteResultSchema = z.object({
   manifest: z.string(),
   manifestOk: z.boolean(),
   manifestReason: z.string().optional(),
+  /** attribution leg (ADR 0046 ticket 05) — present only when the walked
+   * config demands attribution (`publish.verification`) */
+  signature: z
+    .object({
+      ok: z.boolean(),
+      reason: z.string().optional(),
+    })
+    .optional(),
   /** the immutable version directory the pin resolves into (absent on legacy pins) */
   dir: z.string().optional(),
   legacy: z.boolean(),

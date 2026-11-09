@@ -1,7 +1,11 @@
 import { readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { SourceRef } from "every-plugin/version-manifest";
-import { versionDirPath } from "every-plugin/version-manifest";
+import type {
+  ManifestSignature,
+  SourceRef,
+  WorkspaceVersionManifest,
+} from "every-plugin/version-manifest";
+import { signaturePayloadOf, versionDirPath } from "every-plugin/version-manifest";
 import { diffWorkspaceFiles, localSriMap, mergedFileIntegrity, type PreviousPin } from "./diff";
 import { buildSourceArchive, makeSourceArchiveTempDir } from "./source-archive";
 import {
@@ -137,7 +141,10 @@ async function diffUploadWorkspace(
 /** Compose + upload the workspace's version manifest — server-computed SRI of
  * the just-finished upload, uploaded additively at `versions/<version>.json`.
  * Returns undefined when the dist predates hashed entry names. The manifest's
- * `shared` record rides back for the publish train's truth gate (#546). */
+ * `shared` record rides back for the publish train's truth gate (#546). When
+ * `sign` is present (the runtime demands attribution — `publish.verification`),
+ * the train's publish identity signs the canonical payload (ADR 0046
+ * ticket 05) and the signature rides in the document. */
 async function pinWorkspaceVersionManifest(
   deps: StorageLegDeps,
   input: {
@@ -154,6 +161,7 @@ async function pinWorkspaceVersionManifest(
     dir?: string;
     source?: SourceRef;
     gitSha?: string;
+    sign?: (payload: string) => Promise<ManifestSignature>;
     notes: string[];
   },
 ): Promise<{ pin: VersionManifestPin; shared?: Record<string, string> } | undefined> {
@@ -169,6 +177,17 @@ async function pinWorkspaceVersionManifest(
   });
   if (!versionManifest) return undefined;
 
+  let document: WorkspaceVersionManifest = versionManifest;
+  if (input.sign) {
+    const signature = await input.sign(signaturePayloadOf(versionManifest));
+    document = { ...versionManifest, signature };
+    input.notes.push(
+      `version manifest versions/${versionManifest.version}.json (SRI pinned, signed ${signature.publicKey.slice(0, 24)}…)`,
+    );
+  } else {
+    input.notes.push(`version manifest versions/${versionManifest.version}.json (SRI pinned)`);
+  }
+
   const manifestFile = `versions/${versionManifest.version}.json`;
   const manifestUpload = await deps.uploadBundle({
     origin: input.origin,
@@ -179,13 +198,12 @@ async function pinWorkspaceVersionManifest(
     files: [
       {
         path: manifestFile,
-        bytes: new TextEncoder().encode(`${JSON.stringify(versionManifest, null, 2)}\n`),
+        bytes: new TextEncoder().encode(`${JSON.stringify(document, null, 2)}\n`),
       },
     ],
   });
   const manifestIntegrity = manifestUpload.integrity[manifestFile];
   if (!manifestIntegrity) return undefined;
-  input.notes.push(`version manifest ${manifestFile} (SRI pinned)`);
   return {
     pin: { file: manifestFile, integrity: manifestIntegrity, storage: manifestUpload.storage },
     ...(versionManifest.shared ? { shared: versionManifest.shared } : {}),
@@ -270,6 +288,9 @@ export interface UploadWorkspaceBundleInput {
   /** enable the source-archive leg (publish.sourcePublish) — main workspaces only */
   source?: { repoRoot: string; workspaceDir: string };
   gitSha?: string;
+  /** the train's publish-identity signer — present when the config demands
+   * manifest attribution (publish.verification, ADR 0046 ticket 05) */
+  sign?: (payload: string) => Promise<ManifestSignature>;
   deps?: StorageLegDeps;
 }
 
@@ -393,6 +414,7 @@ export async function uploadWorkspaceBundle(
       dir: dirPath,
       ...(sourceRef ? { source: sourceRef } : {}),
       ...(input.gitSha ? { gitSha: input.gitSha } : {}),
+      ...(input.sign ? { sign: input.sign } : {}),
       notes,
     });
     if (!pinned) return { kind: "missing-manifest" };

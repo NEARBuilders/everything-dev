@@ -329,15 +329,24 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     }
     for (const remote of result.remotes) {
       const tag =
-        remote.manifestOk && remote.mismatches.length === 0
+        remote.manifestOk && remote.mismatches.length === 0 && remote.signature?.ok !== false
           ? colors.green("OK  ")
           : colors.error("FAIL");
       const scope = remote.legacy ? "legacy" : (remote.dir ?? "dir");
+      const attribution =
+        remote.signature === undefined
+          ? ""
+          : remote.signature.ok
+            ? colors.green("  · signed")
+            : colors.error("  · signature FAIL");
       console.log(
-        `  ${colors.dim(remote.remote.padEnd(16))} ${tag} ${remote.manifest}  (${scope}, ${remote.filesChecked} files)`,
+        `  ${colors.dim(remote.remote.padEnd(16))} ${tag} ${remote.manifest}  (${scope}, ${remote.filesChecked} files)${attribution}`,
       );
       if (remote.manifestReason) {
         console.log(`    ${colors.error(`↳ manifest: ${remote.manifestReason}`)}`);
+      }
+      if (remote.signature && !remote.signature.ok) {
+        console.log(`    ${colors.error(`↳ signature: ${remote.signature.reason}`)}`);
       }
       for (const mismatch of remote.mismatches) {
         const detail = mismatch.actual

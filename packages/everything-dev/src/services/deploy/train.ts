@@ -3,6 +3,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer, Option } from "effect";
 import { hasFolderFormUi } from "every-plugin/build/ui";
+import type { ManifestSignature } from "every-plugin/version-manifest";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
 import {
@@ -16,9 +17,17 @@ import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
-import { ensureCustodyBalance, submitRegistryWriteCustody } from "../auth/custody-signer";
+import {
+  ensureCustodyBalance,
+  signManifestPayloadCustody,
+  submitRegistryWriteCustody,
+} from "../auth/custody-signer";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegate-signer";
-import { classifyTransactionOutcome, submitRegistryWrite } from "../auth/near-signer";
+import {
+  classifyTransactionOutcome,
+  resolveSigningKey,
+  submitRegistryWrite,
+} from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
 import {
@@ -66,6 +75,7 @@ import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk 
 import { formatNearError } from "./format";
 import { readFrameworkVersion } from "./image";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
+import { assertSigningIdentityMatches, signManifestPayload } from "./manifest-signature";
 import { computeOwedWork } from "./owed";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
@@ -223,6 +233,39 @@ export async function runPublishTrain(
   const fullUpload = input.fullUpload === true || process.env.BOS_FULL_UPLOAD === "1";
   const sourcePublish = bosConfig.publish?.sourcePublish === true;
   const gitSha = await resolveGitSha(configDir);
+  // Manifest attribution (ADR 0046 ticket 05): when the authored config
+  // demands it (publish.verification.publicKey), every pinned manifest is
+  // signed by the runtime's existing publish identity — the custody wallet's
+  // TEE-held key or the explicit publish key the registry write uses. The
+  // signing key must equal the configured record; a mismatch fails the train
+  // before anything uploads (rotation is a config publish, never a silent
+  // key swap).
+  const verificationPublicKey = (() => {
+    const verification = bosConfig.publish?.verification;
+    return typeof verification === "object" ? verification.publicKey : undefined;
+  })();
+  let signManifest: ((payload: string) => Promise<ManifestSignature>) | undefined;
+  if (verificationPublicKey) {
+    if (useCustody && plan.custodyWallet) {
+      const custodyWallet = plan.custodyWallet;
+      signManifest = async (payload) => {
+        const signed = await signManifestPayloadCustody(custodyWallet, payload, account);
+        assertSigningIdentityMatches(signed.publicKey, verificationPublicKey);
+        return { algorithm: "ed25519", publicKey: signed.publicKey, value: signed.value };
+      };
+    } else {
+      const resolvedKey = await resolveSigningKey({
+        privateKey: input.privateKey,
+        account,
+        network,
+      });
+      signManifest = async (payload) => {
+        const signed = signManifestPayload(payload, resolvedKey.privateKey);
+        assertSigningIdentityMatches(signed.publicKey, verificationPublicKey);
+        return signed;
+      };
+    }
+  }
   const memoryBackendAbort = () =>
     new PublishTrainError({
       kind: "memory-backend",
@@ -305,6 +348,7 @@ export async function runPublishTrain(
       previousPin: prevPins[key],
       ...(sourcePublish ? { source: sourceLegDirs(ws.path) } : {}),
       ...(gitSha ? { gitSha } : {}),
+      ...(signManifest ? { sign: signManifest } : {}),
       deps: deps.storage,
     });
     if (outcome.kind === "error") {
@@ -367,6 +411,7 @@ export async function runPublishTrain(
           storageApiKey,
           urlOrigin,
           previousPin: prevPins[`${key}-ui`],
+          ...(signManifest ? { sign: signManifest } : {}),
           deps: deps.storage,
         });
         if (uiOutcome.kind === "error") {

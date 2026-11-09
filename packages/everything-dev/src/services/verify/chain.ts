@@ -1,9 +1,11 @@
 import {
+  signaturePayloadOf,
   type WorkspaceVersionManifest,
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
 import { ZodError } from "zod";
 import type { BosConfigInput } from "../../types";
+import { verifyManifestSignature } from "../deploy/manifest-signature";
 import { manifestDocumentUrl } from "../deploy/manifest-verify";
 import { walkRemotes } from "../remotes";
 import { asDigest, fetchVerified, isVerifyError, verifyDocument } from "./engine";
@@ -62,6 +64,11 @@ export interface VerifyRemoteResult {
   manifest: string;
   manifestOk: boolean;
   manifestReason?: string;
+  /** attribution leg (ADR 0046 ticket 05) — present only when the walked
+   * config demands attribution (`publish.verification`); a false `ok` is a
+   * hard failure for the chain (adopt/smoke/`bos verify`), independent of
+   * the integrity legs. */
+  signature?: { ok: boolean; reason?: string };
   /** the immutable version directory the pin resolves into (absent on legacy pins) */
   dir?: string;
   legacy: boolean;
@@ -120,10 +127,16 @@ const entryLegReason = (error: unknown): string => {
 const fileBaseOf = (base: string, dir: string | undefined): string =>
   dir ? `${base.replace(/\/$/, "")}/${dir}` : base.replace(/\/$/, "");
 
+/** The attribution demand the walked config carries — `undefined`/`"off"`
+ * means the signature leg is skipped (attribution-off rollouts verify as
+ * today). */
+type VerificationDemand = { publicKey: string } | "off" | undefined;
+
 async function walkRemotePin(
   descriptor: { remote: string; base: string; digest: { manifest: string; integrity: string } },
   depth: ChainDepth,
   fetchImpl: typeof fetch,
+  verification: VerificationDemand,
 ): Promise<{ remote: VerifyRemoteResult; entryResults: ChainEntryResult[] }> {
   const manifestUrl = manifestDocumentUrl(descriptor.base, descriptor.digest.manifest);
   const remote: VerifyRemoteResult = {
@@ -155,6 +168,23 @@ async function walkRemotePin(
   if (manifest.dir) {
     remote.dir = manifest.dir;
     remote.legacy = false;
+  }
+
+  // Attribution before any integrity check is reported (ADR 0046 ticket 05):
+  // the signature leg is distinct from the SRI legs, and a failure here is a
+  // hard chain failure — but the integrity legs still run and report, so a
+  // rotated key record shows exactly what stayed sound.
+  if (verification && verification !== "off") {
+    try {
+      verifyManifestSignature(
+        signaturePayloadOf(manifest),
+        manifest.signature,
+        verification.publicKey,
+      );
+      remote.signature = { ok: true };
+    } catch (error) {
+      remote.signature = { ok: false, reason: manifestLegReason(error) };
+    }
   }
   const fileBase = fileBaseOf(descriptor.base, manifest.dir);
 
@@ -248,14 +278,17 @@ export async function verifyChain(input: {
   const remotes: VerifyRemoteResult[] = [];
   const entries: ChainEntryResult[] = [];
   const fetchImpl = input.fetchImpl ?? fetch;
+  const verification = input.config.publish?.verification;
   for (const descriptor of descriptors) {
-    const walk = await walkRemotePin(descriptor, input.depth, fetchImpl);
+    const walk = await walkRemotePin(descriptor, input.depth, fetchImpl, verification);
     remotes.push(walk.remote);
     entries.push(...walk.entryResults);
   }
   const ok =
-    remotes.every((remote) => remote.manifestOk && remote.mismatches.length === 0) &&
-    entries.every((entry) => entry.ok);
+    remotes.every(
+      (remote) =>
+        remote.manifestOk && remote.mismatches.length === 0 && remote.signature?.ok !== false,
+    ) && entries.every((entry) => entry.ok);
   return { depth: input.depth, remotes, entries, ok };
 }
 
@@ -264,6 +297,9 @@ export function formatChainFailures(result: ChainVerifyResult): string {
   for (const remote of result.remotes) {
     if (!remote.manifestOk) {
       lines.push(`${remote.remote}: ${remote.manifestReason}`);
+    }
+    if (remote.signature && !remote.signature.ok) {
+      lines.push(`${remote.remote}: signature — ${remote.signature.reason}`);
     }
     for (const mismatch of remote.mismatches) {
       const detail = mismatch.actual

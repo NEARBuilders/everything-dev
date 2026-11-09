@@ -327,6 +327,13 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     publish: z
       .object({
         auth: z.enum(["session", "key", "custody"]).optional(),
+        /** Manifest attribution key record (ADR 0046 ticket 05) — mirrors
+         * PublishConfigSchema.verification; the chain walker reads it from
+         * the config it walks (authored or published — publish survives
+         * canonicalization because children inherit it). */
+        verification: z
+          .union([z.object({ publicKey: z.string().min(1) }), z.literal("off")])
+          .optional(),
       })
       .optional(),
     /** The authored release (ADR 0034): the exact framework version this app targets. */
@@ -421,6 +428,16 @@ export const PublishConfigSchema = z.object({
   auth: PublishAuthSchema.optional(),
   /** Publish per-workspace source archives beside the dists (#406). */
   sourcePublish: z.boolean().optional(),
+  /**
+   * Manifest attribution (ADR 0046 ticket 05): the verifying public key the
+   * deploy train signs version manifests with and the chain walker demands
+   * signatures against — `{ publicKey: "ed25519:<base58>" }`, or `"off"` to
+   * disable explicitly. Absent means off (the rollout default): unsigned
+   * manifests verify as today. The key record publishes inside the on-chain
+   * config, so it inherits chain authenticity and rotation is a config
+   * publish.
+   */
+  verification: z.union([z.object({ publicKey: z.string().min(1) }), z.literal("off")]).optional(),
 });
 export type PublishConfig = z.infer<typeof PublishConfigSchema>;
 
