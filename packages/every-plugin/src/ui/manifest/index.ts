@@ -10,8 +10,6 @@ export {
   type ConstructInput,
   type ConstructPluginRef,
   constructTree,
-  type GateUser,
-  type HostContext,
   type ResolvedPlugin,
 } from "./construct";
 export * from "./contract";

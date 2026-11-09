@@ -284,6 +284,7 @@ describe("constructTree core-over-plugin precedence (ADR 0010 decision #1)", () 
     const tree = await constructTree({
       name: "server",
       plugins: [core.ref, auth.ref],
+      guards: { authenticated: async () => undefined, admin: async () => undefined },
       resolve: async (ref) => {
         if (ref.key === "ui") return core.resolve(ref);
         return { key: "auth", manifest: authManifest, routeConfig: authConfig };

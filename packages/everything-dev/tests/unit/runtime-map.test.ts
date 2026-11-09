@@ -166,6 +166,7 @@ describe("engine parity — composeRuntimeMap matches the real constructTree", (
     const tree = await constructTree({
       name: "parity",
       plugins: sources.map((s) => ({ key: s.key, mfName: s.key })),
+      guards: { authenticated: async () => undefined, admin: async () => undefined },
       resolve: async (ref) => {
         const manifest = fixtures[ref.key]!;
         return { key: ref.key, manifest, routeConfig: { routeConfigLoaders: loaders(manifest) } };

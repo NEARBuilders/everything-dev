@@ -65,8 +65,6 @@ export type {
   ConstructedTree,
   ConstructInput,
   ConstructPluginRef,
-  GateUser,
-  HostContext,
   NavManifest,
   PluginManifest,
   ResolvedPlugin,
