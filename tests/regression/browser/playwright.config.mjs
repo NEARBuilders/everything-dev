@@ -67,6 +67,7 @@ export default defineConfig({
       name: "start:csr",
       testMatch: [
         "specs/csr-compose.spec.ts",
+        "specs/csr-guarded-reload.spec.ts",
         "specs/auth-redirect.spec.ts",
         "specs/app-load.spec.ts",
       ],

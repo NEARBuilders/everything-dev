@@ -378,6 +378,15 @@
       "import": "./dist/ui/manifest/index.mjs",
       "require": "./dist/ui/manifest/index.cjs"
     },
+    "./ui/compose": {
+      "development": {
+        "types": "./src/ui/compose.ts",
+        "import": "./src/ui/compose.ts"
+      },
+      "types": "./dist/ui/compose.d.mts",
+      "import": "./dist/ui/compose.mjs",
+      "require": "./dist/ui/compose.cjs"
+    },
     "./ui/manifest-generator": {
       "development": {
         "types": "./src/ui/manifest-generator.ts",

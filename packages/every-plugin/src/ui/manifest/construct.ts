@@ -1,9 +1,9 @@
 import type { AnyRoute } from "@tanstack/react-router";
-import { createRootRoute, createRoute, Outlet, redirect } from "@tanstack/react-router";
+import { createRootRoute, createRoute, Outlet } from "@tanstack/react-router";
 import { CORE_UI_PLUGIN_KEY } from "./contract";
 import { digestOf } from "./descriptor";
 import type { PluginManifest, RouteRecord } from "./manifest-schema";
-import { MOUNT_REGISTRY, type MountDef, type MountId, resolveMountSegment } from "./mount-registry";
+import { MOUNT_REGISTRY, type MountId, resolveMountSegment } from "./mount-registry";
 import { compareNavItems, type NavDeclaration, type NavItem, type NavManifest } from "./nav";
 import { ROUTE_OPTION_KEYS, type RouteConfigModule, type RouteOptionsBundle } from "./route-config";
 
@@ -11,9 +11,10 @@ import { ROUTE_OPTION_KEYS, type RouteConfigModule, type RouteOptionsBundle } fr
  * Host-side route-graph construction (ADR 0008 §1): manifests + route
  * configs in → host-built tree out. The host constructs ITS OWN Route
  * objects from validated manifest data via public `createRoute` APIs; no
- * foreign route object is ever mutated. Gates are attached HOST-side from
- * the mount registry — plugins cannot ship a route that escapes its
- * mount's gate because plugins never construct route objects.
+ * foreign route object is ever mutated. Mount guards are ordinary
+ * beforeLoads attached HOST-side from ConstructInput.guards — plugins
+ * cannot ship a route that escapes its mount's guard because plugins never
+ * construct route objects.
  *
  * Mounts are the ONLY cross-source parenting points: a root-level
  * pathless layout file (`_public.tsx`) declares the mount for the whole
@@ -34,57 +35,6 @@ function toAnyRoute(route: unknown): AnyRoute {
   return route as AnyRoute;
 }
 
-export interface GateUser {
-  id: string;
-  name?: string;
-  /** Better Auth user role — "admin" gates the admin mount. */
-  role?: string;
-}
-
-export interface HostContext {
-  user?: GateUser;
-  session?: { user?: GateUser };
-}
-
-type GateFn = (args: {
-  context: HostContext;
-  location: { pathname: string; searchStr: string };
-}) => void;
-
-/**
- * Gate redirects are absolute: gates attach to root-level mount routes, and
- * relatives would silently shift if a mount ever moved deeper in the tree.
- * The login surface is plugin-owned, never core-known.
- */
-const LOGIN_TO: string = "/login";
-const HOME_TO: string = "/";
-
-/**
- * Gate implementations by mount gate kind. Only `session` and `admin` are
- * implemented (ADR 0008 §3); unimplemented mounts are rejected during mount
- * declaration before any gate lookup, and gates are optional by type — a
- * mount without an entry (or `none`) renders ungated.
- */
-const GATES: Partial<Record<MountDef["gate"], GateFn>> = {
-  session: ({ context, location }) => {
-    const user = userOf(context);
-    if (!user) {
-      throw redirect({
-        to: LOGIN_TO,
-        search: { redirect: location.pathname + location.searchStr } as never,
-      });
-    }
-  },
-  admin: ({ context }) => {
-    const user = userOf(context);
-    if (!user) throw redirect({ to: LOGIN_TO });
-    if (user.role !== "admin") throw redirect({ to: HOME_TO });
-  },
-};
-
-const userOf = (context: HostContext | undefined): GateUser | undefined =>
-  context?.user ?? context?.session?.user;
-
 export interface ConstructPluginRef {
   /** composition identity — plugin key; participates in the digest */
   key: string;
@@ -104,6 +54,8 @@ export interface ConstructInput {
   resolve: (ref: ConstructPluginRef) => Promise<ResolvedPlugin>;
   /** core ui `__root` options — component/error/notFound + head baseline */
   rootOptions?: RouteOptionsBundle;
+  /** Guard per mount id — beforeLoads supplied by the composing framework. */
+  guards?: Partial<Record<MountId, RouteOptionsBundle["beforeLoad"]>>;
 }
 
 export interface ConstructedTree {
@@ -139,17 +91,17 @@ const navOf = (options: RouteOptionsBundle): NavDeclaration | undefined => {
 };
 
 /** Layout routes (mount or pathless) pass their authored options through,
- * like every other route kind. On mount routes the registry gate composes
+ * like every other route kind. On mount routes the mount's guard composes
  * BEFORE the declaration's own beforeLoad so a source can never escape its
- * mount's gate (ADR 0008 §3), while the declaration's return value still
+ * mount's guard (ADR 0008 §3), while the declaration's return value still
  * flows to children as route context. */
 function layoutBeforeLoad(
-  gate: GateFn | undefined,
+  guard: RouteOptionsBundle["beforeLoad"],
   declared: RouteOptionsBundle["beforeLoad"],
 ): RouteOptionsBundle["beforeLoad"] {
-  if (!gate) return declared;
-  return (args) => {
-    gate(args);
+  if (!guard) return declared;
+  return async (args) => {
+    await guard(args);
     return declared?.(args);
   };
 }
@@ -270,13 +222,16 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
     const declaration = declarations.get(mountId);
     if (!declaration) continue;
     const def = MOUNT_REGISTRY[mountId]!;
-    const gate = GATES[def.gate];
+    const guard = input.guards?.[mountId];
+    if (def.guarded && !guard) {
+      throw new Error(`mount "${mountId}" requires a guard — add one to ConstructInput.guards`);
+    }
     const options = declaration.options;
     const route = createRoute({
       id: `__mount_${mountId}`,
       getParentRoute: () => rootRoute,
-      ...(gate || options.beforeLoad
-        ? { beforeLoad: layoutBeforeLoad(gate, options.beforeLoad) }
+      ...(guard || options.beforeLoad
+        ? { beforeLoad: layoutBeforeLoad(guard, options.beforeLoad) }
         : {}),
       ...authoredOptions(options),
       component: options.component ?? Outlet,

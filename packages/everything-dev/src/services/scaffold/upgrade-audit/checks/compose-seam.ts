@@ -65,6 +65,7 @@ export type ConstructTreeFn = (input: {
     routeConfig: { routeConfigLoaders: Record<string, () => Promise<unknown>> };
   }>;
   rootOptions?: unknown;
+  guards?: Record<string, unknown>;
 }) => Promise<{ mountCounts: Record<string, number> }>;
 
 /** Pure — "unresolvable parentage" after a shadow log is the known cascade bug. */
@@ -125,6 +126,7 @@ export const runComposeProbe = async (
           { key: CORE_UI_KEY, mfName: CORE_UI_KEY },
           { key: AUTH_PLUGIN_KEY, mfName: AUTH_PLUGIN_KEY },
         ],
+        guards: { authenticated: async () => undefined, admin: async () => undefined },
         resolve: async (ref) => {
           const manifest = manifests.get(ref.key);
           if (!manifest) {
