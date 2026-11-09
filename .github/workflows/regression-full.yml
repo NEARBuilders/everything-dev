@@ -1,12 +1,9 @@
-# FRAMEWORK-OWNED — reconciled from the parent template by `bos sync` / `bos upgrade`.
-# Local edits are allowed: on the next sync the template version wins and your copy
-# is backed up under `.bos/sync-backup/`. To make a change permanent, file an issue:
-# https://github.com/NEARBuilders/everything-dev/issues
-# T2 full regression — the complete matrix, serially, on one runner. Consumed
-# by the release gate (release.yml: every publish is preceded by a green run)
-# and the nightly main-tip check (backcompat-nightly.yml). Per-PR CI does not
-# call this — the tiering contract (docs/agents/testing.md) keeps PRs on the
-# vital plane and pays the matrix exactly where a release is decided.
+# Root-only full-regression matrix — never synced to children (same class as
+# release.yml). The T2 tier of docs/agents/testing.md: consumed by the
+# release gate (release.yml: every npm publish is preceded by a green run)
+# and the nightly main-tip check (backcompat-nightly.yml). Per-PR CI does
+# not call this — the tiering contract keeps PRs on the vital plane and
+# pays the matrix exactly where a release is decided.
 name: Full regression
 
 on:
