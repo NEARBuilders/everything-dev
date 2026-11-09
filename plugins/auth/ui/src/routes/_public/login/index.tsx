@@ -92,7 +92,14 @@ function signInError(error: AuthError, t: LoginTranslator): ErrorState {
   const code = typeof error === "object" && "code" in error ? error.code : undefined;
   if (code === "UNAUTHORIZED_NONCE_REPLAY")
     return { message: t("auth.login.error.used"), detail: null };
-  if (code === "UNAUTHORIZED_INVALID_SIGNATURE") {
+  if (code === "UNAUTHORIZED_NONCE_FROM_FUTURE")
+    return { message: t("auth.login.error.clockAhead"), detail: null };
+  if (code === "UNAUTHORIZED_NONCE_EXPIRED" || code === "UNAUTHORIZED_INVALID_NONCE") {
+    return { message: t("auth.login.error.expired"), detail: null };
+  }
+  if (code === "VERIFY_RPC_ERROR")
+    return { message: t("auth.login.error.serviceUnavailable"), detail: null };
+  if (code === "UNAUTHORIZED_INVALID_SIGNATURE" || code === "UNAUTHORIZED_SIGNATURE_INVALID") {
     return { message: t("auth.login.error.signature"), detail: null };
   }
   if (code === "SIGNER_NOT_AVAILABLE") {
@@ -100,9 +107,6 @@ function signInError(error: AuthError, t: LoginTranslator): ErrorState {
   }
   if (code === "RECIPIENT_MISMATCH") {
     return { message: t("auth.login.error.configuration"), detail: null };
-  }
-  if (code === "UNAUTHORIZED_INVALID_NONCE") {
-    return { message: t("auth.login.error.expired"), detail: null };
   }
   return siteErrorMessage(error, t("auth.login.error.generic"));
 }

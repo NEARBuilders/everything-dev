@@ -52,7 +52,8 @@ let nonceCounter = 0;
 function makeUniqueNonce(): Uint8Array {
   nonceCounter++;
   const nonce = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
+  new DataView(nonce.buffer).setBigUint64(0, BigInt(Date.now()), false);
+  for (let i = 8; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
   return nonce;
 }
 
