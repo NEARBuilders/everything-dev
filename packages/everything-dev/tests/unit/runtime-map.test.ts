@@ -371,7 +371,7 @@ describe("generateRuntimeMapEffect — backend inventory (#594 review)", () => {
     );
 
     const map = JSON.parse(readFileSync(join(tempDir, ".bos/generated/runtime-map.json"), "utf8"));
-    expect(map.lockfile.fingerprint).toBe(lock.fingerprint);
+    expect(map.lockfile.pointerDigest).toBe(lock.pointerDigest);
     expect(map.lockfile.release).toBeNull();
     const uiDrift = map.lockfile.drift.find((entry: { key: string }) => entry.key === "ui");
     expect(uiDrift).toEqual({

@@ -354,7 +354,14 @@ async function deriveVersionManifestFields(
   const derive = async (
     label: string,
     slotConfig: { digest?: unknown } | undefined,
-    remote: { url?: string; remoteUrl?: string; source?: string } | undefined,
+    remote:
+      | {
+          url?: string;
+          remoteUrl?: string;
+          source?: string;
+          digest?: { manifest: string; integrity: string };
+        }
+      | undefined,
     apply: (resolved: ResolvedRemoteVersion) => void,
   ): Promise<void> => {
     if (!remote || remote.source !== "remote" || !remote.url) return;
@@ -396,6 +403,10 @@ async function deriveVersionManifestFields(
       }
       throw cause;
     }
+    // The serving-generation digest derives from the pointer inputs — stamp
+    // the normalized pin coordinates onto the slot so the runtime config is
+    // self-describing (ADR 0046 ticket 04).
+    remote.digest = { manifest: digest.manifest, integrity: digest.integrity };
     apply(resolved);
   };
 

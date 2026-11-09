@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge, SectionHeader } from "@/components";
 
 interface VersionEndpointResponse {
-  fingerprint?: string;
+  deploymentDigest?: string;
   remotes?: Record<string, string>;
   watch?: { lastOutcome?: string };
 }
@@ -34,13 +34,13 @@ export function VersionCard() {
       <SectionHeader title="Deployed version" sectionTestId="admin-version-heading" />
       {query.isLoading ? (
         <p className="text-muted-foreground text-sm">Loading…</p>
-      ) : query.isError || !version?.fingerprint ? (
+      ) : query.isError || !version?.deploymentDigest ? (
         <p className="text-muted-foreground text-sm">Version endpoint unreachable.</p>
       ) : (
         <dl className="mt-2 space-y-1 text-sm">
           <div className="flex items-center gap-2">
-            <dt className="text-muted-foreground">Fingerprint</dt>
-            <dd className="font-mono">{version.fingerprint}</dd>
+            <dt className="text-muted-foreground">Serving digest</dt>
+            <dd className="font-mono">{version.deploymentDigest}</dd>
             {outcomeMeta && (
               <Badge
                 variant={

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { pointerFingerprint } from "everything-dev/fingerprint";
+import { pointerDigest } from "everything-dev/fingerprint";
 import { describe, expect, it } from "vitest";
 import {
   auditManifestKey,
@@ -223,7 +223,7 @@ describe("deploy history assembly", () => {
       publishedAt: "2026-01-15T10:00:00.000Z",
       network: "mainnet",
       rolledBackFrom: "2026-01-10T09:00:00.000Z",
-      fingerprint: pointerFingerprint(config as never),
+      pointerDigest: pointerDigest(config as never),
       imageRef: "ghcr.io/nearbuilders/everything-dev@v2.0.0-rc.17",
     });
 
@@ -302,7 +302,7 @@ describe("deploy history assembly", () => {
       service.listDeploys({ account: ACCOUNT, gateway: GATEWAY, limit: 20 }),
     );
     expect(deploys).toHaveLength(1);
-    expect(deploys[0]?.fingerprint).toBeUndefined();
+    expect(deploys[0]?.pointerDigest).toBeUndefined();
     expect(deploys[0]?.rolledBackFrom).toBeUndefined();
   });
 

@@ -148,14 +148,14 @@ function DeploysPage() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1 text-sm">
-                  {deploy.fingerprint && (
+                  {deploy.pointerDigest && (
                     <div className="flex gap-2 text-muted-foreground">
-                      <span className="shrink-0">fingerprint</span>
+                      <span className="shrink-0">pointer digest</span>
                       <span
                         className="font-mono break-all text-foreground"
-                        data-testid={`deploys-fingerprint-${index}`}
+                        data-testid={`deploys-pointer-digest-${index}`}
                       >
-                        {deploy.fingerprint}
+                        {deploy.pointerDigest}
                       </span>
                     </div>
                   )}

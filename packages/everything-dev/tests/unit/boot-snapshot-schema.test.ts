@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { pointerFingerprint } from "../../src/services/registry/fingerprint";
+import { pointerDigest } from "../../src/services/registry/fingerprint";
 import {
   BootSnapshotIntegrityError,
   bootSnapshotOf,
   parseBootSnapshot,
   readBootSnapshot,
-  snapshotFingerprintMatches,
+  snapshotDigestMatches,
   snapshotPath,
   verifiedBootSnapshot,
   writeBootSnapshot,
@@ -17,7 +17,7 @@ import { BosConfigSchema } from "../../src/types";
 
 /**
  * Golden wire tests for the approved boot snapshot (ADR 0041, ticket 01): the
- * file's own integrity check is the recomputed pointer fingerprint (registry
+ * file's own integrity check is the recomputed pointer digest (registry
  * not consulted), the pinned-remote mirror covers exactly the remotes with a
  * digest, and persist/load round-trips byte-stably. Wire ref:
  * `.bos/snapshot/<account>/<gateway>.json`.
@@ -80,9 +80,9 @@ describe("snapshotPath", () => {
 });
 
 describe("bootSnapshotOf", () => {
-  it("computes the fingerprint as the pointer fingerprint of the stored config", () => {
+  it("computes pointerDigest as the pointer digest of the stored config", () => {
     const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
-    expect(snapshot.fingerprint).toBe(pointerFingerprint(config));
+    expect(snapshot.pointerDigest).toBe(pointerDigest(config));
   });
 
   it("mirrors exactly the pinned remotes — bare plugin refs stay out", () => {
@@ -124,16 +124,16 @@ describe("bootSnapshotOf", () => {
   });
 });
 
-describe("snapshotFingerprintMatches", () => {
+describe("snapshotDigestMatches", () => {
   it("holds for a snapshot built by bootSnapshotOf", () => {
     expect(
-      snapshotFingerprintMatches(bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config })),
+      snapshotDigestMatches(bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config })),
     ).toBe(true);
   });
 
-  it("refuses a hand-edited fingerprint — the file's own integrity check", () => {
+  it("refuses a hand-edited pointerDigest — the file's own integrity check", () => {
     const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
-    expect(snapshotFingerprintMatches({ ...snapshot, fingerprint: "0".repeat(16) })).toBe(false);
+    expect(snapshotDigestMatches({ ...snapshot, pointerDigest: "0".repeat(16) })).toBe(false);
   });
 });
 
@@ -151,7 +151,7 @@ describe("persist + load round-trip", () => {
     expect(parseBootSnapshot(await readFile(target, "utf8"))).toEqual(snapshot);
   });
 
-  it("round-trips through serialize/parse with the fingerprint stable", () => {
+  it("round-trips through serialize/parse with the pointer digest stable", () => {
     const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
     expect(parseBootSnapshot(`${JSON.stringify(snapshot, null, 2)}\n`)).toEqual(snapshot);
   });
@@ -164,10 +164,10 @@ describe("strictness", () => {
     expect(() => parseBootSnapshot(bytes)).toThrow();
   });
 
-  it("rejects a fingerprint that is not the 16-hex pointer fingerprint shape", () => {
+  it("rejects a pointerDigest that is not the 16-hex digest shape", () => {
     const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
     expect(() =>
-      parseBootSnapshot(JSON.stringify({ ...snapshot, fingerprint: "tooshort" })),
+      parseBootSnapshot(JSON.stringify({ ...snapshot, pointerDigest: "tooshort" })),
     ).toThrow();
   });
 });
@@ -200,9 +200,9 @@ describe("verifiedBootSnapshot", () => {
     expect(verifiedBootSnapshot(snapshot)).toBe(snapshot);
   });
 
-  it("refuses a tampered fingerprint with the named integrity error", () => {
+  it("refuses a tampered pointerDigest with the named integrity error", () => {
     const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
-    expect(() => verifiedBootSnapshot({ ...snapshot, fingerprint: "0".repeat(16) })).toThrow(
+    expect(() => verifiedBootSnapshot({ ...snapshot, pointerDigest: "0".repeat(16) })).toThrow(
       BootSnapshotIntegrityError,
     );
   });
@@ -224,7 +224,7 @@ describe("the staging stamp (ADR 0043) — lockfileDigest on the approved snapsh
       await readFile(snapshotPath(ACCOUNT, GATEWAY, { dir }), "utf8"),
     );
     expect(loaded.lockfileDigest).toBe("a".repeat(64));
-    expect(snapshotFingerprintMatches(loaded)).toBe(true);
+    expect(snapshotDigestMatches(loaded)).toBe(true);
   });
 
   it("host-written snapshots (no staging) omit the key entirely", async () => {
@@ -265,7 +265,7 @@ describe("the staging stamp (ADR 0043) — lockfileDigest on the approved snapsh
     const loaded = parseBootSnapshot(
       await readFile(snapshotPath(ACCOUNT, GATEWAY, { dir }), "utf8"),
     );
-    expect(snapshotFingerprintMatches(loaded)).toBe(true);
+    expect(snapshotDigestMatches(loaded)).toBe(true);
     expect(loaded.remotes["plugins.auth.ui"]).toBeDefined();
   });
 });

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { pointerFingerprint } from "../../src/services/registry/fingerprint";
+import { pointerDigest } from "../../src/services/registry/fingerprint";
 import {
   bootSnapshotOf,
   readBootSnapshot,
@@ -14,7 +14,7 @@ import { BosConfigSchema } from "../../src/types";
 /**
  * The restart-under-outage regression (ADR 0041 ticket 04): the rung is
  * exercised against REAL snapshot bytes on a real filesystem — the writer the
- * coordinator uses, the reader the boot path uses, and the fingerprint
+ * coordinator uses, the reader the boot path uses, and the pointer digest
  * verification — with only the network stubbed (a registry outage is the one
  * thing that can't be reproduced portably). The out-of-the-box assertion:
  * a restart during an outage serves the last verified generation; corrupt
@@ -76,7 +76,7 @@ async function persistAsCoordinatorWould(): Promise<void> {
 }
 
 describe("the boot rung against real snapshot bytes (restart-under-outage)", () => {
-  it("a restart during an outage serves the persisted generation, fingerprint-verified", async () => {
+  it("a restart during an outage serves the persisted generation, digest-verified", async () => {
     dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-rung-"));
     await persistAsCoordinatorWould();
     const resolved = await realSource().resolve({
@@ -87,23 +87,23 @@ describe("the boot rung against real snapshot bytes (restart-under-outage)", () 
     });
     expect(resolved?.source).toBe("snapshot");
     expect(resolved?.config).toEqual(config);
-    expect(pointerFingerprint(resolved?.config ?? ({} as never))).toBe(pointerFingerprint(config));
+    expect(pointerDigest(resolved?.config ?? ({} as never))).toBe(pointerDigest(config));
     expect(resolved?.warnings.join(" ")).toContain("registry unreachable");
   });
 
-  it("on-disk corruption (a flipped fingerprint byte) refuses, naming both causes", async () => {
+  it("on-disk corruption (a flipped digest byte) refuses, naming both causes", async () => {
     dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-rung-"));
     await persistAsCoordinatorWould();
     const target = path.join(dir, ACCOUNT, `${GATEWAY}.json`);
-    const bytes = JSON.parse(await readFile(target, "utf8")) as { fingerprint: string };
-    bytes.fingerprint = bytes.fingerprint
+    const bytes = JSON.parse(await readFile(target, "utf8")) as { pointerDigest: string };
+    bytes.pointerDigest = bytes.pointerDigest
       .split("")
       .map((c, i) => (i === 0 ? (c === "0" ? "1" : "0") : c))
       .join("");
     await writeFile(target, `${JSON.stringify(bytes, null, 2)}\n`);
     await expect(
       realSource().resolve({ account: ACCOUNT, gateway: GATEWAY, allowSnapshot: true, dir }),
-    ).rejects.toThrow(/registry is unreachable.*fingerprint mismatch/s);
+    ).rejects.toThrow(/registry is unreachable.*digest mismatch/s);
   });
 
   it("unparseable bytes on disk refuse, naming both causes", async () => {

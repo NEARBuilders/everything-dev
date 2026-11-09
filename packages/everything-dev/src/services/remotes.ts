@@ -3,7 +3,7 @@ import { isPlainObject } from "./resolution/merge";
 /**
  * The one app/plugins remote walker — every consumer that names config
  * remotes (pin verification, release records, deploy-state keys, stamps,
- * authorship checks, pointer fingerprints) derives its traversal from
+ * authorship checks, pointer digests) derives its traversal from
  * here so the dotted-path domain cannot fork per module into silently
  * divergent copies (coding-standards: a hand-maintained constant paralleling
  * what the config schema knows is a driftable copy).

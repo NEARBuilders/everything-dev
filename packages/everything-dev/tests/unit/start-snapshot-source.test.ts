@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pointerFingerprint } from "../../src/services/registry/fingerprint";
+import { pointerDigest } from "../../src/services/registry/fingerprint";
 import { type BootSnapshot, bootSnapshotOf } from "../../src/services/snapshot/schema";
 import {
   BOOT_SNAPSHOT_ENV_KEY,
@@ -136,10 +136,10 @@ describe("degraded path", () => {
   });
 
   it("a tampered snapshot refuses loudly, naming both causes", async () => {
-    const tampered = { ...snapshot(), fingerprint: "0".repeat(16) };
-    expect(tampered.fingerprint).not.toBe(pointerFingerprint(config));
+    const tampered = { ...snapshot(), pointerDigest: "0".repeat(16) };
+    expect(tampered.pointerDigest).not.toBe(pointerDigest(config));
     const { resolve } = makeSource({ loadSnapshot: vi.fn(async () => tampered) });
-    await expect(resolve()).rejects.toThrow(/registry is unreachable.*fingerprint mismatch/s);
+    await expect(resolve()).rejects.toThrow(/registry is unreachable.*digest mismatch/s);
   });
 
   it("an unloadable snapshot refuses loudly, naming both causes", async () => {

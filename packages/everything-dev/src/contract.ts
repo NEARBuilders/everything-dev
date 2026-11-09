@@ -195,7 +195,7 @@ export const PluginPublishResultSchema = z.object({
     .optional()
     .describe("Block height (or timestamp) of the snapshot from the listing"),
 
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   error: z.string().optional(),
 });
 
@@ -339,7 +339,7 @@ export const PublishResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   built: z.array(z.string()).optional(),
@@ -357,7 +357,7 @@ export const LockOptionsSchema = z.object({
 export const LockResultSchema = z.object({
   status: z.enum(["written", "unchanged", "drift", "error"]),
   path: z.string(),
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   drift: z.array(z.string()).optional(),
   error: z.string().optional(),
   code: z.number().optional(),
@@ -454,7 +454,7 @@ export const DeployResultSchema = z.object({
   status: z.enum(["deployed", "published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   history: z.array(DeployManifestListEntrySchema).optional(),
   built: z.array(z.string()).optional(),
@@ -867,8 +867,8 @@ export const UpgradeResultSchema = z.object({
 });
 
 export const DeployedVersionStatusSchema = z.object({
-  publishedFingerprint: z.string(),
-  servedFingerprint: z.string().optional(),
+  publishedDigest: z.string(),
+  servedDigest: z.string().optional(),
   inSync: z.boolean(),
   error: z.string().optional(),
 });

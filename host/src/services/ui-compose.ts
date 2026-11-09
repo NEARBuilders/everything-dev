@@ -440,11 +440,11 @@ function rememberVariant(
   cache.variants.set(variantKey, { variant, staleAfter });
 }
 
-/** Variant cache identity: the structural digest plus a deployment
- * fingerprint (SSR integrity in prod, local manifest mtime in dev) so a
+/** Variant cache key: the structural digest plus a per-source freshness
+ * coordinate (SSR integrity in prod, local manifest mtime in dev) so a
  * code-only redeploy or dev rebuild invalidates the composed tree even
  * though the hydration digest deliberately stays deployment-free. */
-function variantFingerprint(sources: UiSource[]): string {
+function variantCacheKey(sources: UiSource[]): string {
   return sources
     .map((source) => {
       if (source.localRoot) {
@@ -527,12 +527,12 @@ export const composeUi = Effect.fn("composeUi")(function* (
 
   // Canonical order — the engine sorts refs by key before digesting; the
   // same sorted set feeds the manifest digest, the payload, and the
-  // fingerprint.
+  // variant cache key.
   healthy.sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
 
   const digest = yield* digestOfSources(healthy);
 
-  const variantKey = `${digest}::${variantFingerprint(healthySources)}`;
+  const variantKey = `${digest}::${variantCacheKey(healthySources)}`;
   const isDev = healthySources.some((source) => source.localRoot);
   const now = yield* Clock.currentTimeMillis;
   const cached = cache.variants.get(variantKey);

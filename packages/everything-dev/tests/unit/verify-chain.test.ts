@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { formatChainFailures, verifyChain } from "../../src/services/verify/chain";
 import { verifyPublishedPins } from "../../src/services/deploy/verify";
+import { formatChainFailures, verifyChain } from "../../src/services/verify/chain";
 import type { BosConfigInput } from "../../src/types";
 
 const sriOf = (content: string): string =>
@@ -71,15 +71,17 @@ const healthyObjects = (extra: Record<string, string> = {}): Record<string, stri
 
 const healthyPin = (objects: Record<string, string>) =>
   pinnedConfig(
-    sriOf(
-      objects["https://cdn.test/bundles/a.test/gw.test/auth/versions/8f3ac1d2feedbeef.json"],
-    ),
+    sriOf(objects["https://cdn.test/bundles/a.test/gw.test/auth/versions/8f3ac1d2feedbeef.json"]),
   );
 
 describe("verifyChain — pointer depth", () => {
   it("SRI-verifies the pinned manifest documents and stops there", async () => {
     const { impl, hits } = fixtureCdn(healthyObjects());
-    const chain = await verifyChain({ config: healthyPin(healthyObjects()), depth: "pointer", fetchImpl: impl });
+    const chain = await verifyChain({
+      config: healthyPin(healthyObjects()),
+      depth: "pointer",
+      fetchImpl: impl,
+    });
     expect(chain.ok).toBe(true);
     expect(chain.remotes[0]?.manifestOk).toBe(true);
     expect(chain.entries).toHaveLength(0);

@@ -2,12 +2,12 @@ import { Effect } from "effect";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import {
   type VerifyFreshness,
-  type VerifyReport,
   type VerifyRemoteResult,
+  type VerifyReport,
   verifyReleaseFreshness,
 } from "../services/deploy/verify";
-import { verifyChain } from "../services/verify/chain";
 import { resolvePublishedConfig } from "../services/registry/published";
+import { verifyChain } from "../services/verify/chain";
 import type { BosConfig, BosConfigInput } from "../types";
 import type { BosBuilder } from "./shared";
 

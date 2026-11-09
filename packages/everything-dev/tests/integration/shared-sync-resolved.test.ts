@@ -200,10 +200,10 @@ describe("shared sync resolved config", () => {
     }
   });
 
-  it("fingerprint is deterministic for same deps", async () => {
+  it("generatedDigest is deterministic for same deps", async () => {
     const r1 = await syncResolvedSharedDeps({ configDir: testDir, hostMode: "local" });
     const r2 = await syncResolvedSharedDeps({ configDir: testDir, hostMode: "local" });
-    expect(r1.resolved.fingerprintSha256).toBe(r2.resolved.fingerprintSha256);
+    expect(r1.resolved.generatedDigest).toBe(r2.resolved.generatedDigest);
   });
 
   it("fails when a shared dep has no exact version", async () => {

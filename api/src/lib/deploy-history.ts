@@ -1,5 +1,5 @@
 import { Context, Data, Effect, Layer } from "effect";
-import { pointerFingerprint } from "everything-dev/fingerprint";
+import { pointerDigest } from "everything-dev/fingerprint";
 import { z } from "zod";
 
 export const DeployAuditManifestSchema = z.object({
@@ -23,7 +23,7 @@ export const DeploySummarySchema = z.object({
   publishedAt: z.string(),
   network: z.string().optional(),
   registryUrl: z.string().optional(),
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   platformManifest: z
     .object({
       file: z.string(),
@@ -203,15 +203,15 @@ export function assembleDeployRows(opts: {
     const manifest = parseAuditManifest(entry.value);
     if (!manifest) continue;
     const joinedConfig = configByBlock.get(entry.blockHeight);
-    const fingerprint = asRecord(joinedConfig)
-      ? pointerFingerprint(joinedConfig as Parameters<typeof pointerFingerprint>[0])
+    const pointerDigestValue = asRecord(joinedConfig)
+      ? pointerDigest(joinedConfig as Parameters<typeof pointerDigest>[0])
       : undefined;
     rows.push({
       key: entry.key ?? auditManifestKey(manifest.account, manifest.gateway, manifest.publishedAt),
       publishedAt: manifest.publishedAt,
       network: manifest.network,
       registryUrl: manifest.registryUrl,
-      fingerprint,
+      pointerDigest: pointerDigestValue,
       platformManifest: manifest.platformManifest,
       imageRef: platformPinAtBlock(platformEntries, entry.blockHeight),
       rolledBackFrom: rolledBackFromOf(joinedConfig),

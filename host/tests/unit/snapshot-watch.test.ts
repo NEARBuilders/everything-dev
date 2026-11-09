@@ -6,7 +6,7 @@ import { RuntimeSnapshot } from "../../src/services/runtime-snapshot";
 import {
   adoptBackoffMs,
   DEFAULT_WATCH_INTERVAL_MS,
-  pointerFingerprint,
+  pointerDigest,
   runWatchTick,
 } from "../../src/services/snapshot-watch";
 
@@ -78,16 +78,16 @@ describe("runWatchTick", () => {
     snapshot = await Effect.runPromise(RuntimeSnapshot.pipe(Effect.provide(snapshotLayer)));
   });
 
-  it("adopts when the published pointer's fingerprint changes", async () => {
+  it("adopts when the published pointer's digest changes", async () => {
     const deps = makeDeps();
     const { lastSeen } = await Effect.runPromise(runWatchTick({ ...deps, lastSeen: undefined }));
     expect(deps.fetchPointer).toHaveBeenCalledTimes(1);
     expect(deps.adopt).toHaveBeenCalledTimes(1);
-    expect(lastSeen).toBe(pointerFingerprint(publishedPointer));
+    expect(lastSeen).toBe(pointerDigest(publishedPointer));
   });
 
   it("skips the adopt when the pointer is unchanged", async () => {
-    const fp = pointerFingerprint(publishedPointer);
+    const fp = pointerDigest(publishedPointer);
     const deps = makeDeps();
     const { lastSeen } = await Effect.runPromise(runWatchTick({ ...deps, lastSeen: fp }));
     expect(deps.adopt).not.toHaveBeenCalled();
@@ -96,14 +96,14 @@ describe("runWatchTick", () => {
   });
 
   it("verifies the current entries each unchanged-pointer tick", async () => {
-    const fp = pointerFingerprint(publishedPointer);
+    const fp = pointerDigest(publishedPointer);
     const deps = makeDeps();
     await Effect.runPromise(runWatchTick({ ...deps, lastSeen: fp }));
     expect(deps.verifyEntries).toHaveBeenCalledWith(bootConfig);
   });
 
   it("alerts on entry-verification failure when the pointer is unchanged", async () => {
-    const fp = pointerFingerprint(publishedPointer);
+    const fp = pointerDigest(publishedPointer);
     const verifyEntries = vi
       .fn<(config: RuntimeConfig) => Promise<void>>()
       .mockRejectedValue(new Error("[SRI] Integrity check failed"));

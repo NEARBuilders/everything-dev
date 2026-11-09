@@ -233,7 +233,7 @@ describe("swap under traffic (C7: shadow-flip, ESM disposal, leak measurement)",
         const effectContext = yield* Effect.context();
         const snapshot = yield* RuntimeSnapshot;
         const bootState = yield* snapshot.get;
-        const bootFingerprint = bootState.fingerprint;
+        const bootDigest = bootState.deploymentDigest;
 
         const render = createSsrRender({
           config: genConfig(0),
@@ -306,7 +306,7 @@ describe("swap under traffic (C7: shadow-flip, ESM disposal, leak measurement)",
 
         // the serving state is the adopted one — fully new coordinates
         const adopted = yield* snapshot.get;
-        expect(adopted.fingerprint).not.toBe(bootFingerprint);
+        expect(adopted.deploymentDigest).not.toBe(bootDigest);
         expect(adopted.config.ui.integrity).toBe(sriOf(entryBytes(1)));
 
         // repeated swaps keep exactly one live generation

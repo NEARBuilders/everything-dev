@@ -31,7 +31,7 @@ import type { Manifest } from "../platform/manifest";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { type ConfirmLeg, confirmPublish, describeConfirmTimeout } from "../registry/confirm";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
-import { pointerFingerprint, remoteDigests } from "../registry/fingerprint";
+import { pointerDigest, remoteDigests } from "../registry/fingerprint";
 import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
 import {
   deployAuditKeyOf,
@@ -822,7 +822,7 @@ export async function runPublishTrain(
   });
   const publishedAt = new Date().toISOString();
   // version identity printed + returned for every deploy (atomic-deploys 12)
-  const fingerprint = pointerFingerprint(publishPayload as never);
+  const publishPointerDigest = pointerDigest(publishPayload as never);
   const publishRemoteDigests = remoteDigests(publishPayload as never);
   // The published-config diff (#826 follow-up): what changed vs the live
   // config decides the Railway leg's ui-only skip — SnapshotWatch adopts the
@@ -1029,7 +1029,7 @@ export async function runPublishTrain(
     publishedAt,
     registryUrl,
     ...(lockfileDigest && lock
-      ? { lockfile: { digest: lockfileDigest, fingerprint: lock.fingerprint } }
+      ? { lockfile: { digest: lockfileDigest, pointerDigest: lock.pointerDigest } }
       : {}),
     ...(platformManifest
       ? {
@@ -1054,7 +1054,7 @@ export async function runPublishTrain(
 
   render?.publish?.({
     registryUrl,
-    fingerprint,
+    pointerDigest: publishPointerDigest,
     remoteDigests: Object.entries(publishRemoteDigests),
     auditManifestFile: manifestKey.split("/").pop() ?? manifestKey,
   });
@@ -1175,7 +1175,7 @@ export async function runPublishTrain(
           contract: registryNamespace,
           args: registryEntries,
           custodyWallet: plan.custodyWallet,
-          idempotencyKey: `bos-publish-${fingerprint}`,
+          idempotencyKey: `bos-publish-${publishPointerDigest}`,
         });
       }
       if (useWallet) {
@@ -1328,7 +1328,7 @@ export async function runPublishTrain(
       status: "published",
       registryUrl,
       txHash: result.txHash,
-      fingerprint,
+      pointerDigest: publishPointerDigest,
       remoteDigests: publishRemoteDigests,
       built,
       skipped,

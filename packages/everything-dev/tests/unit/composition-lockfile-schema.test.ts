@@ -5,22 +5,22 @@ import { describe, expect, it } from "vitest";
 import {
   digestOfLockfile,
   LOCKFILE_NAME,
-  lockfileFingerprint,
   lockfileOf,
   lockfilePath,
+  lockfilePointerDigest,
   parseLockfile,
   serializeLockfile,
   writeLockfile,
   writeLockfileSync,
 } from "../../src/services/lockfile/schema";
-import { pointerFingerprint } from "../../src/services/registry/fingerprint";
+import { pointerDigest } from "../../src/services/registry/fingerprint";
 import { BosConfigSchema } from "../../src/types";
 
 /**
  * Golden wire tests for the composition lockfile (ADR 0042, ticket 01): the
- * lockfile's fingerprint IS the pointer fingerprint of the frozen config
- * (`lockfileOf` ≡ `pointerFingerprint`), and it recomputes from the stored
- * `remotes` record alone (`lockfileFingerprint`) because the record is written
+ * lockfile's pointerDigest IS the pointer digest of the frozen config
+ * (`lockfileOf` ≡ `pointerDigest`), and it recomputes from the stored
+ * `remotes` record alone (`lockfilePointerDigest`) because the record is written
  * in walk order — including entries that freeze nothing. Wire ref:
  * `bos.lock.json` at the app root.
  */
@@ -75,14 +75,14 @@ describe("lockfilePath", () => {
 });
 
 describe("lockfileOf", () => {
-  it("freezes the pointer fingerprint as THE composition identity", () => {
+  it("freezes the pointer digest as THE composition identity", () => {
     const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
-    expect(lock.fingerprint).toBe(pointerFingerprint(config));
+    expect(lock.pointerDigest).toBe(pointerDigest(config));
   });
 
-  it("recomputes the same fingerprint from the stored remotes record alone", () => {
+  it("recomputes the same pointerDigest from the stored remotes record alone", () => {
     const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
-    expect(lockfileFingerprint(lock)).toBe(lock.fingerprint);
+    expect(lockfilePointerDigest(lock)).toBe(lock.pointerDigest);
   });
 
   it("freezes descriptors and bare plugin refs in walk order", () => {
@@ -127,7 +127,7 @@ describe("lockfileOf", () => {
 });
 
 describe("round-trip", () => {
-  it("survives serialize/parse with the fingerprint recomputable", () => {
+  it("survives serialize/parse with the pointerDigest recomputable", () => {
     const lock = lockfileOf({
       account: ACCOUNT,
       gateway: GATEWAY,
@@ -137,14 +137,14 @@ describe("round-trip", () => {
     });
     const restored = parseLockfile(serializeLockfile(lock));
     expect(restored).toEqual(lock);
-    expect(lockfileFingerprint(restored)).toBe(lock.fingerprint);
+    expect(lockfilePointerDigest(restored)).toBe(lock.pointerDigest);
   });
 
-  it("detects a hand-edited fingerprint — parse accepts the shape, the recomputation refuses it", () => {
+  it("detects a hand-edited pointerDigest — parse accepts the shape, the recomputation refuses it", () => {
     const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
-    const tampered = { ...lock, fingerprint: "0".repeat(16) };
+    const tampered = { ...lock, pointerDigest: "0".repeat(16) };
     expect(parseLockfile(serializeLockfile(tampered))).toEqual(tampered);
-    expect(lockfileFingerprint(tampered)).not.toBe(tampered.fingerprint);
+    expect(lockfilePointerDigest(tampered)).not.toBe(tampered.pointerDigest);
   });
 
   it("rejects unknown top-level keys — the lockfile is derived, never extended by hand", () => {
@@ -159,7 +159,7 @@ describe("writeLockfile — the producer seam (ADR 0042 ticket 02)", () => {
     const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
     const first = await writeLockfile(lock, dir);
     expect(first.status).toBe("written");
-    expect(first.fingerprint).toBe(lock.fingerprint);
+    expect(first.pointerDigest).toBe(lock.pointerDigest);
     const second = await writeLockfile(lock, dir);
     expect(second.status).toBe("unchanged");
     expect(parseLockfile(await readFile(path.join(dir, "bos.lock.json"), "utf8"))).toEqual(lock);

@@ -193,8 +193,12 @@ The whole of a console rollback, FastKV-first: re-publish the previous verified 
 _Avoid_: redeploy (the instance half alone), image rollback (implies the image is the unit)
 
 **Reconciler**:
-The platform-side watcher that converges platform-hosted instances to each namespace's latest published fingerprint — making publish the deploy action. Idempotent; failures surface as drift.
+The platform-side watcher that converges platform-hosted instances to each namespace's latest published pointer digest — making publish the deploy action. Idempotent; failures surface as drift.
 _Avoid_: relay, agent, deploy trigger
+
+**Digest identity**:
+The two composition-plane hashes (ADR 0046 ticket 04), both derived in `everything-dev/fingerprint` so the planes can't drift: **pointer digest** (what is pinned — a hash over every remote's pin coordinates; the lockfile's identity per ADR 0042, the watch's change-detection hash, what deployment records name) and **deployment digest** (what is served — the pointer inputs plus resolved entry coordinates per slot; the client soft-refresh signal and the host's adopt comparison). Relation: pointer stable + entries stable ⇒ deployment stable; the converse is deliberately not a guarantee — adopt treats an unchanged deployment digest as skip (a heuristic), and the watch tracks the pointer independently. Species, never compared across: content digests (the engine's `Digest` SRI brand, version id/dirId), the compose digest (SSR/client parity), the lockfile digest (serialized content), the compose variant cache key (dev mtimes — a cache key, not an identity).
+_Avoid_: fingerprint (retired word — pre-cutover lockfiles/snapshots/records carry `fingerprint` fields and are regenerated on next `bos lock` / first adopt), hash (never says what is hashed)
 
 **Fleet**:
 The set of runtime instances the platform hosts on its own managed substrate — the root pair, own-instance children, and sandbox leases.

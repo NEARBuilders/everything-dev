@@ -46,34 +46,34 @@ describe("fetchDeployManifests", () => {
 });
 
 describe("computeDeployedVersionStatus", () => {
-  it("reports in-sync when the published pointer fingerprint matches the served one", () => {
+  it("reports in-sync when the published pointer digest matches the served one", () => {
     const delta = computeDeployedVersionStatus({
-      publishedFingerprint: "abc123",
-      servedFingerprint: "abc123",
+      publishedDigest: "abc123",
+      servedDigest: "abc123",
     });
     expect(delta).toEqual({
-      publishedFingerprint: "abc123",
-      servedFingerprint: "abc123",
+      publishedDigest: "abc123",
+      servedDigest: "abc123",
       inSync: true,
     });
   });
 
-  it("flags the split-brain when the host serves a different fingerprint than the published pointer", () => {
+  it("flags the split-brain when the host serves a different pointer digest than published", () => {
     const delta = computeDeployedVersionStatus({
-      publishedFingerprint: "new-fp",
-      servedFingerprint: "old-fp",
+      publishedDigest: "new-fp",
+      servedDigest: "old-fp",
     });
     expect(delta?.inSync).toBe(false);
   });
 
   it("reports unknown served state when the host version endpoint is unreachable", () => {
     const delta = computeDeployedVersionStatus({
-      publishedFingerprint: "abc123",
-      servedFingerprint: null,
+      publishedDigest: "abc123",
+      servedDigest: null,
       servedError: "fetch failed",
     });
     expect(delta?.inSync).toBe(false);
-    expect(delta?.servedFingerprint).toBeUndefined();
+    expect(delta?.servedDigest).toBeUndefined();
     expect(delta?.error).toBe("fetch failed");
   });
 });

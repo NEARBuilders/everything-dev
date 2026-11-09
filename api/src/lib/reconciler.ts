@@ -34,8 +34,8 @@ export interface NamespaceReconcileState {
   readonly account: string;
   readonly gateway: string;
   readonly instance: string;
-  lastSeenFingerprint: string | undefined;
-  convergedFingerprint: string | undefined;
+  lastSeenDigest: string | undefined;
+  convergedDigest: string | undefined;
   bootAssumed: boolean;
   drift: { reason: string; at: string } | undefined;
   instanceUrl: string | undefined;
@@ -51,8 +51,8 @@ export interface ReconcilerStatusSnapshot {
 
 export type ReconcileDecision =
   | { readonly action: "noop" }
-  | { readonly action: "baseline"; readonly fingerprint: string }
-  | { readonly action: "converge"; readonly fingerprint: string };
+  | { readonly action: "baseline"; readonly pointerDigest: string }
+  | { readonly action: "converge"; readonly pointerDigest: string };
 
 export function decideReconcile(
   state: { running: boolean | undefined; converged: string | undefined },
@@ -60,12 +60,12 @@ export function decideReconcile(
 ): ReconcileDecision {
   if (latest === undefined) return { action: "noop" };
   if (state.converged === undefined) {
-    if (state.running === true) return { action: "baseline", fingerprint: latest };
-    return { action: "converge", fingerprint: latest };
+    if (state.running === true) return { action: "baseline", pointerDigest: latest };
+    return { action: "converge", pointerDigest: latest };
   }
   return latest === state.converged
     ? { action: "noop" }
-    : { action: "converge", fingerprint: latest };
+    : { action: "converge", pointerDigest: latest };
 }
 
 export const instanceNameFor = (entry: ReconcilerWatchEntry): string =>
@@ -128,8 +128,8 @@ export function buildReconciler(
       account: entry.account,
       gateway: entry.gateway,
       instance: instanceNameFor(entry),
-      lastSeenFingerprint: undefined,
-      convergedFingerprint: undefined,
+      lastSeenDigest: undefined,
+      convergedDigest: undefined,
       bootAssumed: false,
       drift: undefined,
       instanceUrl: undefined,
@@ -166,21 +166,21 @@ export function buildReconciler(
 
       const row = yield* latestDeploy(entry);
       state.lastCheckedAt = now();
-      if (row?.fingerprint !== undefined) state.lastSeenFingerprint = row.fingerprint;
+      if (row?.pointerDigest !== undefined) state.lastSeenDigest = row.pointerDigest;
 
       let running: boolean | undefined;
-      if (state.convergedFingerprint === undefined && row) {
+      if (state.convergedDigest === undefined && row) {
         const observed = yield* observeInstance(entry);
         running = observed.running;
       }
 
       const decision = decideReconcile(
-        { running, converged: state.convergedFingerprint },
-        row?.fingerprint,
+        { running, converged: state.convergedDigest },
+        row?.pointerDigest,
       );
 
       if (decision.action === "baseline") {
-        state.convergedFingerprint = decision.fingerprint;
+        state.convergedDigest = decision.pointerDigest;
         state.bootAssumed = true;
         state.drift = undefined;
         return;
@@ -188,7 +188,7 @@ export function buildReconciler(
 
       if (decision.action === "converge") {
         if (!row) return;
-        const fingerprint = decision.fingerprint;
+        const pointerDigestValue = decision.pointerDigest;
         const image = entry.image ?? row.imageRef;
         if (!image) {
           return yield* new ReconcileConvergenceError({
@@ -227,13 +227,13 @@ export function buildReconciler(
         });
         const descriptor = withSecrets(baseDescriptor, stored);
         const deployed = yield* deps.adapter.deploy(descriptor);
-        state.convergedFingerprint = fingerprint;
+        state.convergedDigest = pointerDigestValue;
         state.bootAssumed = false;
         state.instanceUrl = deployed.url;
         state.lastConvergedAt = now();
         state.drift = undefined;
         yield* Effect.logInfo(
-          `[Reconciler] ${entry.account}/${entry.gateway} converged on ${fingerprint.slice(0, 8)} (${image})`,
+          `[Reconciler] ${entry.account}/${entry.gateway} converged on ${pointerDigestValue.slice(0, 8)} (${image})`,
         );
         return;
       }

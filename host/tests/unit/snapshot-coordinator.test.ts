@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { buildRuntimeConfigEffect, type ConfigVersionManifestError } from "everything-dev/config";
-import { pointerFingerprint } from "everything-dev/fingerprint";
-import { parseBootSnapshot, snapshotFingerprintMatches } from "everything-dev/snapshot";
+import { pointerDigest } from "everything-dev/fingerprint";
+import { parseBootSnapshot, snapshotDigestMatches } from "everything-dev/snapshot";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
-import { deploymentFingerprint, RuntimeSnapshot } from "../../src/services/runtime-snapshot";
+import { deploymentDigest, RuntimeSnapshot } from "../../src/services/runtime-snapshot";
 import { adoptPublishedPointer, SnapshotAdoptError } from "../../src/services/snapshot-coordinator";
 
 const bootConfig = {
@@ -39,11 +39,7 @@ const bootConfig = {
 const entryBytes = "console.log('hashed entry');";
 const entrySri = `sha384-${createHash("sha384").update(entryBytes).digest("base64")}`;
 
-const manifestFor = (input: {
-  version: string;
-  entry: string;
-  entryIntegrity?: string;
-}): string =>
+const manifestFor = (input: { version: string; entry: string; entryIntegrity?: string }): string =>
   JSON.stringify({
     version: input.version,
     entry: input.entry,
@@ -101,7 +97,6 @@ const mergedPointer = {
     host: { development: "local:host", production: "https://cdn.example.test/host/" },
   },
 } as unknown as BosConfig;
-
 
 const derivedConfig = {
   ...bootConfig,
@@ -185,10 +180,10 @@ describe("adoptPublishedPointer", () => {
     expect(result.after.clientConfigState).not.toBe(result.before.clientConfigState);
     expect(result.after.config.ui.integrity).toBe(entrySri);
     expect(result.after.config.ui.entryUrl).toBe("https://cdn.example.test/ui/remoteEntry.cf71.js");
-    expect(result.after.fingerprint).toBe(deploymentFingerprint(derivedConfig));
+    expect(result.after.deploymentDigest).toBe(deploymentDigest(derivedConfig));
   });
 
-  it("is a no-op when the derived fingerprint is unchanged", async () => {
+  it("is a no-op when the derived deployment digest is unchanged", async () => {
     buildRuntimeConfigMock.mockReturnValue(Effect.succeed(derivedConfig));
     composeUiMock.mockReturnValue(Effect.succeed({ digest: "digest-prewarm" }));
     const outcomes = await Effect.runPromise(
@@ -416,8 +411,8 @@ describe("adoptPublishedPointer", () => {
       await readFile(path.join(dir, "v1.citynode.near", "citynode.app.json"), "utf8"),
     );
     expect(stored.runtimeRef).toBe("bos://v1.citynode.near/citynode.app");
-    expect(stored.fingerprint).toBe(pointerFingerprint(stored.config));
-    expect(snapshotFingerprintMatches(stored)).toBe(true);
+    expect(stored.pointerDigest).toBe(pointerDigest(stored.config));
+    expect(snapshotDigestMatches(stored)).toBe(true);
     expect(stored.config.app.ui).toMatchObject({
       production: "https://cdn.example.test/ui/",
       digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: uiPin },

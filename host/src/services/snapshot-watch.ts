@@ -6,7 +6,7 @@ const refOf = (bosUrl: string) => {
   return runtimeRefOf({ accountId: parsed.accountId, gatewayId: parsed.gatewayId });
 };
 
-import { pointerFingerprint } from "everything-dev/fingerprint";
+import { pointerDigest } from "everything-dev/fingerprint";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { asDigest, fetchVerified } from "everything-dev/verify";
 import { resolveRemoteVersion } from "everything-dev/version-manifest-resolve";
@@ -37,10 +37,10 @@ export function watchIntervalMs(): number {
 /**
  * The published pointer's version identity: a hash over every remote's
  * `pin` — cheap to compute (no version-manifest fetch), and stable exactly
- * when the deployed set is. A pointer-fingerprint change is what triggers
+ * when the deployed set is. A pointer-digest change is what triggers
  * the adopt transaction.
  */
-export { pointerFingerprint } from "everything-dev/fingerprint";
+export { pointerDigest } from "everything-dev/fingerprint";
 
 export type WatchTickOutcome = "clean" | "swapped" | "swap-failed" | "pointer-unreachable";
 
@@ -80,7 +80,7 @@ export interface WatchTickDeps {
 
 /**
  * One watch tick (atomic-deploys 08): fetch the published pointer; a
- * fingerprint change → the adopt transaction (derive → pre-warm → verify →
+ * digest change → the adopt transaction (derive → pre-warm → verify →
  * swap — the adopt's own SRI pass covers the entries it adopts). An adopt
  * failure logs and leaves `lastSeen` unchanged so the next tick retries.
  * On the unchanged-pointer path the current entries are SRI-verified each
@@ -106,19 +106,19 @@ export const runWatchTick = (
     );
     if (!pointer) return { lastSeen: deps.lastSeen, outcome: "pointer-unreachable" };
 
-    const fingerprint = pointerFingerprint(pointer);
-    if (fingerprint !== deps.lastSeen) {
+    const digest = pointerDigest(pointer);
+    if (digest !== deps.lastSeen) {
       const adopted = yield* Effect.tryPromise(() => deps.adopt(pointer)).pipe(
         Effect.match({
           onSuccess: (outcome) => {
             if (outcome.status === "swapped") {
-              logger.info(`[SnapshotWatch] snapshot swapped to ${fingerprint}`);
+              logger.info(`[SnapshotWatch] snapshot swapped to ${digest}`);
             }
             return true;
           },
           onFailure: (cause) => {
             logger.error(
-              `[SnapshotWatch] adopt failed for ${fingerprint} — retrying next tick:`,
+              `[SnapshotWatch] adopt failed for ${digest} — retrying next tick:`,
               describeCauseChain(cause),
             );
             return false;
@@ -126,7 +126,7 @@ export const runWatchTick = (
         }),
       );
       return {
-        lastSeen: adopted ? fingerprint : deps.lastSeen,
+        lastSeen: adopted ? digest : deps.lastSeen,
         outcome: adopted ? "swapped" : "swap-failed",
       };
     }
