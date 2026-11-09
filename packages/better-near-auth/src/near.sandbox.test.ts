@@ -1,4 +1,4 @@
-import { base58, base64, hex } from "@scure/base";
+import { base64, hex } from "@scure/base";
 import { getTestInstance } from "better-auth/test";
 import { generateKey, MlDsa65KeyPair, Near } from "near-kit";
 import { Sandbox } from "near-kit/sandbox";
