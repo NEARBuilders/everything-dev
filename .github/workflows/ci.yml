@@ -156,7 +156,7 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if echo "$DIFF" | grep -qE '^tests/regression/lib/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/'; then
+          if echo "$DIFF" | grep -qE '^tests/regression/lib/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "regression-unit=true" >> "$GITHUB_OUTPUT"
           else
             echo "regression-unit=false" >> "$GITHUB_OUTPUT"
