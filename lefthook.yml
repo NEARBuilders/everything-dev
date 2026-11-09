@@ -1,0 +1,20 @@
+# T0 local gates (docs/agents/testing.md) — hooks keep the tree style-clean at
+# commit time and the fast correctness plane green at push time, so a push
+# never waits minutes for CI to report a failure a local check would have
+# caught. CI (T1) remains the gate that matters; these hooks only front-load
+# the feedback.
+#
+# Escape hatch: LEFTHOOK=0 git push — deliberate bypasses only; CI still
+# validates the PR.
+pre-commit:
+  commands:
+    biome:
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css}"
+      run: pnpm exec biome check --no-errors-on-unmatched {staged_files}
+
+pre-push:
+  commands:
+    typecheck:
+      run: pnpm run typecheck
+    effect-lint:
+      run: pnpm run lint:effect

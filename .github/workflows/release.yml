@@ -2,24 +2,22 @@
 # children: #572 removed changesets from the child template entirely.
 name: Release
 
-# Fires directly on push: the merge queue is the CI gate for main (the
-# merge-queue batch that produced this commit ran the full suite and could
-# only merge on green), so a separate CI-success signal is not needed.
-# The gate job still guards staleness — a newer tip releases instead of
-# this run.
+# Fires directly on push to main. The tiering contract (docs/agents/testing.md)
+# puts the full regression matrix here — the publish gate — instead of on every
+# PR: when main has no pending changesets, a publish is imminent, so the full
+# matrix must be green before `changesets` runs. Ordinary merges (pending
+# changesets exist) only open/update the version PR and pay nothing extra;
+# the version PR itself fast-paths CI (ci.yml) because this workflow owns the
+# release plane's validation.
 #
 # The version PR ("chore: version packages") is created by the changesets
-# action and is the release lever: MERGING it publishes npm and fires the
-# release deploy, like any other push to main. It must be merged by a
-# maintainer — never by automation engaged with GITHUB_TOKEN: merges that
-# token performs are swallowed by GitHub's event-recursion guard, so the
-# push that lands the release would fire no workflows at all and the rc
-# would strand until an unrelated merge happened to wake it (the Nov-03
-# stranding). It would otherwise trip every CI detect-changes arm over a
-# package.json-only diff; instead detect-changes fast-paths
-# `changeset-release/*` PRs to an all-skipped run, so the required `CI gate`
-# check goes green without paying the regression matrix — the publish
-# script's own builds and npm's registry checks are the real gates here.
+# action and is the release lever: MERGING it publishes npm and fires this
+# workflow's regression + publish legs, like any other push to main. It must
+# be merged by a maintainer — never by automation engaged with GITHUB_TOKEN:
+# merges that token performs are swallowed by GitHub's event-recursion guard,
+# so the push that lands the release would fire no workflows at all and the
+# rc would strand until an unrelated merge happened to wake it (the Nov-03
+# stranding).
 on:
   push:
     branches: [main]
@@ -32,16 +30,14 @@ on:
 # the bot's version-PR branch concurrently ("failed to push some refs").
 # Cancellation mid-publish is recoverable by design — the publish script
 # stages exact version pins and re-publishing is registry-idempotent, so
-# the superseding run heals any partially-published set.
+# the superseding run heals any partially-published set. The regression
+# leg inherits the group: a cancelled gate re-runs on the newer tip.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  id-token: write
-  pull-requests: write
-  actions: write
+  contents: read
 
 jobs:
   gate:
@@ -53,6 +49,10 @@ jobs:
     timeout-minutes: 5
     outputs:
       release: ${{ steps.tip.outputs.current == 'true' }}
+      # rc = release candidate: no pending changesets means the changesets
+      # action will PUBLISH on this run (a version PR just merged, or a
+      # continuous release) — the full regression gates exactly that case.
+      rc: ${{ steps.rc.outputs.rc == 'true' && steps.tip.outputs.current == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -76,12 +76,43 @@ jobs:
             echo "::notice::Skipping release — main advanced past the CI-validated commit ($SHA → $TIP). The queued run for the new tip releases instead."
           fi
 
+      - name: Detect a release candidate (publish imminent)
+        id: rc
+        run: |
+          if find .changeset -maxdepth 1 -name '*.md' -print -quit | grep -q .; then
+            echo "rc=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Pending changesets — this run opens/updates the version PR; the regression gate does not apply"
+          else
+            echo "rc=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::No pending changesets — a publish is imminent; the full regression gates it"
+          fi
+
+  # The release gate: the full regression matrix must be green before npm
+  # sees anything. Dispatched as a manual retry (workflow_dispatch), the rc
+  # detection runs the same way — a deliberate re-publish re-proves the tree.
+  regression:
+    name: Release gate — full regression
+    needs: [gate]
+    if: needs.gate.outputs.release == 'true' && needs.gate.outputs.rc == 'true'
+    uses: ./.github/workflows/regression-full.yml
+
   release:
     name: Process Changesets
-    needs: [gate]
-    if: needs.gate.outputs.release == 'true'
+    needs: [gate, regression]
+    # Run when: the tip is current AND (no publish is imminent, so only the
+    # version-PR leg is needed) OR the regression gate went green.
+    if: >-
+      always() &&
+      needs.gate.outputs.release == 'true' &&
+      (needs.gate.outputs.rc != 'true' || needs.regression.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -134,20 +165,8 @@ jobs:
       # MUST NOT merge it: auto-merge engaged with GITHUB_TOKEN performs the
       # merge as app/github-actions, and GitHub's event-recursion guard
       # swallows the push events that token triggers — the rc would strand
-      # until an unrelated merge fired the workflows (the Nov-03 stranding;
-      # the same guard the check-skills dispatch below works around). A
-      # parked release is simply an unmerged version PR.
-      # Version bumps structurally outdate the skills' library_version
-      # markers, and the release event these packages create with
-      # GITHUB_TOKEN is swallowed by GitHub's event-recursion guard — so
-      # check-skills' review job would never fire on its own. Dispatch it
-      # explicitly after a successful publish (workflow_dispatch is the
-      # event type that DOES run when triggered with GITHUB_TOKEN).
-      - name: Dispatch skill drift review
-        if: steps.changesets.outputs.published == 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: gh workflow run check-skills.yml --ref main
+      # until an unrelated merge fired the workflows (the Nov-03 stranding).
+      # A parked release is simply an unmerged version PR.
 
       # npm's OIDC helper never throws — when the registry rejects the token
       # exchange (e.g. trusted-publisher mismatch or missing "npm publish"
@@ -156,3 +175,24 @@ jobs:
       - name: Dump npm OIDC diagnostics
         if: failure()
         run: grep -i oidc /home/runner/.npm/_logs/*.log || true
+
+  # Version bumps structurally outdate the skills' library_version markers,
+  # and the release event created with GITHUB_TOKEN is swallowed by GitHub's
+  # event-recursion guard — check-skills' review job would never fire on its
+  # own. Dispatch it explicitly after a successful publish (workflow_dispatch
+  # is the event type that DOES run when triggered with GITHUB_TOKEN).
+  # Own job so `actions: write` never coexists with the publish job's
+  # contents/id-token scopes.
+  dispatch-skills:
+    name: Dispatch skill drift review
+    needs: [release]
+    if: always() && needs.release.outputs.published == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch check-skills
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: gh workflow run check-skills.yml --ref main

@@ -1,0 +1,94 @@
+# FRAMEWORK-OWNED — reconciled from the parent template by `bos sync` / `bos upgrade`.
+# Local edits are allowed: on the next sync the template version wins and your copy
+# is backed up under `.bos/sync-backup/`. To make a change permanent, file an issue:
+# https://github.com/NEARBuilders/everything-dev/issues
+# T2 full regression — the complete matrix, serially, on one runner. Consumed
+# by the release gate (release.yml: every publish is preceded by a green run)
+# and the nightly main-tip check (backcompat-nightly.yml). Per-PR CI does not
+# call this — the tiering contract (docs/agents/testing.md) keeps PRs on the
+# vital plane and pays the matrix exactly where a release is decided.
+name: Full regression
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Full regression (unit + dev + start + backcompat + framework)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CI: true
+      CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+      BOS_TEARDOWN_ADOPTION: "1"
+      BOS_FRAMEWORK_STACK_SLOTS: "2"
+      BOS_FRAMEWORK_READY_TIMEOUT_MINUTES: "4"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
+        with:
+          go-version: "1.22"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin dist
+        run: pnpm run build template
+
+      - name: Install Playwright chromium
+        run: pnpm run test:regression:browser:install
+
+      - name: Free disk space
+        # The start suites' in-job `docker build --target regression` fallback
+        # needs headroom for the container's fresh pnpm store, the full
+        # node_modules COPY into the regression stage, and the export layers.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeProfiler /usr/local/share/boost || true
+          sudo docker image prune -af || true
+          df -h /
+
+      - name: Run the full regression matrix
+        run: |
+          pnpm run test:regression:unit
+          pnpm run test:regression:dev
+          pnpm run test:regression:start
+          pnpm run test:regression:backcompat
+          pnpm run test:regression:framework
+
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-full-artifacts
+          path: |
+            .bos/logs/**
+            tests/regression/fixtures/death-contract/.bos/logs/**
+            playwright-report/**
+            test-results/**

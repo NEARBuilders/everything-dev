@@ -2,7 +2,7 @@
   "name": "monorepo",
   "private": true,
   "scripts": {
-    "prepare": "node --import tsx scripts/check-effect-pin.ts && (test -d repos/effect/.git || git clone --depth 1 --branch effect@4.0.0-rc.118 https://github.com/Effect-TS/effect.git repos/effect; effect-tsgo patch --oxlint)",
+    "prepare": "node --import tsx scripts/check-effect-pin.ts && (test -d repos/effect/.git || git clone --depth 1 --branch effect@4.0.0-rc.118 https://github.com/Effect-TS/effect.git repos/effect; effect-tsgo patch --oxlint) && lefthook install",
     "init": "pnpm run db:migrate",
     "dev": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts dev",
     "dev:ui": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts dev --api remote",
@@ -83,6 +83,7 @@
     "@shadcn/lint": "^0.2.0",
     "@types/pg": "catalog:",
     "dotenv": "^17.3.1",
+    "lefthook": "^2.2.2",
     "oxlint": "1.90.0",
     "oxlint-tsgolint": "7.0.2005",
     "tsx": "^4.21.0",

@@ -17,7 +17,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Same rationale as deploy.yml: a deploy interrupted mid-flight can leave
+  # the published config and the live image from different versions. Queue
+  # instead of cancel.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -28,18 +31,12 @@ jobs:
     name: Deploy Staging
     # Dispatches must run against the staging branch — a manual run on another
     # ref would deploy unreviewed code to the staging environment.
+    # Secrets and deployment inputs live on the step that consumes them —
+    # not at job level, where every step (including third-party actions')
+    # would see them.
     if: github.ref == 'refs/heads/staging'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    env:
-      NEAR_PRIVATE_KEY: ${{ secrets.NEAR_TESTNET_PRIVATE_KEY }}
-      BOS_STORAGE_ORIGIN: https://upload.everything.dev
-      BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
-      BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
-      # Staging pushes its own image namespace — staging runs never move the
-      # production image tags (sha-*/latest on ghcr.io/nearbuilders/everything-dev).
-      BOS_IMAGE: ghcr.io/nearbuilders/everything-dev-staging
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -80,6 +77,15 @@ jobs:
 
       - name: Deploy staging (preflight → build → upload → publish → image → Railway)
         timeout-minutes: 50
+        env:
+          NEAR_PRIVATE_KEY: ${{ secrets.NEAR_TESTNET_PRIVATE_KEY }}
+          BOS_STORAGE_ORIGIN: https://upload.everything.dev
+          BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
+          BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
+          # Staging pushes its own image namespace — staging runs never move the
+          # production image tags (sha-*/latest on ghcr.io/nearbuilders/everything-dev).
+          BOS_IMAGE: ghcr.io/nearbuilders/everything-dev-staging
         run: pnpm run bos deploy --env staging${{ inputs.verbose == true && ' --verbose' || '' }}
 
       # Note: staging intentionally has no post-deploy verification parity with

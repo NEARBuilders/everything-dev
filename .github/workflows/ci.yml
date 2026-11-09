@@ -4,23 +4,29 @@
 # https://github.com/NEARBuilders/everything-dev/issues
 name: CI
 
-# CI is the PR/merge-queue validation workflow only — there is no
-# `push: main` trigger. The main-branch ruleset routes every merge through
-# the merge queue, which runs this same suite once per batch against the
-# real post-merge tree and merges on green; re-running the suite on the
-# push event would only re-validate the exact SHA the queue just proved.
-# Deploy and Release trigger on push and gate themselves (see their own
-# workflows).
+# CI is the pull-request validation workflow only — there is no `push: main`
+# trigger and no merge queue. The test tiering (docs/agents/testing.md):
+#
+#   T0 local        — lefthook hooks: format/style on commit, typecheck +
+#                     Effect lint on push
+#   T1 here (PR)    — the vital plane: lint/typecheck, path-gated unit
+#                     suites, the ui-only app-load smoke. Slow full-stack
+#                     suites (browser matrix, HTTP stacks, process death)
+#                     skip on PRs.
+#   T2 gate         — the full regression matrix runs before a release
+#                     (release.yml's publish gate) and nightly on the main
+#                     tip (backcompat-nightly.yml). The slow suites below
+#                     stay wired for `workflow_dispatch` triage.
 #
 # Skip-safety: `paths-ignore` is deliberately absent — a paths-ignored run
-# never reports the required `CI gate` check, and the merge queue would
+# never reports the required `CI gate` check, and branch protection would
 # stall forever waiting on it. Path-targeting lives inside `detect-changes`
 # instead, where a no-op reports success (docs-only PRs therefore pay only
 # the lint/audit pass, and changeset version PRs fast-path to green — see
-# `detect-changes`).
+# `detect-changes`; the release plane's own full regression is release.yml's
+# gate, so a version PR needs no suites here).
 on:
   pull_request:
-  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -38,6 +44,7 @@ jobs:
   detect-changes:
     name: Detect changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.changes.outputs.version }}
       everything-dev: ${{ steps.changes.outputs.everything-dev }}
@@ -98,20 +105,11 @@ jobs:
           # validated.
           # HEAD_REF comes from a step env, not an inline template — branch
           # names are attacker-controlled (vetted by actionlint).
-          if [ "${{ github.event_name }}" = "merge_group" ]; then
-            BASE_SHA="${{ github.event.merge_group.base_sha }}"
-            git fetch --no-tags origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
-            if node scripts/version-only-diff.mjs "$BASE_SHA" HEAD; then
-              emit_release_skip
-              echo "::notice::Queued batch — group diff is release-mechanical only: suites skipped"
-              exit 0
-            fi
-            echo "::notice::Queued batch carries non-release changes — running the full suite"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
             case "$HEAD_REF" in
               changeset-release/*)
                 emit_release_skip
-                echo "::notice::Changesets version PR ($HEAD_REF) — CI fast-path: suites skipped, release script owns this plane"
+                echo "::notice::Changesets version PR ($HEAD_REF) — CI fast-path: suites skipped, release.yml's regression gate owns this plane"
                 exit 0
                 ;;
             esac
@@ -119,8 +117,6 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "${{ github.base_ref }}" --depth=1
             BASE="origin/${{ github.base_ref }}"
-          elif [ "${{ github.event_name }}" = "merge_group" ]; then
-            BASE="${{ github.event.merge_group.base_sha }}"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             {
               echo "everything-dev=true"
@@ -639,7 +635,8 @@ jobs:
     name: Regression HTTP (dev)
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
-    if: needs.detect-changes.outputs.regression-http == 'true'
+    # T2 suite — release gate + nightly + manual dispatch only; skipped on PRs.
+    if: github.event_name == 'workflow_dispatch' && needs.detect-changes.outputs.regression-http == 'true'
     timeout-minutes: 15
     env:
       CI: true
@@ -701,6 +698,7 @@ jobs:
     needs: [detect-changes, lint-and-typecheck, regression-image]
     if: >-
       !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
       needs.lint-and-typecheck.result == 'success' &&
       needs.detect-changes.outputs.regression-http == 'true' &&
       (needs.regression-image.result == 'success' || needs.regression-image.result == 'skipped' || needs.regression-image.result == 'failure')
@@ -769,7 +767,8 @@ jobs:
     name: Regression framework (process death)
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
-    if: needs.detect-changes.outputs.regression-framework == 'true'
+    # T2 suite — release gate + nightly + manual dispatch only; skipped on PRs.
+    if: github.event_name == 'workflow_dispatch' && needs.detect-changes.outputs.regression-framework == 'true'
     # Two stack slots: every test but one boots the confined death-contract
     # fixture (~100MB of fake node services); the single full-stack boot
     # (sigterm) adds ~2GB. Two concurrent boots — full + confined — fit a
@@ -865,7 +864,10 @@ jobs:
     name: Regression Browser (dev)
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
+    # T2 suite — release gate + nightly + manual dispatch only; skipped on
+    # PRs (ui-only PRs pay the app-load smoke instead, see regression-browser-smoke).
     if: >-
+      github.event_name == 'workflow_dispatch' &&
       needs.detect-changes.outputs.regression-browser == 'true' &&
       needs.detect-changes.outputs.regression-browser-smoke != 'true'
     timeout-minutes: 20
@@ -1037,6 +1039,7 @@ jobs:
     needs: [detect-changes, lint-and-typecheck, regression-image]
     if: >-
       !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
       needs.lint-and-typecheck.result == 'success' &&
       needs.detect-changes.outputs.regression-browser == 'true' &&
       needs.detect-changes.outputs.regression-browser-smoke != 'true' &&

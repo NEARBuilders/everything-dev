@@ -6,13 +6,11 @@
 # manifest → image (pre-pushed digest or local docker build) → post-publish
 # smoke (--smoke) → Railway.
 #
-# The main-branch ruleset routes every merge through the merge queue, where
-# the full CI suite must have already proven the merged tree (`CI gate`).
-# This workflow therefore triggers directly on push and re-verifies, per
-# run: the commit is still the main tip, the merged diff is runtime-
-# relevant, and the commit actually landed as a PR (a direct push — e.g.
-# an admin bypass — has no associated pull request and fails the gate;
-# dispatch with the `force` input to deploy deliberately).
+# Triggers directly on push to main and re-verifies, per run: the commit is
+# still the main tip, the merged diff is runtime-relevant, and the commit
+# actually landed as a pull request (the sanctioned merge path — a raw
+# direct push has no associated pull request and fails the gate; dispatch
+# with the `force` input to deploy deliberately).
 name: Deploy
 
 on:
@@ -41,11 +39,10 @@ permissions:
 jobs:
   # Deploy gate: only while the validated commit is still the tip of main,
   # only when the merged diff touches runtime-relevant paths, and only
-  # when the commit actually landed as a pull request (the merge queue is
-  # the only sanctioned path to main — a direct push by an admin bypass
-  # has no associated PR and fails the gate). Manual dispatches must run
-  # against main; `force` skips the provenance check for deliberate
-  # deploys from direct pushes.
+  # when the commit actually landed as a pull request (the sanctioned merge
+  # path — a raw direct push has no associated PR and fails the gate).
+  # Manual dispatches must run against main; `force` skips the provenance
+  # check for deliberate deploys from direct pushes.
   gate:
     name: Verify deploy is current
     if: >-
@@ -111,10 +108,10 @@ jobs:
       # pull request whose squash commit is this SHA (the "list pull
       # requests associated with a commit" endpoint resolves squash merges
       # and merge commits alike). A zero result means the commit was pushed
-      # directly — outside the queue — by a bypass actor; fail loud instead
-      # of deploying unvalidated code. workflow_dispatch + `force` is the
-      # deliberate escape hatch.
-      - name: Verify the commit merged through the merge queue
+      # directly — outside the sanctioned merge path — so it was never
+      # validated; fail loud instead of deploying unvalidated code.
+      # workflow_dispatch + `force` is the deliberate escape hatch.
+      - name: Verify the commit merged through a pull request
         id: provenance
         env:
           GH_TOKEN: ${{ github.token }}
@@ -266,30 +263,9 @@ jobs:
     if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    env:
-      NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      # near-kit's default RPC (free.rpc.fastnear.com) accepts signed
-      # broadcasts and silently drops them — pin the signing stack to an
-      # endpoint with a real transaction pool.
-      NEAR_RPC_URL: https://rpc.mainnet.near.org
-      BOS_STORAGE_ORIGIN: https://upload.everything.dev
-      BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
-      BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      # Workspace-scoped token + project/environment targeting — the root
-      # repoint (`railway service source connect` to the smoked digest) needs
-      # workspace scope; a project token alone only authorizes the plain
-      # redeploy (same wiring as consumer-deploy.yml).
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
-      # Pre-pushed image from the image job — bos deploy skips its local
-      # image build/push and pins the Railway deploy to this digest. BOS_IMAGE
-      # carries the exact pushed ref so the pin pairs with the digest (with a
-      # digest present, ci.image is excluded from ref resolution — it is a
-      # build-time choice, not a pin-time one).
-      BOS_IMAGE: ${{ needs.image.outputs.image }}
-      BOS_IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+    # Secrets and deployment inputs live on the step that consumes them —
+    # not at job level, where every step (including third-party actions')
+    # would see them.
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -328,15 +304,40 @@ jobs:
       # The Railway deploy leg shells out to the `railway` CLI — runners don't
       # ship it, and a missing binary surfaces as a silent instant exit-1
       # (execa spawn failure mapped to exit code 1 by the deploy's run helper).
-      # Pinned to the current major (matches consumer-deploy.yml); bump deliberately.
+      # Pinned to the exact current release (matches consumer-deploy.yml's
+      # major pin, tightened here); bump deliberately.
       - name: Install Railway CLI
-        run: npm i -g @railway/cli@^5
+        run: npm i -g @railway/cli@5.71.0
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Deploy (preflight → build → upload → publish → smoke → Railway pin)
         timeout-minutes: 55
+        env:
+          NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
+          # near-kit's default RPC (free.rpc.fastnear.com) accepts signed
+          # broadcasts and silently drops them — pin the signing stack to an
+          # endpoint with a real transaction pool.
+          NEAR_RPC_URL: https://rpc.mainnet.near.org
+          BOS_STORAGE_ORIGIN: https://upload.everything.dev
+          BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
+          BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Workspace-scoped token + project/environment targeting — the root
+          # repoint (`railway service source connect` to the smoked digest) needs
+          # workspace scope; a project token alone only authorizes the plain
+          # redeploy (same wiring as consumer-deploy.yml).
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+          # Pre-pushed image from the image job — bos deploy skips its local
+          # image build/push and pins the Railway deploy to this digest. BOS_IMAGE
+          # carries the exact pushed ref so the pin pairs with the digest (with a
+          # digest present, ci.image is excluded from ref resolution — it is a
+          # build-time choice, not a pin-time one).
+          BOS_IMAGE: ${{ needs.image.outputs.image }}
+          BOS_IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
         # One command runs the deploy train (ADR 0020/0021, image leg split
         # into the `image` job): staleness-checked prerequisite builds +
         # workspace dists, bundle upload to the R2-backed storage, FastKV
