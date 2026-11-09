@@ -70,152 +70,22 @@ jobs:
           # Untrusted pull-request data must enter the script as an env var
           # (script-injection surface, see actionlint's expression rule).
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        # Path-group semantics live in scripts/detect-changes.mjs — the
+        # single source of truth, unit-tested against the incident cases
+        # (packages/everything-dev/tests/unit/detect-changes.test.ts). This
+        # step only feeds inputs (event, refs) and collects outputs.
         run: |
-          emit_release_skip() {
-            {
-              echo "version=true"
-              echo "workflows=false"
-              echo "everything-dev=false"
-              echo "every-plugin=false"
-              echo "plugins=false"
-              echo "ui-api=false"
-              echo "host=false"
-              echo "regression-http=false"
-              echo "regression-framework=false"
-              echo "regression-browser=false"
-              echo "regression-browser-smoke=false"
-              echo "regression-unit=false"
-            } >> "$GITHUB_OUTPUT"
-          }
-
-          # Version-PR fast path: the changesets bot's "chore: version
-          # packages" PRs are package-version/changelog-only diffs, which
-          # would light every arm below and pay the full regression matrix
-          # for a bump. Everything reports false instead; the suite jobs
-          # skip and the `CI gate` passes on the all-skipped run. The
-          # publish script's own builds and npm's registry checks are the
-          # real gates on this plane (release.yml).
-          #
-          # Queue guard: merge-queue batch runs fire `merge_group` events on
-          # a `gh-readonly-queue/*` ref — there is no pull_request payload
-          # there, so the branch-name fast path cannot fire. The fast path
-          # applies when the whole *group-tree* diff (base_sha..HEAD) is
-          # release-mechanical-only (scripts/version-only-diff.mjs); mixed
-          # batches fall through to the diff arms so sibling PRs still get
-          # validated.
-          # HEAD_REF comes from a step env, not an inline template — branch
-          # names are attacker-controlled (vetted by actionlint).
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            case "$HEAD_REF" in
-              changeset-release/*)
-                emit_release_skip
-                echo "::notice::Changesets version PR ($HEAD_REF) — CI fast-path: suites skipped, release.yml's regression gate owns this plane"
-                exit 0
-                ;;
-            esac
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$BASE_REF" --depth=1 >/dev/null 2>&1 || true
           fi
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch origin "${{ github.base_ref }}" --depth=1
-            BASE="origin/${{ github.base_ref }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            {
-              echo "everything-dev=true"
-              echo "every-plugin=true"
-              echo "host=true"
-              echo "regression-http=true"
-              echo "regression-framework=true"
-              echo "regression-browser=true"
-              echo "regression-browser-smoke=false"
-              echo "regression-unit=true"
-              echo "workflows=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          else
-            BEFORE="${{ github.event.before }}"
-            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE" ]; then
-              BASE="HEAD~1"
-            else
-              git fetch origin "$BEFORE" --depth=1 2>/dev/null || true
-              BASE="$BEFORE"
-            fi
-          fi
-
-          if ! DIFF=$(git diff --name-only "$BASE" HEAD); then
-            {
-              echo "everything-dev=true"
-              echo "every-plugin=true"
-              echo "plugins=true"
-              echo "ui-api=true"
-              echo "host=true"
-              echo "regression-http=true"
-              echo "regression-framework=true"
-              echo "regression-browser=true"
-              echo "regression-browser-smoke=false"
-              echo "regression-unit=true"
-              echo "workflows=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if echo "$DIFF" | grep -qE '^tests/regression/lib/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-unit=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^\.github/workflows/|^\.github/templates/workflows/'; then
-            echo "workflows=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "workflows=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^packages/everything-dev/|^packages/every-plugin/|^packages/better-near-auth/|^api/|^plugins/|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci.yml$'; then
-            echo "everything-dev=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "everything-dev=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^packages/every-plugin/|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json)$|^\.github/workflows/ci.yml$'; then
-            echo "every-plugin=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "every-plugin=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^plugins/|^packages/every-plugin/|^packages/better-near-auth/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "plugins=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "plugins=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^ui/|^api/|^packages/everything-dev/|^packages/every-plugin/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "ui-api=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ui-api=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^host/|^ui/|^packages/|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "host=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "host=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(http|lib)/|^host/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "regression-http=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-http=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(framework|lib)/|^packages/everything-dev/src/|^packages/every-plugin/src/|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-framework=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(browser|lib)/|^host/|^ui/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-browser=false" >> "$GITHUB_OUTPUT"
-          fi
-          # ui-only smoke (#826 follow-up): a diff confined to the ui
-          # workspace cannot break the host, api, or framework planes — the
-          # app-load spec (boot + hydration + runtime-config shape) is the
-          # one ui-only risk gate, so the full sharded browser matrix is
-          # replaced by it. Anything outside `ui/` reads full.
-          if [ -n "$DIFF" ] && ! echo "$DIFF" | grep -qvE '^ui/'; then
-            echo "regression-browser-smoke=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-browser-smoke=false" >> "$GITHUB_OUTPUT"
-          fi
+          node scripts/detect-changes.mjs \
+            --event "$EVENT_NAME" \
+            --pr-head-ref "$HEAD_REF" \
+            --base "origin/$BASE_REF" \
+            --before "$BEFORE_SHA" >> "$GITHUB_OUTPUT"
 
   lint-and-typecheck:
     name: Lint and Type Check
@@ -940,11 +810,11 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     # T2 suite — release gate + nightly + manual dispatch only; skipped on
-    # PRs (ui-only PRs pay the app-load smoke instead, see regression-browser-smoke).
+    # PRs (ui-only PRs pay the app-load smoke instead: the detector returns
+    # regression-browser=false when the smoke covers the diff).
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      needs.detect-changes.outputs.regression-browser == 'true' &&
-      needs.detect-changes.outputs.regression-browser-smoke != 'true'
+      needs.detect-changes.outputs.regression-browser == 'true'
     timeout-minutes: 20
     env:
       CI: true
@@ -1117,7 +987,6 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       needs.lint-and-typecheck.result == 'success' &&
       needs.detect-changes.outputs.regression-browser == 'true' &&
-      needs.detect-changes.outputs.regression-browser-smoke != 'true' &&
       (needs.regression-image.result == 'success' || needs.regression-image.result == 'skipped' || needs.regression-image.result == 'failure')
     timeout-minutes: ${{ matrix.timeout }}
     env:
