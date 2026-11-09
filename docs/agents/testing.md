@@ -50,6 +50,18 @@ look in `node_modules`):
 - SSR/client construction parity, digest computation, compose-payload schema
   checks, degrade-to-core-only semantics
 - the framework's client machinery: session refresh, MF loader retry chains
+- **the verification spine** ([ADR 0046](../adr/0046-manifest-attribution.md),
+  `GLOSSARY.md` — "verification spine"): each suite pins one layer, so
+  verification regressions have an address —
+
+| Spine layer | Suite (`packages/everything-dev/tests/unit`) | What it pins |
+|---|---|---|
+| bytes ↔ digest | `verify-engine.test.ts` | the `Verifier` engine: SRI fetches, `Verified<T>` branding, the digest cache, the tagged errors |
+| config → manifest → files | `verify-chain.test.ts` | the walker's three depths and per-leg reporting (`pointer`/`entries`/`files`) |
+| config → manifest → files | `manifest-signature.test.ts` | attribution: signing, unregistered keys, rotation, tampered documents, every-depth failure |
+| composition identities | `digest-identity.test.ts` | pointer vs deployment digests and their documented relation |
+| served bytes in the MF pipeline | `federation-integrity.test.ts` | the #642 gate: the loader verifies every registered byte at fetch time |
+| identity wiring | `boot-snapshot-schema.test.ts` · `composition-lockfile-schema.test.ts` | the stored-state planes recomputing `pointerDigest` |
 
 Prove claims about *your* composition state without re-testing the engine:
 `pnpm run verify:runtime-map` diff-checks the generated map against the real
