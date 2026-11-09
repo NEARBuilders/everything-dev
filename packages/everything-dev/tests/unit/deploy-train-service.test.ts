@@ -153,7 +153,11 @@ describe("DeployTrainService", () => {
       RegistryStore.of({
         fetchConfig: (async () => {
           registryReads += 1;
-          if (registryReads === 1) throw new Error("No config found");
+          // Behavior-keyed, not call-count-keyed: every read misses until the
+          // submit has gone through the injected Signer tag, then reads serve
+          // the published bytes for the confirm legs — another train read
+          // added before submit must not re-choreograph this fake.
+          if (submitted.length === 0) throw new Error("No config found");
           return JSON.parse(JSON.stringify(configReady));
         }) as never,
         fetchHistory: (async () => {

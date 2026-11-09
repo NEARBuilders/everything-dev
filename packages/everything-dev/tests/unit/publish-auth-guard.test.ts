@@ -198,11 +198,12 @@ describe("publishToFastKv publish.auth guard", () => {
     writeFileSync(join(configDir, "bos.config.json"), JSON.stringify(bosConfig, null, 2));
 
     fetchBosConfigFromFastKvMock.mockReset();
-    // preflight reachability read → miss, isConfigAlreadyPublished → miss,
-    // then the confirmation loop reads the raw on-disk config
+    // Behavior-keyed: every registry read misses until the relay submit has
+    // happened, then the read-back serves the raw on-disk config for the
+    // confirm legs — another pre-submit train read must not re-choreograph
+    // this mock.
     fetchBosConfigFromFastKvMock.mockImplementation(async () => {
-      const calls = fetchBosConfigFromFastKvMock.mock.calls.length;
-      if (calls <= 2) return null;
+      if (submitRegistryWriteDelegatedMock.mock.calls.length === 0) return null;
       return JSON.parse(readFileSync(join(configDir, "bos.config.json"), "utf-8")) as BosConfig;
     });
 

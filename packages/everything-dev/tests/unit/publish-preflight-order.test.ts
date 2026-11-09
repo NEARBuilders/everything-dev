@@ -512,10 +512,12 @@ describe("publishToFastKv preflight ordering", () => {
       },
     };
     const merged = mergeAuthoredOverPublished(published as never, authored as never);
-    let fetchCalls = 0;
+    // Behavior-keyed: reads serve the pre-publish bytes until the submit has
+    // happened, then the read-back serves the merged config — another
+    // pre-submit train read must not re-choreograph this mock.
     fetchBosConfigFromFastKvMock.mockImplementation(async () => {
-      fetchCalls += 1;
-      return fetchCalls <= 2 ? structuredClone(published) : structuredClone(merged);
+      if (submitRegistryWriteMock.mock.calls.length === 0) return structuredClone(published);
+      return structuredClone(merged);
     });
     openResolutionMock.mockResolvedValue({ config: bosConfig, rawConfig: authored } as never);
     submitRegistryWriteMock.mockResolvedValue({ success: true, txHash: "tx-1" });
