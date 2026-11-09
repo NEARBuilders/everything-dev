@@ -16,7 +16,6 @@ import { createAuthClient as createBetterAuthClient } from "better-auth/react";
 import type { PasskeyWalletLink, RelayedTransactionT } from "better-near-auth";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, siwnClient } from "better-near-auth/client";
 import type { ClientRuntimeConfig } from "../types";
-import { sessionQueryKey } from "./auth-session";
 import { getRuntimeConfig } from "./runtime";
 
 type RuntimeAuthVariables = {
@@ -255,7 +254,52 @@ export function useAuthClient(): AuthClient {
   return useRouter().options.context.authClient as AuthClient;
 }
 
-export { refreshSessionCache, sessionQueryKey, sessionQueryOptions } from "./auth-session";
+export const sessionQueryKey = ["session"] as const;
+
+export function sessionQueryOptions(authClient: AuthClient) {
+  return {
+    queryKey: sessionQueryKey,
+    queryFn: async () => {
+      try {
+        const { data: session, error } = await authClient.getSession({
+          query: { disableCookieCache: true },
+        });
+        if (error) {
+          const record = error as { message?: string; detail?: string; detailFull?: string };
+          throw Object.assign(new Error(record.message || "Unable to load your session"), {
+            detail: [record.detail, record.detailFull].find(
+              (value) => typeof value === "string" && value.trim() !== "",
+            ),
+          });
+        }
+        return session ?? null;
+      } catch (error) {
+        // SSR degrade, don't 500 (#689): the session read shares the
+        // visitor's page render — an edge-blocked or failing auth call must
+        // render the page signed-out, not fail the whole document. The
+        // client surface keeps throwing so the UI can surface auth outages.
+        if (typeof window === "undefined") {
+          console.warn(
+            `[Session] SSR session fetch failed — rendering signed-out: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          return null;
+        }
+        throw error;
+      }
+    },
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  };
+}
+
+export async function refreshSessionCache(
+  authClient: AuthClient,
+  queryClient: QueryClient,
+): Promise<SessionData | null> {
+  return queryClient.fetchQuery({ ...sessionQueryOptions(authClient), staleTime: 0 });
+}
 
 /**
  * Resolves the session for the root route: the query cache wins (it is kept

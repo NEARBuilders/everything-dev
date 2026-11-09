@@ -9,7 +9,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { redirect } from "@tanstack/react-router";
 import type { AuthClient, SessionData } from "./auth";
-import { sessionQueryKey, sessionQueryOptions } from "./auth-session";
+import { sessionQueryKey, sessionQueryOptions } from "./auth";
 import { pluginHref, pluginPath } from "./plugin-path";
 
 export interface AuthContext {

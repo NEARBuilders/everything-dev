@@ -75,7 +75,7 @@ export {
   CORE_UI_PLUGIN_KEY,
   ComposePayloadSchema,
   constructTree,
-} from "everything-dev/ui/manifest";
+} from "everything-dev/ui/compose";
 `,
   "src/globals.gen.ts": `// GENERATED FILE — do not edit. Regenerated from the installed framework version
 // by \`bos dev\` / \`bos build\` / \`bos typecheck\` (gitignored).

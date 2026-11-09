@@ -3,7 +3,8 @@ import { isRedirect } from "@tanstack/react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { AuthClient, SessionData } from "../../src/ui/auth";
 import { sessionQueryKey } from "../../src/ui/auth";
-import { constructTree, SUPPORTED_MANIFEST_VERSION } from "../../src/ui/manifest/index";
+import { constructTree } from "../../src/ui/compose";
+import { SUPPORTED_MANIFEST_VERSION } from "../../src/ui/manifest/index";
 
 type MountId = "authenticated" | "admin";
 
