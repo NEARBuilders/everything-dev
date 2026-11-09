@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { AuthVariables } from "../lib/auth";
+import { isSecretProbePath } from "../middleware/security";
 import { buildPluginContext } from "../services/auth";
 import type { RuntimeConfig } from "../services/config";
 import type { PluginResult } from "../services/plugins";
@@ -21,6 +22,9 @@ export function createSsrFallbackHandler(
   const render = createSsrRender({ config, getServingState, plugins });
   return async (c: Context<HonoEnv>) => {
     if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
+      return c.notFound();
+    }
+    if (isSecretProbePath(c.req.path)) {
       return c.notFound();
     }
     return render(c.req.raw, {

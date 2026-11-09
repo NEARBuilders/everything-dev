@@ -58,3 +58,35 @@ export function extractErrorDetails(error: unknown): {
   }
   return { message: "Unknown error" };
 }
+
+/**
+ * Normalize any caught value into an Error. Throwables reach catch blocks in
+ * non-Error shapes (hono/node-server aborts the request signal with the raw
+ * `incoming.errored` string, and TanStack's `throwIfAborted` rethrows
+ * `signal.reason` verbatim), so downstream code cannot rely on `.message`
+ * without this normalization at the seam.
+ */
+export function toError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  return new Error(extractErrorDetails(error).message);
+}
+
+const CLIENT_ABORT_MESSAGES = new Set([
+  "Error: aborted",
+  "aborted",
+  "Client connection prematurely closed.",
+  "This operation was aborted",
+]);
+
+/**
+ * Whether a caught value is a client disconnect rather than a server fault:
+ * the client closed the socket mid-request, so the response cannot be
+ * delivered no matter what we render. Matches @hono/node-server's abort
+ * reasons (delivered as plain strings through the request signal) and
+ * standard AbortError instances.
+ */
+export function isClientAbortError(error: unknown): boolean {
+  if (error instanceof Error && error.name === "AbortError") return true;
+  const message = typeof error === "string" ? error : error instanceof Error ? error.message : "";
+  return message ? CLIENT_ABORT_MESSAGES.has(message) : false;
+}

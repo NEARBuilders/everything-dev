@@ -55,31 +55,123 @@ function runApiMigration(db: MigrationDatabase, migrations: Migration[]): Promis
 }
 
 describe("db migration runners (008 characterization)", () => {
-  it("journal ahead of the plugin's known set fails closed with the unknown hashes (#805)", async () => {
-    const db = makeDb();
+  const SLUGGED_JOURNAL = {
+    schema: "drizzle",
+    table: "__drizzle_migrations_testsuite",
+    slug: "testsuite",
+  } as const;
+
+  async function seedLegacyJournal(db: MigrationDatabase, rows: Array<[string, string | null]>) {
     await db.execute(sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
     await db.execute(
       sql`CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
     );
+    for (const [hash, createdAt] of rows) {
+      await db.execute(
+        sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (${hash}, ${createdAt})`,
+      );
+    }
+  }
+
+  it("sibling rows in the legacy shared journal never reach the per-workspace journal (ADR 0045)", async () => {
+    const db = makeDb();
+    // node-postgres delivers bigint (int8) as a string — insert as text so
+    // the read seam sees the exact shape production crashed on.
+    await seedLegacyJournal(db, [
+      ["sibling-plugin-hash", "1730000000000"],
+      ["future-hash-abcdef", null],
+    ]);
+
+    const migrations = [migration(0, "mig_one", ['CREATE TABLE IF NOT EXISTS "t1" (id int)'])];
+    const applied = await runMigration(
+      apiMigrationRunner(db as unknown as MigrationDatabase, migrations, SLUGGED_JOURNAL),
+    );
+    expect(applied).toBe(1);
+
+    const legacyRows = (await db.execute(
+      sql`SELECT hash FROM "drizzle"."__drizzle_migrations" ORDER BY id`,
+    )) as { rows: { hash: string }[] };
+    expect(legacyRows.rows.map((r) => r.hash)).toEqual([
+      "sibling-plugin-hash",
+      "future-hash-abcdef",
+    ]);
+
+    const sluggedRows = (await db.execute(
+      sql`SELECT hash FROM "drizzle"."__drizzle_migrations_testsuite" ORDER BY id`,
+    )) as { rows: { hash: string }[] };
+    expect(sluggedRows.rows.map((r) => r.hash)).toEqual(["hash-mig_one"]);
+  });
+
+  it("adoption: a pre-flip workspace's rows move from the shared journal to its own, once", async () => {
+    const db = makeDb();
+    const migrations = [
+      migration(0, "mig_one", ['CREATE TABLE IF NOT EXISTS "t1" (id int)']),
+      migration(1, "mig_two", ['CREATE TABLE IF NOT EXISTS "t2" (id int)']),
+    ];
+
+    // Pre-flip state: the workspace's history lives in the shared journal,
+    // alongside a sibling's rows.
+    await seedLegacyJournal(db, [
+      ["hash-mig_one", "1730000000000"],
+      ["hash-mig_two", null],
+      ["sibling-plugin-hash", "1730000000000"],
+    ]);
+
+    // First boot on the per-workspace journal: adopt, then apply nothing.
+    const applied = await runMigration(
+      apiMigrationRunner(db as unknown as MigrationDatabase, migrations, SLUGGED_JOURNAL),
+    );
+    expect(applied).toBe(0);
+
+    const sluggedRows = (await db.execute(
+      sql`SELECT hash FROM "drizzle"."__drizzle_migrations_testsuite" ORDER BY id`,
+    )) as { rows: { hash: string }[] };
+    expect(sluggedRows.rows.map((r) => r.hash)).toEqual(["hash-mig_one", "hash-mig_two"]);
+
+    // Sibling rows stay in the shared journal; nothing is deleted.
+    const legacyRows = (await db.execute(
+      sql`SELECT hash FROM "drizzle"."__drizzle_migrations" ORDER BY id`,
+    )) as { rows: { hash: string }[] };
+    expect(legacyRows.rows.map((r) => r.hash)).toEqual([
+      "hash-mig_one",
+      "hash-mig_two",
+      "sibling-plugin-hash",
+    ]);
+
+    // Rerun is a no-op — adoption is idempotent.
+    const rerun = await runMigration(
+      apiMigrationRunner(db as unknown as MigrationDatabase, migrations, SLUGGED_JOURNAL),
+    );
+    expect(rerun).toBe(0);
+  });
+
+  it("a genuinely ahead per-workspace journal fails closed (#805) — string bigints included; BOS_ALLOW_SCHEMA_AHEAD allows once", async () => {
+    const db = makeDb();
+    const slugged = SLUGGED_JOURNAL;
+    await db.execute(sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
     await db.execute(
-      sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ('future-hash-abcdef', 1730000000000)`,
+      sql`CREATE TABLE IF NOT EXISTS ${sql.raw(`"${slugged.schema}"."${slugged.table}"`)} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
+    );
+    // String created_at — the exact driver shape that crashed the first cut.
+    await db.execute(
+      sql`INSERT INTO ${sql.raw(`"${slugged.schema}"."${slugged.table}"`)} (hash, created_at) VALUES ('future-hash-abcdef', '1730000000000')`,
     );
 
     const migrations = [migration(0, "mig_one", ['CREATE TABLE IF NOT EXISTS "t1" (id int)'])];
     const exit = await Effect.runPromiseExit(
-      apiMigrationRunner(db as unknown as MigrationDatabase, migrations),
+      apiMigrationRunner(db as unknown as MigrationDatabase, migrations, slugged),
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const squashed = Cause.squash(exit.cause) as Error;
-      expect(String(squashed)).toContain("newer plugin build");
+      expect(String(squashed)).toContain("newer build");
       expect(String(squashed)).toContain("future-hash-");
     }
 
     process.env.BOS_ALLOW_SCHEMA_AHEAD = "1";
     try {
       const applied = await runMigration(
-        apiMigrationRunner(db as unknown as MigrationDatabase, migrations),
+        apiMigrationRunner(db as unknown as MigrationDatabase, migrations, slugged),
       );
       expect(applied).toBe(1);
     } finally {

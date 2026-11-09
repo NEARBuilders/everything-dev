@@ -59,7 +59,7 @@ describe("workspaceIdentityFromWorkspaceDir", () => {
       expect(identity.secretName).toBe("AUTH_DATABASE_URL");
       expect(identity.journal).toEqual({
         schema: "drizzle",
-        table: "__drizzle_migrations",
+        table: "__drizzle_migrations_auth",
         slug: "auth",
       });
       expect(identity.workspaceDir).toBe(dir);
