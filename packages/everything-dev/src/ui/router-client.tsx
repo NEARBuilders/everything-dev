@@ -66,10 +66,11 @@ export function createRouter<
     scrollRestoration: true,
     defaultStructuralSharing: true,
     defaultPreloadStaleTime: 0,
-    // Show the pending boundary fast (#683): the router's 1000ms default left
-    // cold authed navigations blank for up to a second, forcing every child
-    // to re-declare pendingMs.
-    defaultPendingMs: 100,
+    // Pending boundary at 333ms: brief navigations keep the previous page
+    // rendered with the root progress bar carrying the signal, and the
+    // compact spinner is reserved for genuinely slow or first loads — still
+    // well inside the 1000ms blank window #683 fixed.
+    defaultPendingMs: 333,
     defaultPendingMinMs: 0,
     defaultErrorComponent: RouterError,
     defaultNotFoundComponent,

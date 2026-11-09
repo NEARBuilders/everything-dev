@@ -1,5 +1,5 @@
 import { DeviceMobileIcon, FingerprintIcon, UserPlusIcon, WalletIcon } from "@phosphor-icons/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate, useRouterState } from "@tanstack/react-router";
 import { isPasskeyWalletAvailable } from "better-near-auth/client";
 import {
@@ -8,6 +8,8 @@ import {
   isPasskeyCeremonyAborted,
   isUnsupportedAuthenticatorError,
   refreshSessionCache,
+  type SessionData,
+  sessionQueryKey,
   sessionQueryOptions,
   signInWithPasskey,
   useAuthClient,
@@ -18,6 +20,7 @@ import { AuthPanel } from "@/components/auth-panel";
 import { ErrorDetail } from "@/components/error-detail";
 import { Button } from "@/components/ui/button";
 import { FieldSeparator } from "@/components/ui/field";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import type { LoginTranslator } from "@/i18n/catalogs";
 import { LoginLanguageSelector } from "@/i18n/language-selector";
@@ -75,9 +78,13 @@ export const Route = createFileRoute("/_public/login/")({
     ref: sanitizeReferralCode(search.ref),
   }),
   beforeLoad: async ({ context, search }) => {
-    const { queryClient, authClient } = context;
-    const session = await queryClient.query(sessionQueryOptions(authClient));
-    if (session?.user && !session.user.banned) {
+    // The bounce reads the hydrated cache only — the host seeds it from the
+    // request-resolved session on every SSR'd load, so a signed-in visitor is
+    // redirected before first paint. An empty cache (auth unresolved or
+    // /login being ssr:false cold) must never block the page's own render:
+    // the component resolves the check in place and bounces reactively.
+    const cachedSession = context.queryClient.getQueryData<SessionData | null>(sessionQueryKey);
+    if (cachedSession?.user && !cachedSession.user.banned) {
       throw redirect({ href: sanitizeRedirect(search.redirect) });
     }
   },
@@ -138,11 +145,20 @@ function LoginPageContent() {
   const [unsupported, setUnsupported] = useState(false);
   const [error, setError] = useState<ErrorState | null>(null);
 
+  const sessionQuery = useQuery(sessionQueryOptions(auth));
+  const session = sessionQuery.data;
+  const signedIn = !!session?.user && !session.user.banned;
+
   useEffect(() => {
     void auth.near.detectNearAccount().then((result: { accountId?: string | null } | null) => {
       if (result?.accountId) setDetectedAccount(result.accountId);
     });
   }, [auth.near]);
+
+  useEffect(() => {
+    if (!signedIn || pending !== null) return;
+    void navigate({ href: redirectTo, replace: true });
+  }, [signedIn, pending, navigate, redirectTo]);
 
   const handleSuccess = async (message: string) => {
     setError(null);
@@ -226,6 +242,24 @@ function LoginPageContent() {
       {t("auth.login.referral.applied", { code: referralCode })}
     </p>
   ) : null;
+
+  if (sessionQuery.isPending) {
+    return (
+      <AuthPanel
+        toolbar={<LoginLanguageSelector />}
+        title={view === "phone" ? t("auth.login.phone.title") : t("auth.login.title")}
+        titleTestId="login.heading"
+        description={signInDescription(redirectTo, t)}
+        footer={<span>{t("auth.login.create.new")}</span>}
+      >
+        <div className="flex flex-col gap-3" data-testid="login.session-skeleton">
+          <Skeleton className="h-12 w-full rounded-md" />
+          <Skeleton className="h-12 w-full rounded-md" />
+          <Skeleton className="h-12 w-full rounded-md" />
+        </div>
+      </AuthPanel>
+    );
+  }
 
   const nearButton = (
     <div className="flex flex-col items-center gap-1">
