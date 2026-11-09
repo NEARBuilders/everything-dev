@@ -144,7 +144,7 @@ describe.skipIf(!haveDocker)("reconciler converges a docker instance on publish"
 
     const first = (await runtime.runPromise(reconciler.tick())) as ReconcilerStatusSnapshot;
     expect(first.namespaces[0]).toMatchObject({
-      convergedFingerprint: expect.any(String),
+      convergedDigest: expect.any(String),
       bootAssumed: false,
     });
     expect(dockerInspect(CONTAINER, "{{.Config.Image}}")).toContain("nginx:alpine");
@@ -155,7 +155,7 @@ describe.skipIf(!haveDocker)("reconciler converges a docker instance on publish"
     publish(2, "v2", "nginx:1.27-alpine");
 
     const second = await runtime.runPromise(reconciler.tick());
-    expect(second.namespaces[0]).toMatchObject({ convergedFingerprint: expect.any(String) });
+    expect(second.namespaces[0]).toMatchObject({ convergedDigest: expect.any(String) });
     expect(dockerInspect(CONTAINER, "{{.Config.Image}}")).toContain("nginx:1.27-alpine");
     const env = dockerInspect(CONTAINER, "{{json .Config.Env}}");
     expect(env).toContain("AI_API_KEY=sk-from-vault");
