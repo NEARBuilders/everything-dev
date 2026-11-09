@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { buildRuntimeConfigEffect, type ConfigVersionManifestError } from "everything-dev/config";
-import { pointerDigest } from "everything-dev/fingerprint";
+import { pointerDigest } from "everything-dev/digest";
 import { parseBootSnapshot, snapshotDigestMatches } from "everything-dev/snapshot";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";

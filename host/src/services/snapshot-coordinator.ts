@@ -4,7 +4,7 @@ import {
   buildRuntimeConfigEffect,
   resolveConfigComposableEntries,
 } from "everything-dev/config";
-import { remoteDigests } from "everything-dev/fingerprint";
+import { remoteDigests } from "everything-dev/digest";
 import { resolveMergedConfigInput } from "everything-dev/resolution";
 import { bootSnapshotOf, writeBootSnapshot } from "everything-dev/snapshot";
 import type { BosConfig, BosConfigInput } from "everything-dev/types";

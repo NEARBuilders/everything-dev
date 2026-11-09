@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  deploymentDigest,
-  pointerDigest,
-  remoteDigests,
-} from "../../src/services/registry/fingerprint";
+import { deploymentDigest, pointerDigest, remoteDigests } from "../../src/services/registry/digest";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
 /**

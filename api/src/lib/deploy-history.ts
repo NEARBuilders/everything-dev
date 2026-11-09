@@ -1,5 +1,5 @@
 import { Context, Data, Effect, Layer } from "effect";
-import { pointerDigest } from "everything-dev/fingerprint";
+import { pointerDigest } from "everything-dev/digest";
 import { z } from "zod";
 
 export const DeployAuditManifestSchema = z.object({

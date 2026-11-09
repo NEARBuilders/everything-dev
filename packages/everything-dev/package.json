@@ -126,14 +126,14 @@
       "import": "./dist/services/lockfile/schema.mjs",
       "require": "./dist/services/lockfile/schema.cjs"
     },
-    "./fingerprint": {
+    "./digest": {
       "development": {
-        "types": "./src/services/registry/fingerprint.ts",
-        "import": "./src/services/registry/fingerprint.ts"
+        "types": "./src/services/registry/digest.ts",
+        "import": "./src/services/registry/digest.ts"
       },
-      "types": "./dist/services/registry/fingerprint.d.mts",
-      "import": "./dist/services/registry/fingerprint.mjs",
-      "require": "./dist/services/registry/fingerprint.cjs"
+      "types": "./dist/services/registry/digest.d.mts",
+      "import": "./dist/services/registry/digest.mjs",
+      "require": "./dist/services/registry/digest.cjs"
     },
     "./version-manifest-resolve": {
       "development": {

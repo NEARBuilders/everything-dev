@@ -14,7 +14,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { type BosConfig, BosConfigSchema } from "../../types";
-import { pointerDigest } from "../registry/fingerprint";
+import { pointerDigest } from "../registry/digest";
 import { parseRuntimeRef } from "../registry/keys";
 import { walkRemotes } from "../remotes";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pointerDigest } from "../../src/services/registry/fingerprint";
+import { pointerDigest } from "../../src/services/registry/digest";
 import { type BootSnapshot, bootSnapshotOf } from "../../src/services/snapshot/schema";
 import {
   BOOT_SNAPSHOT_ENV_KEY,

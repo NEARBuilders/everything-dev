@@ -6,7 +6,7 @@ const refOf = (bosUrl: string) => {
   return runtimeRefOf({ accountId: parsed.accountId, gatewayId: parsed.gatewayId });
 };
 
-import { pointerDigest } from "everything-dev/fingerprint";
+import { pointerDigest } from "everything-dev/digest";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { asDigest, fetchVerified } from "everything-dev/verify";
 import { resolveRemoteVersion } from "everything-dev/version-manifest-resolve";
@@ -40,7 +40,7 @@ export function watchIntervalMs(): number {
  * when the deployed set is. A pointer-digest change is what triggers
  * the adopt transaction.
  */
-export { pointerDigest } from "everything-dev/fingerprint";
+export { pointerDigest } from "everything-dev/digest";
 
 export type WatchTickOutcome = "clean" | "swapped" | "swap-failed" | "pointer-unreachable";
 

@@ -12,7 +12,7 @@ import {
   Option,
 } from "effect";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
-import { pointerDigest, remoteDigests } from "everything-dev/fingerprint";
+import { pointerDigest, remoteDigests } from "everything-dev/digest";
 import { type Context, Hono } from "hono";
 import type { AuthVariables } from "./lib/auth";
 import { getCspStrict, SecurityMiddleware } from "./middleware/security";

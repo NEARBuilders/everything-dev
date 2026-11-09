@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { pointerDigest } from "everything-dev/fingerprint";
+import { pointerDigest } from "everything-dev/digest";
 import { describe, expect, it } from "vitest";
 import {
   auditManifestKey,

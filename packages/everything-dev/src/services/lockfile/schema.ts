@@ -19,7 +19,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { BosConfig } from "../../types";
-import { digestOfParts, pointerDigest } from "../registry/fingerprint";
+import { digestOfParts, pointerDigest } from "../registry/digest";
 import { walkRemotes } from "../remotes";
 
 export const LOCKFILE_NAME = "bos.lock.json";

@@ -50,12 +50,15 @@ import { walkRemotes } from "../remotes";
  *   integrity / local mtimes. A cache key, NOT an identity — it hashes the
  *   dev filesystem, so it can never be compared across planes.
  *
- * Vocabulary cutover (ticket 04): the word "fingerprint" is retired — the
- * identities it named were `pointerDigest`/`deploymentDigest` all along,
- * and every wire field it survived in (lockfile, boot snapshot, deploy
+ * Vocabulary cutover (ticket 04 + follow-up): the word "fingerprint" is
+ * retired — the identities it named were `pointerDigest`/`deploymentDigest`
+ * all along, every wire field it survived in (lockfile, boot snapshot, deploy
  * records, the version endpoint, the client payload) is renamed in the same
- * change. Files written by older framework versions fail the strict parse
- * naming the field; they regenerate on the next `bos lock` / first adopt.
+ * change, and the module's own subpath moved with it: this file is
+ * `everything-dev/digest` (the old `everything-dev/fingerprint` subpath is
+ * removed, not deprecated). Files written by older framework versions fail
+ * the strict parse naming the field; they regenerate on the next `bos lock` /
+ * first adopt.
  */
 
 /**

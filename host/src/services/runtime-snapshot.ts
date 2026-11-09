@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Ref } from "effect";
-import { deploymentDigest } from "everything-dev/fingerprint";
+import { deploymentDigest } from "everything-dev/digest";
 import type { RuntimeConfig } from "everything-dev/types";
 import { ConfigService } from "./config";
 import { type ClientConfigCacheState, createClientConfigCacheState } from "./serving-caches";

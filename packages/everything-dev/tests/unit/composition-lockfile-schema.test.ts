@@ -13,7 +13,7 @@ import {
   writeLockfile,
   writeLockfileSync,
 } from "../../src/services/lockfile/schema";
-import { pointerDigest } from "../../src/services/registry/fingerprint";
+import { pointerDigest } from "../../src/services/registry/digest";
 import { BosConfigSchema } from "../../src/types";
 
 /**

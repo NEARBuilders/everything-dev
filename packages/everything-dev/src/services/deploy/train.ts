@@ -39,8 +39,8 @@ import {
 import type { Manifest } from "../platform/manifest";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { type ConfirmLeg, confirmPublish, describeConfirmTimeout } from "../registry/confirm";
+import { pointerDigest, remoteDigests } from "../registry/digest";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
-import { pointerDigest, remoteDigests } from "../registry/fingerprint";
 import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
 import {
   deployAuditKeyOf,
