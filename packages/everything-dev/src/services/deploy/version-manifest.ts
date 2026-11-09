@@ -35,12 +35,15 @@ export function composeWorkspaceVersionManifest(input: {
   integrityMap: Record<string, string>;
   /** full per-file SRI map of the dist — recorded for the next deploy's diff */
   files?: Record<string, string>;
+  /** slot-relative immutable version directory (`versions/<dirId>`, #826) —
+   * artifact coordinates resolve against it instead of the slot root */
+  dir?: string;
   /** source archive reference (publish.sourcePublish) — server-computed SRI */
   source?: SourceRef;
   /** the repo HEAD the build was produced from — best-effort, may be absent */
   gitSha?: string;
 }): WorkspaceVersionManifest | null {
-  const { report, ssrReport, integrityMap, files, source, gitSha } = input;
+  const { report, ssrReport, integrityMap, files, dir, source, gitSha } = input;
 
   const entryIntegrity = integrityMap[report.entry];
   if (!entryIntegrity) return null;
@@ -49,6 +52,7 @@ export function composeWorkspaceVersionManifest(input: {
   const ssrIntegrity = ssrEntry ? integrityMap[`ssr/${ssrEntry}`] : undefined;
 
   return composeVersionManifest({
+    ...(dir ? { dir } : {}),
     entry: report.entry,
     entryIntegrity,
     ...(ssrEntry && ssrIntegrity
@@ -100,6 +104,10 @@ export interface ResolvedRemoteVersion {
    * stamped onto UI remotes so the host's composition guard can detect a
    * platform skew before loading. */
   sharedVersions?: Record<string, string>;
+  /** Slot-relative immutable version directory the artifact coordinates
+   * resolve against (`versions/<dirId>`, #826) — undefined on legacy
+   * manifests, which resolve against the slot root. */
+  dir?: string;
   /** Full per-file digest map of the dist (object path → SRI), when the
    * pinned manifest carries one — the diff base for skip-unchanged uploads. */
   files?: Record<string, string>;
@@ -123,17 +131,21 @@ export function clearRemoteVersionCache(): void {
 function remoteVersionFromManifest(
   base: string,
   manifest: WorkspaceVersionManifest,
+  options?: { ignoreDir?: boolean },
 ): ResolvedRemoteVersion {
   const trimmedBase = base.replace(/\/$/, "");
+  const fileBase =
+    manifest.dir && !options?.ignoreDir ? `${trimmedBase}/${manifest.dir}` : trimmedBase;
   return {
-    entryUrl: `${trimmedBase}/${manifest.entry}`,
+    entryUrl: `${fileBase}/${manifest.entry}`,
     entryIntegrity: manifest.entryIntegrity,
+    ...(manifest.dir ? { dir: manifest.dir } : {}),
     ...(manifest.browserManifest
-      ? { browserManifestUrl: `${trimmedBase}/${manifest.browserManifest.file}` }
+      ? { browserManifestUrl: `${fileBase}/${manifest.browserManifest.file}` }
       : {}),
     ...(manifest.ssr
       ? {
-          ssrEntryUrl: `${trimmedBase}/${manifest.ssr.entry}`,
+          ssrEntryUrl: `${fileBase}/${manifest.ssr.entry}`,
           ssrIntegrity: manifest.ssr.integrity,
         }
       : {}),
@@ -180,7 +192,10 @@ function readStagedRemoteVersion(base: string, digest: RemoteDigest): ResolvedRe
     const manifest = WorkspaceVersionManifestSchema.parse(
       JSON.parse(readFileSync(manifestPath, "utf8")),
     );
-    return remoteVersionFromManifest(base, manifest);
+    // Staged dists materialize flat at the slot dir — `versions/<dirId>/` is
+    // a CDN-layout concept the disk does not carry, so the manifest's dir
+    // must not prefix the staged coordinates.
+    return remoteVersionFromManifest(base, manifest, { ignoreDir: true });
   } catch {
     return null;
   }

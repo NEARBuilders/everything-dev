@@ -441,11 +441,23 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     // the files map changed → a new version id, even though the entry is unchanged
     expect(v2Ui.digest.manifest).not.toBe(v1Ui.digest.manifest);
 
-    // exactly the added file + the manifest crossed the wire — unchanged files skipped
-    const uploaded = storage.batches.slice(batchesAfterFirst).flatMap((batch) => batch.paths);
-    expect([...uploaded].sort()).toEqual(
+    // exactly the added file + the manifest crossed the wire on the slot-root
+    // (latest) leg — unchanged files skipped; the version-dir copy (#826)
+    // carries the whole dist under the new content-addressed directory
+    const isDirCopy = (path: string) => /^versions\/[0-9a-f]{16}\//.test(path);
+    const secondBatches = storage.batches.slice(batchesAfterFirst);
+    const flatPaths = secondBatches
+      .filter((batch) => !batch.paths.some(isDirCopy))
+      .flatMap((batch) => batch.paths);
+    expect([...flatPaths].sort()).toEqual(
       [addedPath, v2Ui.digest.manifest].sort((a, b) => a.localeCompare(b)),
     );
+    const dirBatch = secondBatches.find((batch) => batch.paths.some(isDirCopy));
+    expect(dirBatch).toBeDefined();
+    expect(dirBatch!.paths).toHaveLength(6);
+    for (const path of dirBatch!.paths) {
+      expect(path).toMatch(/^versions\/[0-9a-f]{16}\//);
+    }
 
     // the new manifest's files map covers the whole dist: the added file gets a
     // server-computed SRI, unchanged files carry the previous manifest's SRI

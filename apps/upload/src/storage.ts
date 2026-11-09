@@ -129,6 +129,16 @@ export function buildBundleKey(
   return `bundles/${account}/${gateway}/${workspace}/${objectPath}`;
 }
 
+/**
+ * Immutable slot subtree (#826): version manifests (`versions/<id>.json`)
+ * and version directories (`versions/<dirId>/…`) are write-once — published
+ * pins name these keys and must stay byte-resolvable forever, so a deploy
+ * may never rewrite an existing object under `versions/` with new bytes.
+ */
+export function isImmutableObjectPath(objectPath: string): boolean {
+  return objectPath === "versions" || objectPath.startsWith("versions/");
+}
+
 export function validateUploadSize(
   files: Array<{ bytes: Uint8Array }>,
   maxTotalBytes: number,

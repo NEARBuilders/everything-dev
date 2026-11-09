@@ -13,6 +13,7 @@ import {
   bundleContentType,
   computeObjectIntegrity,
   createStorageLayerFromEnv,
+  isImmutableObjectPath,
   maxBundleUploadBytes,
   StorageTag,
   validateNamespacePart,
@@ -185,9 +186,21 @@ export default createPlugin({
             const integrity = computeObjectIntegrity(file.bytes);
 
             const existing = yield* Effect.exit(storage.stat(key));
-            if (Exit.isSuccess(existing) && existing.value?.sri === integrity) {
-              unchanged += 1;
-              return [file.objectPath, integrity] as const;
+            if (Exit.isSuccess(existing) && existing.value) {
+              if (existing.value.sri === integrity) {
+                unchanged += 1;
+                return [file.objectPath, integrity] as const;
+              }
+              if (isImmutableObjectPath(file.objectPath)) {
+                return yield* Effect.fail(
+                  errors.CONFLICT({
+                    message:
+                      `Refusing to overwrite immutable object ${key} — stored SRI ${existing.value.sri ?? "none"}, upload SRI ${integrity} ` +
+                      "(published pins name versions/ objects; they are write-once, #826)",
+                    data: { resource: key, detail: "versions/ objects are write-once (#826)" },
+                  }),
+                );
+              }
             }
 
             const put = yield* Effect.exit(
@@ -195,7 +208,7 @@ export default createPlugin({
                 key,
                 bytes: file.bytes,
                 contentType: bundleContentType(file.name),
-                cacheControl: bundleCacheControl(file.name),
+                cacheControl: bundleCacheControl(file.objectPath),
                 sri: integrity,
               }),
             );

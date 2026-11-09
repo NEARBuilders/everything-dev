@@ -68,6 +68,14 @@ export const NOT_FOUND = {
   }),
 } as const;
 
+export const CONFLICT = {
+  status: 409,
+  data: z.object({
+    resource: z.string().optional(),
+    detail: z.string().optional(),
+  }),
+} as const;
+
 export const FORBIDDEN = {
   status: 403,
   data: z.object({
@@ -105,6 +113,7 @@ export const PluginErrors = {
   SERVICE_UNAVAILABLE,
   BAD_REQUEST,
   NOT_FOUND,
+  CONFLICT,
   FORBIDDEN,
   TIMEOUT,
   CONNECTION_ERROR,
@@ -123,6 +132,7 @@ export const PLUGIN_ERROR_STATUS_MAP: Record<string, number> = {
   ...COMMON_ERROR_STATUS_MAP,
   TIMEOUT: 504,
   CONNECTION_ERROR: 502,
+  CONFLICT: 409,
 } as const;
 
 export type { PluginLoadFailureInfo, PluginWarningInfo } from "./runtime/errors";

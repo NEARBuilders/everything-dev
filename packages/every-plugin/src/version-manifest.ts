@@ -12,10 +12,24 @@ import { z } from "zod";
 
 const SRI = z.string().regex(/^sha384-[A-Za-z0-9+/=]+$/);
 
+/** Slot-relative directory holding one deploy's immutable file copies (#826). */
+export const VERSION_DIR_PATTERN = /^versions\/[0-9a-f]{16}$/;
+
 export const WorkspaceVersionManifestSchema = z.object({
   version: z.string().regex(/^[0-9a-f]{16}$/),
   builtAt: z.string().optional(),
   gitSha: z.string().optional(),
+  /**
+   * Slot-relative directory (`versions/<dirId>`) holding this deploy's
+   * byte-immutable copies of every dist file (#826). When present, all
+   * artifact coordinates below resolve against `<slotBase>/<dir>/` — so a
+   * pinned child's entry fetches its expose chunk and chunks from the same
+   * frozen directory instead of the mutable slot root. Absent on legacy
+   * manifests: coordinates resolve against the slot root exactly as before.
+   * Derived from the `files` map (see `versionDirPath`), so it participates
+   * in the version hash without circularity.
+   */
+  dir: z.string().regex(VERSION_DIR_PATTERN).optional(),
   entry: z.string().min(1),
   entryIntegrity: SRI,
   ssr: z
@@ -67,6 +81,7 @@ export interface VersionManifestInput {
    * staged copy and the CDN's immutability for republished versions. */
   builtAt?: string;
   gitSha?: string;
+  dir?: string;
   entry: string;
   entryIntegrity: string;
   ssr?: { entry: string; integrity: string };
@@ -91,6 +106,18 @@ export function composeVersionManifest(input: VersionManifestInput): WorkspaceVe
     .digest("hex")
     .slice(0, 16);
   return WorkspaceVersionManifestSchema.parse({ ...input, version });
+}
+
+/**
+ * The content-addressed directory name for one dist's file set (#826): a
+ * 16-hex hash over the canonical files map. Identical bytes → identical
+ * directory → re-deploying unchanged content is a server-side no-op, and a
+ * published pin's directory can never be rewritten by a later deploy
+ * (the upload service refuses conflicting writes under `versions/`).
+ */
+export function versionDirPath(files: Record<string, string>): string {
+  const id = createHash("sha256").update(stableStringify(files)).digest("hex").slice(0, 16);
+  return `versions/${id}`;
 }
 
 function stableStringify(value: unknown): string {

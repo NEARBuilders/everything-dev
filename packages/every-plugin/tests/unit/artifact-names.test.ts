@@ -38,6 +38,18 @@ describe("classifyBundlePath / cacheControlOf", () => {
       expect(cacheControlOf(name), name).toBe("public, max-age=0, must-revalidate");
     }
   });
+
+  it("serves everything under the version subtree immutable (#826)", () => {
+    for (const name of [
+      "versions/0123456789abcdef.json",
+      "versions/0123456789abcdef/138.js",
+      "versions/0123456789abcdef/__federation_expose_plugin.js",
+      "versions/0123456789abcdef/main.js",
+      "versions/0123456789abcdef/ssr/remoteEntry.server.js",
+    ]) {
+      expect(cacheControlOf(name), name).toBe("public, max-age=31536000, immutable");
+    }
+  });
 });
 
 describe("contentHashOf", () => {

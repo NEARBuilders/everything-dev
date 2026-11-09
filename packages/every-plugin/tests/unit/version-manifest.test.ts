@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { composeVersionManifest, WorkspaceVersionManifestSchema } from "../../src/version-manifest";
+import {
+  composeVersionManifest,
+  VERSION_DIR_PATTERN,
+  versionDirPath,
+  WorkspaceVersionManifestSchema,
+} from "../../src/version-manifest";
 
 describe("WorkspaceVersionManifestSchema", () => {
   it("parses the full document shape", () => {
@@ -176,5 +181,66 @@ describe("source archive field", () => {
         source: { file: "source/a.tar.gz", integrity: "md5-nope" },
       }),
     ).toThrow();
+  });
+});
+
+describe("version directory field (#826)", () => {
+  const base = { entry: "remoteEntry.8f3ac1d2.js", entryIntegrity: "sha384-aaa" };
+
+  it("parses a manifest that declares its immutable directory", () => {
+    const parsed = WorkspaceVersionManifestSchema.parse({
+      ...base,
+      version: "8f3ac1d2feedbeef",
+      dir: "versions/0123456789abcdef",
+    });
+    expect(parsed.dir).toBe("versions/0123456789abcdef");
+  });
+
+  it("rejects a dir outside versions/<16hex> and tolerates its absence", () => {
+    expect(() =>
+      WorkspaceVersionManifestSchema.parse({
+        version: "8f3ac1d2feedbeef",
+        entry: base.entry,
+        entryIntegrity: base.entryIntegrity,
+        dir: "bundles/0123456789abcdef",
+      }),
+    ).toThrow();
+    expect(() =>
+      WorkspaceVersionManifestSchema.parse({
+        version: "8f3ac1d2feedbeef",
+        entry: base.entry,
+        entryIntegrity: base.entryIntegrity,
+        dir: "versions/short",
+      }),
+    ).toThrow();
+    const legacy = WorkspaceVersionManifestSchema.parse({
+      version: "8f3ac1d2feedbeef",
+      entry: base.entry,
+      entryIntegrity: base.entryIntegrity,
+    });
+    expect(legacy.dir).toBeUndefined();
+  });
+
+  it("versionDirPath is content-addressed: same files any order → same dir", () => {
+    const a = versionDirPath({ "a.js": "sha384-aaa", "b.js": "sha384-bbb" });
+    const b = versionDirPath({ "b.js": "sha384-bbb", "a.js": "sha384-aaa" });
+    expect(a).toBe(b);
+    expect(a).toMatch(VERSION_DIR_PATTERN);
+    const changed = versionDirPath({ "a.js": "sha384-ccc", "b.js": "sha384-bbb" });
+    expect(changed).not.toBe(a);
+    const extra = versionDirPath({
+      "a.js": "sha384-aaa",
+      "b.js": "sha384-bbb",
+      "c.js": "sha384-ddd",
+    });
+    expect(extra).not.toBe(a);
+  });
+
+  it("dir participates in the version hash without circularity", () => {
+    const withoutDir = composeVersionManifest(base);
+    const withDir = composeVersionManifest({ ...base, dir: "versions/0123456789abcdef" });
+    expect(withDir.version).not.toBe(withoutDir.version);
+    const same = composeVersionManifest({ ...base, dir: "versions/0123456789abcdef" });
+    expect(same.version).toBe(withDir.version);
   });
 });

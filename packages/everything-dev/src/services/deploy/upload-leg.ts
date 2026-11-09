@@ -1,6 +1,7 @@
 import { readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { SourceRef } from "every-plugin/version-manifest";
+import { versionDirPath } from "every-plugin/version-manifest";
 import { diffWorkspaceFiles, localSriMap, mergedFileIntegrity, type PreviousPin } from "./diff";
 import { buildSourceArchive, makeSourceArchiveTempDir } from "./source-archive";
 import {
@@ -61,6 +62,9 @@ interface DiffUploadOutcome {
   result: BundleUploadResult;
   /** per-file SRI map covering the whole dist (uploaded → server SRI, skipped → previous manifest SRI) */
   fileIntegrity: Record<string, string>;
+  /** the previous pin's immutable version directory (`versions/<dirId>`),
+   * when the previous manifest resolved and declared one (#826) */
+  previousDir?: string;
   uploaded: number;
   skipped: number;
   total: number;
@@ -85,6 +89,7 @@ async function diffUploadWorkspace(
   const localSri = localSriMap(input.files);
   let uploadFiles = input.files;
   let prevFiles: Record<string, string> | undefined;
+  let previousDir: string | undefined;
   if (input.previousDigest) {
     try {
       const resolved = await deps.resolveRemoteVersion({
@@ -94,6 +99,7 @@ async function diffUploadWorkspace(
       if (resolved.files) {
         const diff = diffWorkspaceFiles(input.files, localSri, resolved.files);
         prevFiles = resolved.files;
+        previousDir = resolved.dir;
         uploadFiles = diff.upload;
         if (diff.skipped > 0) {
           input.notes.push(`${diff.skipped} unchanged file(s) — skipping (manifest diff)`);
@@ -121,6 +127,7 @@ async function diffUploadWorkspace(
   return {
     result,
     fileIntegrity: mergedFileIntegrity(input.files, result.integrity, prevFiles),
+    ...(previousDir ? { previousDir } : {}),
     uploaded: result.stored,
     skipped: input.files.length - uploadFiles.length,
     total: input.files.length,
@@ -143,6 +150,8 @@ async function pinWorkspaceVersionManifest(
     ssrReport: ReturnType<typeof readBuildReport>;
     integrityMap: Record<string, string>;
     files?: Record<string, string>;
+    /** slot-relative immutable version directory the coordinates live in (#826) */
+    dir?: string;
     source?: SourceRef;
     gitSha?: string;
     notes: string[];
@@ -154,6 +163,7 @@ async function pinWorkspaceVersionManifest(
     ssrReport: input.ssrReport,
     integrityMap: input.integrityMap,
     ...(input.files ? { files: input.files } : {}),
+    ...(input.dir ? { dir: input.dir } : {}),
     ...(input.source ? { source: input.source } : {}),
     ...(input.gitSha ? { gitSha: input.gitSha } : {}),
   });
@@ -320,6 +330,33 @@ export async function uploadWorkspaceBundle(
       ? outcome.fileIntegrity[`ssr/${ssrReport.entry}`]
       : undefined;
 
+    // Version directory (#826): byte-immutable copies of the whole dist at
+    // `versions/<dirId>/…`, so pins resolve forever even as later deploys
+    // overwrite the fixed-name files at the slot root. dirId is content-
+    // addressed over the dist's file map — an unchanged dist lands in the
+    // same directory, and a previous pin already carrying that directory
+    // means every key exists with identical bytes.
+    const dirPath = versionDirPath(outcome.fileIntegrity);
+    if (outcome.result.storage !== "memory") {
+      if (outcome.previousDir === dirPath) {
+        notes.push(`version dir ${dirPath} unchanged — skipping`);
+      } else {
+        notes.push(`version dir ${dirPath} (${distFiles.length} files, immutable)`);
+        const dirResult = await deps.uploadWorkspaceDist({
+          origin: input.storageOrigin,
+          apiKey: input.storageApiKey,
+          account: input.account,
+          gateway: input.gateway,
+          workspace: input.workspaceKey,
+          files: distFiles.map((file) => ({
+            path: `${dirPath}/${file.path}`,
+            bytes: file.bytes,
+          })),
+        });
+        if (dirResult.storage === "memory") return { kind: "memory" };
+      }
+    }
+
     let sourceRef: SourceRef | undefined;
     if (input.source) {
       if (outcome.result.storage === "memory") {
@@ -353,6 +390,7 @@ export async function uploadWorkspaceBundle(
       ssrReport,
       integrityMap: outcome.fileIntegrity,
       files: outcome.fileIntegrity,
+      dir: dirPath,
       ...(sourceRef ? { source: sourceRef } : {}),
       ...(input.gitSha ? { gitSha: input.gitSha } : {}),
       notes,

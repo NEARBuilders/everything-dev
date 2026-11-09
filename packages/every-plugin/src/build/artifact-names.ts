@@ -34,13 +34,16 @@ export function uiEntryFilename(input: { isBuild: boolean; server?: boolean }): 
 const HASH_SEGMENT_PATTERN = /\.[a-f0-9]{8,}\./;
 
 /**
- * Serving classification for bundle objects: anything whose name carries a
- * content-hash segment (including hashed entrypoints like
- * `remoteEntry.8f3a….js`) is immutable by construction; fixed-name
- * entrypoints and non-hashed files a redeploy replaces in place must
- * revalidate.
+ * Serving classification for bundle objects: anything under a version
+ * directory (`versions/<dirId>/…`, #826) or a `versions/<id>.json` manifest
+ * is immutable by construction — the directory name is content-addressed and
+ * the upload service refuses conflicting writes under `versions/`; likewise
+ * any name carrying a content-hash segment (including hashed entrypoints
+ * like `remoteEntry.8f3a….js`). Fixed-name entrypoints and non-hashed files
+ * a redeploy replaces in place must revalidate.
  */
 export function isImmutableBundlePath(name: string): boolean {
+  if (name === "versions" || name.startsWith("versions/")) return true;
   const base = name.split("/").pop() ?? name;
   return HASH_SEGMENT_PATTERN.test(base);
 }

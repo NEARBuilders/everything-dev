@@ -126,4 +126,25 @@ describe("composeWorkspaceVersionManifest", () => {
     });
     expect(manifest.shared).toBeUndefined();
   });
+
+  it("threads the version directory into the manifest and the version hash (#826)", () => {
+    const base = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+    });
+    expect(base.dir).toBeUndefined();
+    const manifest = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+      dir: "versions/0123456789abcdef",
+    });
+    expect(manifest.dir).toBe("versions/0123456789abcdef");
+    expect(manifest.version).not.toBe(base.version);
+    const same = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+      dir: "versions/0123456789abcdef",
+    });
+    expect(same.version).toBe(manifest.version);
+  });
 });
