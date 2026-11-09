@@ -54,6 +54,31 @@ function assertWorkspaceDtsDependencies() {
 }
 assertWorkspaceDtsDependencies();
 
+/**
+ * Every exports subpath advertising dist types must resolve to a file this
+ * build emits. Chunk emission (an entry importing the source) produces JS
+ * without declarations, so a source missing from the entry list ships a types
+ * path that does not exist and every consumer's tsc fails with TS7016 (#839).
+ */
+function assertExportsDistTypesExist() {
+  const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf-8")) as {
+    exports?: Record<string, unknown>;
+  };
+  const missing: string[] = [];
+  for (const [subpath, entry] of Object.entries(manifest.exports ?? {})) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const types = (entry as Record<string, unknown>).types;
+    if (typeof types !== "string") continue;
+    if (types.startsWith("./src/") || types.startsWith("src/")) continue;
+    if (!existsSync(join(import.meta.dirname, types))) missing.push(`${subpath} → ${types}`);
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `exports map points at missing dist types — add the sources to the tsdown entry list:\n  ${missing.join("\n  ")}`,
+    );
+  }
+}
+
 export default defineConfig({
   entry: [
     "src/index.ts",
@@ -69,6 +94,8 @@ export default defineConfig({
     "src/services/deploy/version-manifest.ts",
     "src/services/version/status.ts",
     "src/services/registry/fastkv.ts",
+    "src/services/snapshot/schema.ts",
+    "src/services/lockfile/schema.ts",
     "src/contract.meta.ts",
     "src/db/index.ts",
     "src/services/federation/service.ts",
@@ -96,6 +123,7 @@ export default defineConfig({
     "src/ui/router-defaults.tsx",
     "src/ui/router-error.tsx",
     "src/ui/manifest/index.ts",
+    "src/ui/compose.ts",
     "src/ui/manifest-generator.ts",
     "src/services/hosting/adapter.ts",
     "src/services/hosting/docker.ts",
@@ -148,6 +176,7 @@ export default defineConfig({
     ],
   },
   async onSuccess() {
+    assertExportsDistTypesExist();
     const authDts = await readFile(join("dist", "ui", "auth.d.mts"), "utf-8").catch(() => "");
     if (/declare function createAuthClient\(.*\): any;/.test(authDts)) {
       throw new Error(
