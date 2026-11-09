@@ -19,18 +19,28 @@ import (
 // dist/ssr/remoteEntry.server.js — a running dev stack then loses its SSR
 // container (the poll URL 404s until the dev-shape build runs again).
 //
+// The invocation goes through the package's real executable entry
+// (bin/every-plugin.mjs, with EVERY_PLUGIN_TSX=1 so it runs the TS source
+// through tsx — the dev stack's source-first resolution). src/cli.ts is a
+// library module with no argv handling: invoking it directly imports the
+// module and exits 0 without building anything — a silent no-op this
+// fixture once shipped, invisible until the swap test asserted rendered
+// content (the mtime restamp below alone advanced the container version).
+//
 // This is the churn primitive for module-swap tests: the rebuild rewrites
-// dist bytes in place (new hashed chunk names, new container mtime) while the
-// stack keeps running.
+// dist bytes in place (new hashed chunk names, new container mtime) while
+// the stack keeps running.
 func DevShapeRebuildUi(t *testing.T) {
 	t.Helper()
+	rebuildStartedAt := time.Now()
 	cmd := exec.Command("node", "--import", "tsx", "--conditions=development",
-		filepath.Join(RepoRoot(), "packages", "every-plugin", "src", "cli.ts"), "build")
+		filepath.Join(RepoRoot(), "packages", "every-plugin", "bin", "every-plugin.mjs"), "build")
 	// every-plugin resolves from the ui workspace so its build targets ui.
 	cmd.Dir = filepath.Join(RepoRoot(), "ui")
 	cmd.Env = append(os.Environ(),
 		"BOS_DEV_SERVER=1",
 		"BOS_SSR=1",
+		"EVERY_PLUGIN_TSX=1",
 	)
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -38,6 +48,12 @@ func DevShapeRebuildUi(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("dev-shape ui rebuild failed: %v\n%s", err, tailString(out.String(), 4000))
 	}
+	if elapsed := time.Since(rebuildStartedAt); elapsed < 5*time.Second {
+		t.Fatalf("dev-shape ui rebuild completed in %s — a real rsbuild build takes ~10-30s; "+
+			"the invocation must have been a silent no-op (build log tail below)\n%s",
+			elapsed.Round(time.Millisecond), tailString(out.String(), 4000))
+	}
+	t.Logf("dev-shape ui rebuild took %s", time.Since(rebuildStartedAt).Round(time.Millisecond))
 
 	// A content-only churn of a lazy route chunk leaves the container
 	// bootstrap (remoteEntry.server.js) byte-identical, and rsbuild then
