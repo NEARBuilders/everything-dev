@@ -62,8 +62,8 @@ describe("verifyPublishedPins", () => {
     const dir = `versions/${dirId}`;
     const objects: Record<string, string> = {
       "/bundles/a.test/gw.test/auth/versions/8f3ac1d2feedbeef.json": manifestDoc(files, dir),
-      ["/bundles/a.test/gw.test/auth/" + dir + "/remoteEntry.8f3a.js"]: entry,
-      ["/bundles/a.test/gw.test/auth/" + dir + "/__federation_expose_plugin.js"]: chunk,
+      [`/bundles/a.test/gw.test/auth/${dir}/remoteEntry.8f3a.js`]: entry,
+      [`/bundles/a.test/gw.test/auth/${dir}/__federation_expose_plugin.js`]: chunk,
     };
     const report: VerifyReport = await verifyPublishedPins({
       config: configWithPin(
@@ -86,9 +86,9 @@ describe("verifyPublishedPins", () => {
     const dir = `versions/${dirId}`;
     const objects: Record<string, string> = {
       "/bundles/a.test/gw.test/auth/versions/8f3ac1d2feedbeef.json": manifestDoc(files, dir),
-      ["/bundles/a.test/gw.test/auth/" + dir + "/remoteEntry.8f3a.js"]: entry,
+      [`/bundles/a.test/gw.test/auth/${dir}/remoteEntry.8f3a.js`]: entry,
       // the parent republished: the expose chunk is now DIFFERENT bytes
-      ["/bundles/a.test/gw.test/auth/" + dir + "/__federation_expose_plugin.js"]:
+      [`/bundles/a.test/gw.test/auth/${dir}/__federation_expose_plugin.js`]:
         "console.log('parent overwrote this');",
     };
     const report = await verifyPublishedPins({
