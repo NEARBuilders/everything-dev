@@ -33,16 +33,30 @@ describe("pglite double-open guard (ADR 0044)", () => {
   });
 
   it("normalizes relative and absolute spellings to the same guard key", async () => {
+    // Isolated tmp dir: a real pglite data dir used to live under the
+    // workspace's shared `.bos/db/guard-probe`, and its close-checkpoint
+    // raced the cleanup rm into cross-file ENOENT suite-deaths. Relative
+    // spelling resolves against cwd, so the test chdirs into its own tmp
+    // dir (the default forks pool isolates per file) and restores it; the
+    // workspace tree is never touched.
+    const dir = tempDir("everything-dev-pglite-guard-spelling-");
+    const previousCwd = process.cwd();
+    process.chdir(dir);
+    // Built from process.cwd() AFTER the chdir — cwd is realpath'd, and the
+    // guard key is resolve()-based, so both spellings must share the same
+    // real path (macOS /var → /private/var would otherwise fork the keys).
     const probeDir = join(process.cwd(), ".bos", "db", "guard-probe");
-    cleanups.push(() => rmSync(probeDir, { recursive: true, force: true }));
-
-    const first = await createDatabaseDriver("pglite:.bos/db/guard-probe", {}, undefined);
     try {
-      await expect(
-        createDatabaseDriver(`pglite:file://${probeDir}`, {}, undefined),
-      ).rejects.toThrow(/already open in this process/);
+      const first = await createDatabaseDriver("pglite:.bos/db/guard-probe", {}, undefined);
+      try {
+        await expect(
+          createDatabaseDriver(`pglite:file://${probeDir}`, {}, undefined),
+        ).rejects.toThrow(/already open in this process/);
+      } finally {
+        await first.close();
+      }
     } finally {
-      await first.close();
+      process.chdir(previousCwd);
     }
   });
 

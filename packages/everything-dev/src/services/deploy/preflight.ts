@@ -152,6 +152,11 @@ export type FrameworkPublishWait = { kind: "ok" } | { kind: "error"; error: stri
 
 const DEFAULT_PUBLISH_WAIT = { intervalMs: 15_000, budgetMs: 15 * 60_000 };
 
+const envMs = (name: string): number | undefined => {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+};
+
 /**
  * Waits out the Deploy/Release race on version-bump merges: both trains
  * trigger on the same push, and the Release workflow needs minutes to
@@ -165,8 +170,13 @@ export async function waitForFrameworkPackages(
   configDir: string,
   options: FrameworkPublishWaitOptions = {},
 ): Promise<FrameworkPublishWait> {
-  const intervalMs = options.intervalMs ?? DEFAULT_PUBLISH_WAIT.intervalMs;
-  const budgetMs = options.budgetMs ?? DEFAULT_PUBLISH_WAIT.budgetMs;
+  // Env overrides (mirroring the confirm loop's knobs) — the vitest setup
+  // pins the interval to milliseconds so train suites don't burn a 15s poll
+  // per test; production reads the defaults.
+  const intervalMs =
+    options.intervalMs ?? envMs("BOS_PUBLISH_WAIT_INTERVAL_MS") ?? DEFAULT_PUBLISH_WAIT.intervalMs;
+  const budgetMs =
+    options.budgetMs ?? envMs("BOS_PUBLISH_WAIT_BUDGET_MS") ?? DEFAULT_PUBLISH_WAIT.budgetMs;
   const sleep =
     options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const now = options.now ?? Date.now;

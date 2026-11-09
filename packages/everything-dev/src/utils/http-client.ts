@@ -46,7 +46,13 @@ type FetchImpl = typeof globalThis.fetch;
 // --- Helpers ---
 
 const isRetryable = (error: FetchError): boolean => {
-  if (error instanceof FetchNetworkError) return true;
+  if (error instanceof FetchNetworkError) {
+    // Genuine network failures retry — undici rejects fetch with TypeError —
+    // while deliberate rejections (the hermetic test guard's plain Error)
+    // fail fast: retrying those added ~7-15s of backoff to every blocked
+    // call in every train test.
+    return error.cause instanceof TypeError;
+  }
   if (error instanceof FetchTimeoutError) return true;
   if (error instanceof FetchHttpError) return error.status >= 500;
   return false;

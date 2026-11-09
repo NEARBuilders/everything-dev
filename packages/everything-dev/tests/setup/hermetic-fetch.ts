@@ -9,6 +9,16 @@
  * injected `fetch` parameter — and are unaffected.
  */
 
+// Real-timer knobs (T1 speed, docs/agents/testing.md): the deploy train's
+// wait loops default to production poll intervals — the preflight npm gate
+// sleeps 15s between rounds and the confirm loop 3s — and the train suites
+// burned minutes per file waiting them out. Millisecond polls here; failing
+// tests still fail on their own assertions, not on these budgets. Suites
+// that need specific windows set their own envs (they override these).
+process.env.BOS_PUBLISH_WAIT_INTERVAL_MS ??= "10";
+process.env.BOS_PUBLISH_WAIT_BUDGET_MS ??= "5000";
+process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS ??= "10";
+
 const realFetch = globalThis.fetch;
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);

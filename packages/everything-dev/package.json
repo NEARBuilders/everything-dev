@@ -439,6 +439,8 @@
     "dev": "echo 'Source exports - no build needed'",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "test:structure": "vitest run tests/integration/init.structure.test.ts",
     "test:full": "CI=true vitest run tests/integration/init.full.test.ts --testTimeout=120000"
