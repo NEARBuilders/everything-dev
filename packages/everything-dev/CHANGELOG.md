@@ -1,5 +1,100 @@
 # everything-dev
 
+## 2.0.0-rc.40
+
+### Minor Changes
+
+- 1b0feda: Per-workspace migration journals (ADR 0045) — the journal's identity follows the workspace's identity, the same rule the data model already follows.
+
+  `getMigrationStorage` now resolves `drizzle.__drizzle_migrations_<slug>` by default (the planned phase-2 flag flip). "Every row in my journal is mine" holds by construction, which makes #805's ahead-of-build guard sound again: unknown rows in a workspace's own journal genuinely mean a newer build migrated that database, and boot fails closed with the hashes, timestamps, and remediation (`BOS_ALLOW_SCHEMA_AHEAD=1` allows once). With the shared journal the guard could not work — rows carried no workspace attribution, so every shared-DB workspace saw its siblings' rows and refused boot (the outage the previous patch mitigated by downgrading the guard to advisory).
+
+  - **Boot adoption**: on first boot with an empty per-workspace journal, the runner copies this workspace's known hashes out of the legacy shared journal under the workspace's advisory lock — attribution by construction, idempotent, duplicate-DDL tolerant. The legacy table is never modified, so pre-ADR rollbacks keep working (old builds read the legacy journal and apply nothing).
+  - **Workspace-scoped advisory locks**: the migration runner and the driver's `CREATE SCHEMA` guard serialize on `<journal-schema>.<journal-table>` for the workspace's own journal — cross-workspace boots no longer contend (disjoint schemas; the ADR 0019 catalog race needs same-name objects), same-workspace concurrency still serializes.
+  - **Zero interface change**: `databaseLayer(tag, url, { pluginId, schema, migrations, namespace })` is untouched; drizzle-kit configs, Studio, and CLI bindings already routed through the journal resolver and follow automatically. `{ isolated: false }` remains an explicit override to the legacy shared coords.
+  - Journal `created_at` is coerced at the read seam (node-postgres delivers bigint as a string; `new Date("1730…").toISOString()` was the `RangeError` that turned the guard's clean failure into `unknown failure`).
+
+### Patch Changes
+
+- d30ae8f: Auth production-safety family (#803/#804/#805):
+
+  - **Fail closed in production when `AUTH_DATABASE_URL` is unset.** The auth
+    plugin's secrets schema no longer silently defaults a deployed host to a
+    fresh, empty PGlite data dir — production boots without the URL now refuse
+    with an error naming the variable and the fix. The zero-config default
+    stays for local dev; `AUTH_ALLOW_PGLITE_DEFAULT=1` accepts it deliberately.
+  - **Fail closed when the shared auth DB's migration journal is ahead of the
+    plugin's known set.** `runMigrations` compares the journal against the
+    build's known hashes before migrating: unknown rows (a newer plugin build
+    migrated this DB) fail the boot with the unknown hashes, timestamps, and
+    remediation instead of silently writing on top of an unseen schema.
+    `BOS_ALLOW_SCHEMA_AHEAD=1` permits a deliberate rollout.
+  - Preflight no longer recommends clearing `AUTH_DATABASE_URL` without a
+    production caveat.
+
+- cb8710a: The auth plugin derives `isProduction` from the served origin's protocol
+  (`https:` ⇒ production) instead of `NODE_ENV` (#635): the published bundle
+  bakes `NODE_ENV` at build time, so localhost ran with production cookie
+  settings — secure cookies plus the 5-minute cookie cache — and sessions
+  silently dropped on plain http after about five minutes. Production behavior
+  is unchanged.
+- 32df683: Boot snapshots now stage for extends-chain children (#800): the authored
+  `app.<plugin>.ui` descriptor's `name` is optional, matching the release-scoped
+  stamper's canonical `{ production, digest }` form — the schema requirement was
+  silenty disabling snapshot staging for every child inheriting platform auth
+  (the stage failure surfaced as a dim `Note:` while deploys "succeeded" with no
+  staged generation). Resolution never consumed the authored name (the runtime
+  container name derives from the plugin workspace), so nothing downstream
+  changes. A deterministic staging failure now also prints as a yellow warning
+  naming the consequence ("restarts will resolve from the live registry")
+  instead of a dim note.
+- a580ea5: Contract/error-surface fixes (#678, #798): the auth `getContext` contract now
+  declares the host-injected `nearAccountId` (nullable, optional), so plugin
+  ContextSchemas derived from the contract see it without a local widening and
+  output validation doesn't strip it; and `unwrapDatabaseError` stringifies
+  non-Error causes without ever throwing — a null-prototype cause (a rewrapped
+  fiber failure) used to raise `TypeError: Cannot convert object to primitive
+value` from the message getter, masking the real database error everywhere it
+  was read.
+- c061bb7: Interactive `bos deploy` bundle-upload resolution (#666): the upload origin now
+  defaults to the platform upload service (`https://upload.everything.dev`) when
+  the effective CDN is the platform CDN, instead of reusing the `bos login`
+  session's app-site URL (which 404s uploads after a full build). The preflight
+  probe distinguishes an app host from the upload service via the guarded
+  `POST /api/storage/bundles` route and fails fast with the fix. Local/private
+  origins (test harnesses, deliberate local stacks) skip the upload-route probe.
+- 1b0feda: Fix the production plugin-boot outage from the #811 ahead-of-build journal guard: every shared-DB workspace (api + all plugins falling back to `API_DATABASE_URL`) failed to load with `unknown failure` on every boot.
+
+  **Root cause (two stacked bugs):**
+
+  1. The guard treated any `drizzle.__drizzle_migrations` row the build doesn't know as "a newer build migrated this DB" and failed boot. But the journal is intentionally shared by every workspace on one database (data tables are `plugin_<slug>`-schema isolated; the journal is not), and journal rows carry no workspace attribution — so sibling plugins' rows always look "unknown", and the guard fired 100% of the time for every shared workspace. auth (dedicated DB) and the non-DB plugins were the only survivors.
+  2. The guard's error formatter crashed before it could fail cleanly: journal `created_at` is `bigint`, node-postgres delivers int8 as a **string**, and `new Date("1730...").toISOString()` throws `RangeError: Invalid time value` — the "unknown failure" every plugin surfaced. Dev never caught it because pglite typing differs.
+
+  **Fix:** `readJournalRowsIn` now coerces `created_at` at the read seam (string/number → finite number, else `null`), and the unknown-row check is **advisory** (logged warning with hashes + timestamps, boot proceeds) until per-workspace journals land and the check becomes sound. `BOS_ALLOW_SCHEMA_AHEAD` is removed — it shipped with #811 and has no meaning under the advisory check.
+
+- 262fd23: Rate-limit hardening for the signed-out symptom (#634): `GET
+/api/auth/get-session` is exempt from the general `/api/*` bucket — a 429 on
+  the session read is what made the UI present "signed out" — while the
+  mutation tier is unchanged. `docs/self-deploy.md` documents `RATE_LIMIT_MAX`
+  / `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MUTATION_MAX` as instance tunables.
+  (The limit raise to 2000 and trusted-proxy keying already shipped; the
+  client-side false-empty flashes are #683.)
+- e0d2aef: Router pending defaults (#683, trivial slice): the default pending boundary
+  renders a spinner instead of bare "Loading..." text, and `defaultPendingMs`
+  drops to 100ms (from the router's 1000ms default) on both the client and SSR
+  routers — cold authed navigations no longer sit blank for up to a second, and
+  children no longer need to re-declare `pendingMs` + `pendingComponent` per
+  layout. The session-cache unification (double fetch, false-empty flashes)
+  remains a separate design discussion under #683.
+- b470469: Template/upgrade script hygiene (#799, #802): the child root `test` script's
+  plugins loop is guarded with `[ -d plugins ]` (matching the typecheck script),
+  so plugin-less children no longer exit 1 with all suites green; and `bos
+upgrade` retires the dead `dev:postgres` / `dev:postgres:down` /
+  `dev:postgres:reset` scripts left in children scaffolded before ADR 0038
+  retired docker-compose.
+- Updated dependencies [b4f2821]
+- Updated dependencies [6084c5b]
+  - better-near-auth@2.0.0-rc.8
+
 ## 2.0.0-rc.39
 
 ### Minor Changes
