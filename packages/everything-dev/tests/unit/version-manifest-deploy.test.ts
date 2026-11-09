@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { composeWorkspaceVersionManifest } from "../../src/services/deploy/version-manifest";
+import {
+  composeWorkspaceVersionManifest,
+  resolveRemoteVersion,
+} from "../../src/services/deploy/version-manifest";
 
 const webReport = {
   entry: "remoteEntry.cf712c39e56dc37f.js",
@@ -146,5 +150,57 @@ describe("composeWorkspaceVersionManifest", () => {
       dir: "versions/0123456789abcdef",
     });
     expect(same.version).toBe(manifest.version);
+  });
+});
+
+describe("resolveRemoteVersion — version directory resolution (#826)", () => {
+  const base = "https://cdn.test/bundles/a.test/gw.test/ui/";
+  const manifestBody = JSON.stringify({
+    version: "8f3ac1d2feedbeef",
+    entry: "remoteEntry.83ba437f70018e7d.js",
+    entryIntegrity: "sha384-entry",
+    dir: "versions/0123456789abcdef",
+    files: { "manifest.gen.json": "sha384-compose" },
+  });
+  const digest = {
+    manifest: "versions/8f3ac1d2feedbeef.json",
+    integrity: `sha384-${createHash("sha384").update(manifestBody).digest("base64")}`,
+  };
+
+  it("resolves artifact coordinates through the version directory and exposes base + dir", async () => {
+    const fetchImpl = async (input: string | URL | Request): Promise<Response> => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return url.endsWith("versions/8f3ac1d2feedbeef.json")
+        ? new Response(manifestBody, { status: 200 })
+        : new Response("not found", { status: 404 });
+    };
+    const resolved = await resolveRemoteVersion({ base, digest, fetchImpl });
+    expect(resolved.base).toBe(base.replace(/\/$/, ""));
+    expect(resolved.dir).toBe("versions/0123456789abcdef");
+    expect(resolved.entryUrl).toBe(
+      `${base}versions/0123456789abcdef/remoteEntry.83ba437f70018e7d.js`,
+    );
+  });
+
+  it("a legacy manifest (no dir) resolves against the slot root", async () => {
+    const legacy = JSON.stringify({
+      version: "8f3ac1d2feedbeef",
+      entry: "remoteEntry.83ba437f70018e7d.js",
+      entryIntegrity: "sha384-entry",
+      files: { "manifest.gen.json": "sha384-compose" },
+    });
+    const legacyDigest = {
+      manifest: "versions/8f3ac1d2feedbeef.json",
+      integrity: `sha384-${createHash("sha384").update(legacy).digest("base64")}`,
+    };
+    const fetchImpl = async (input: string | URL | Request): Promise<Response> => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return url.endsWith("versions/8f3ac1d2feedbeef.json")
+        ? new Response(legacy, { status: 200 })
+        : new Response("not found", { status: 404 });
+    };
+    const resolved = await resolveRemoteVersion({ base, digest: legacyDigest, fetchImpl });
+    expect(resolved.dir).toBeUndefined();
+    expect(resolved.entryUrl).toBe(`${base}remoteEntry.83ba437f70018e7d.js`);
   });
 });

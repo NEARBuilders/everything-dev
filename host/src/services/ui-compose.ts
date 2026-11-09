@@ -116,7 +116,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
       manifestUrl:
         config.ui.source === "local"
           ? undefined
-          : `${config.ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`,
+          : (config.ui.manifestUrl ?? `${config.ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`),
       manifestIntegrity: config.ui.manifestIntegrity,
       browserManifestUrl: coreUrls.browserManifest,
       uiEntry: coreUrls.ui,
@@ -146,7 +146,11 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
       localRoot: ui.localPath ? resolveLocalRoot(ui.localPath) : undefined,
       // Remote sources publish their manifest at a known URL; local remotes are
       // read straight from the workspace (src/manifest.gen.json) — no URL.
-      manifestUrl: ui.url ? `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}` : undefined,
+      // Pinned remotes resolve it through the immutable version directory
+      // (#826); the slot-root fixed name is the legacy fallback.
+      manifestUrl: ui.url
+        ? (ui.manifestUrl ?? `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`)
+        : undefined,
       manifestIntegrity: ui.manifestIntegrity,
       browserManifestUrl: urls.browserManifest,
       uiEntry: urls.ui,

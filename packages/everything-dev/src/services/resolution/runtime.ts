@@ -404,6 +404,13 @@ async function deriveVersionManifestFields(
     ui.ssrEntryUrl = r.ssrEntryUrl;
     ui.ssrIntegrity = r.ssrIntegrity ?? ui.ssrIntegrity;
     ui.manifestIntegrity = r.files?.[MANIFEST_FILENAME] ?? ui.manifestIntegrity;
+    // The compose manifest rides the pin's immutable version directory (#826)
+    // — reading the fixed name at the mutable slot root re-introduces the
+    // generation skew the parity check exists to catch. Legacy pins (no dir)
+    // leave it unset: the compose falls back to the slot root.
+    if (r.dir) {
+      ui.manifestUrl = `${r.base.replace(/\/$/, "")}/${r.dir}/${MANIFEST_FILENAME}`;
+    }
     ui.sharedVersions = r.sharedVersions;
   };
 

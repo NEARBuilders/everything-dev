@@ -92,6 +92,8 @@ export function composeWorkspaceVersionManifest(input: {
  */
 
 export interface ResolvedRemoteVersion {
+  /** The remote's production base (slot root — unprefixed by the version dir). */
+  base: string;
   /** Absolute URL of the content-hashed container entry. */
   entryUrl: string;
   entryIntegrity: string;
@@ -137,6 +139,7 @@ function remoteVersionFromManifest(
   const fileBase =
     manifest.dir && !options?.ignoreDir ? `${trimmedBase}/${manifest.dir}` : trimmedBase;
   return {
+    base: trimmedBase,
     entryUrl: `${fileBase}/${manifest.entry}`,
     entryIntegrity: manifest.entryIntegrity,
     ...(manifest.dir ? { dir: manifest.dir } : {}),
