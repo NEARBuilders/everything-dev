@@ -28,8 +28,5 @@ export function pinFor(
 export const versionManifestFetcher: (routes: Record<string, string>) => typeof fetch = (routes) =>
   (async (input: Parameters<typeof fetch>[0]) => {
     const text = routes[String(input)];
-    if (!text) {
-      return { ok: false, status: 404, text: async () => "" } as unknown as Response;
-    }
-    return { ok: true, status: 200, text: async () => text } as unknown as Response;
+    return new Response(text ?? "", { status: text === undefined ? 404 : 200 });
   }) as typeof fetch;

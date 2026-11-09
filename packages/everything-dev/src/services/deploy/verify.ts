@@ -1,10 +1,14 @@
-import { createHash } from "node:crypto";
-import { WorkspaceVersionManifestSchema } from "every-plugin/version-manifest";
+import {
+  type WorkspaceVersionManifest,
+  WorkspaceVersionManifestSchema,
+} from "every-plugin/version-manifest";
+import { ZodError } from "zod";
 import type { BosConfigInput } from "../../types";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { parseRuntimeRef } from "../registry/keys";
 import { readManifestTag } from "../registry/pointer";
-import { computeManifestSri, manifestDocumentUrl } from "./manifest-verify";
+import { asDigest, fetchVerified, isVerifyError, verifyDocument } from "../verify/engine";
+import { manifestDocumentUrl } from "./manifest-verify";
 import { collectRemoteDescriptors, type RemoteDescriptor } from "./rollback";
 
 /**
@@ -40,11 +44,24 @@ export interface VerifyReport {
   remotes: VerifyRemoteResult[];
 }
 
-const sha384Of = (bytes: Uint8Array): string =>
-  `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
-
 const fileBaseOf = (base: string, dir: string | undefined): string =>
   dir ? `${base.replace(/\/$/, "")}/${dir}` : base.replace(/\/$/, "");
+
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+const manifestLegReason = (error: unknown): string => {
+  if (!isVerifyError(error)) return messageOf(error);
+  if (error._tag === "IntegrityMismatch") {
+    return `manifest SRI mismatch — pin ${error.expected}, served ${error.actual}`;
+  }
+  if (error._tag === "ProvenanceUnknown") {
+    if (error.cause instanceof ZodError) return `manifest schema: ${error.cause.message}`;
+    if (error.status !== undefined) return `manifest GET ${error.status}`;
+    return `manifest fetch failed: ${messageOf(error.cause)}`;
+  }
+  return `manifest signature: ${error.reason}`;
+};
 
 const VERIFY_CONCURRENCY = 8;
 
@@ -64,30 +81,17 @@ async function verifyRemotePin(
     mismatches: [],
   };
 
-  let text: string;
+  let manifest: WorkspaceVersionManifest;
   try {
-    const response = await fetchImpl(manifestUrl);
-    if (!response.ok) {
-      result.manifestReason = `manifest GET ${response.status}`;
-      return result;
-    }
-    text = await response.text();
+    manifest = await verifyDocument({
+      url: manifestUrl,
+      expected: asDigest(descriptor.digest.integrity),
+      schema: WorkspaceVersionManifestSchema,
+      fetchImpl,
+      cache: false,
+    });
   } catch (error) {
-    result.manifestReason = `manifest fetch failed: ${error instanceof Error ? error.message : String(error)}`;
-    return result;
-  }
-
-  const integrity = computeManifestSri(text);
-  if (integrity !== descriptor.digest.integrity) {
-    result.manifestReason = `manifest SRI mismatch — pin ${descriptor.digest.integrity}, served ${integrity}`;
-    return result;
-  }
-
-  let manifest: ReturnType<typeof WorkspaceVersionManifestSchema.parse>;
-  try {
-    manifest = WorkspaceVersionManifestSchema.parse(JSON.parse(text));
-  } catch (error) {
-    result.manifestReason = `manifest schema: ${error instanceof Error ? error.message : String(error)}`;
+    result.manifestReason = manifestLegReason(error);
     return result;
   }
 
@@ -103,18 +107,28 @@ async function verifyRemotePin(
 
   const check = async ([path, expected]: [string, string]): Promise<VerifyFileMismatch | null> => {
     try {
-      const response = await fetchImpl(`${fileBase}/${path}`);
-      if (!response.ok) {
-        return { file: path, expected, error: `GET ${response.status}` };
-      }
-      const actual = sha384Of(new Uint8Array(await response.arrayBuffer()));
-      return actual === expected ? null : { file: path, expected, actual };
+      await fetchVerified({
+        url: `${fileBase}/${path}`,
+        expected: asDigest(expected),
+        fetchImpl,
+        cache: false,
+      });
+      return null;
     } catch (error) {
-      return {
-        file: path,
-        expected,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      if (isVerifyError(error)) {
+        if (error._tag === "IntegrityMismatch") {
+          return { file: path, expected, actual: error.actual };
+        }
+        if (error._tag === "ProvenanceUnknown") {
+          return {
+            file: path,
+            expected,
+            error: error.status !== undefined ? `GET ${error.status}` : messageOf(error.cause),
+          };
+        }
+        return { file: path, expected, error: error.reason };
+      }
+      return { file: path, expected, error: messageOf(error) };
     }
   };
 

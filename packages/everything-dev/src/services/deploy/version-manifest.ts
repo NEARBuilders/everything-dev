@@ -8,7 +8,14 @@ import {
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
 import { bundleUrlToStagedPath, resolveContained } from "../resolution/resolver";
-import { fetchVerifiedManifest, manifestDocumentUrl } from "./manifest-verify";
+import {
+  asDigest,
+  clearVerifiedCache,
+  mark,
+  type Verified,
+  verifyDocument,
+} from "../verify/engine";
+import { manifestDocumentUrl, reasonOf } from "./manifest-verify";
 
 /** Read a workspace dist's build-report.json (ticket 01's entry-name report). */
 export function readBuildReport(distRoot: string): BuildEntryReport | null {
@@ -84,11 +91,10 @@ export function composeWorkspaceVersionManifest(input: {
 /**
  * Version-manifest resolution (atomic-deploys 04): a config remote's
  * `pin` ({ manifest, integrity }) resolves to the derived entry-level fields
- * every consumer needs. The cache is keyed by the full pin — the pinned
- * bytes are immutable, so a verified entry is cached for the process
- * lifetime and serves as last-known-good if the origin later fails; a fetch
- * or SRI failure with nothing cached propagates (a boot-time resolution
- * failure fails the deploy, which is the platform's rollback).
+ * every consumer needs. Verification and the process-lifetime
+ * last-known-good cache live in the verify engine; a fetch or SRI failure
+ * with nothing cached propagates (a boot-time resolution failure fails the
+ * deploy, which is the platform's rollback).
  */
 
 export interface ResolvedRemoteVersion {
@@ -124,10 +130,8 @@ export interface RemoteDigest {
   integrity: string;
 }
 
-const cache = new Map<string, ResolvedRemoteVersion>();
-
 export function clearRemoteVersionCache(): void {
-  cache.clear();
+  clearVerifiedCache();
 }
 
 function remoteVersionFromManifest(
@@ -208,35 +212,22 @@ export async function resolveRemoteVersion(input: {
   base: string;
   digest: RemoteDigest;
   fetchImpl?: typeof fetch;
-}): Promise<ResolvedRemoteVersion> {
-  const key = `${input.base}::${input.digest.manifest}::${input.digest.integrity}`;
-  // content-addressed: a verified pin is cached for the process lifetime and
-  // never refetched — the cache IS the last-known-good
-  const cached = cache.get(key);
-  if (cached) return cached;
-
+}): Promise<Verified<ResolvedRemoteVersion>> {
   const staged = readStagedRemoteVersion(input.base, input.digest);
-  if (staged) {
-    cache.set(key, staged);
-    return staged;
-  }
+  if (staged) return mark(staged);
 
   const manifestUrl = manifestDocumentUrl(input.base, input.digest.manifest);
-  const verified = await fetchVerifiedManifest({
-    base: input.base,
-    digest: input.digest,
-    fetchImpl: input.fetchImpl,
-  });
-  if (!verified.ok) {
+  try {
+    const manifest = await verifyDocument({
+      url: manifestUrl,
+      expected: asDigest(input.digest.integrity),
+      schema: WorkspaceVersionManifestSchema,
+      fetchImpl: input.fetchImpl,
+    });
+    return mark(remoteVersionFromManifest(input.base, manifest));
+  } catch (error) {
     throw new Error(
-      `[SRI] version manifest verification failed for ${manifestUrl}: ${verified.reason}`,
+      `[SRI] version manifest verification failed for ${manifestUrl}: ${reasonOf(error)}`,
     );
   }
-  const manifest: WorkspaceVersionManifest = WorkspaceVersionManifestSchema.parse(
-    JSON.parse(verified.text),
-  );
-
-  const resolved = remoteVersionFromManifest(input.base, manifest);
-  cache.set(key, resolved);
-  return resolved;
 }
