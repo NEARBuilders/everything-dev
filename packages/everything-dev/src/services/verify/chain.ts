@@ -1,11 +1,11 @@
 import {
-  WorkspaceVersionManifestSchema,
   type WorkspaceVersionManifest,
+  WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
-import type { BosConfigInput } from "../../types";
-import { walkRemotes } from "../remotes";
-import { manifestDocumentUrl } from "../deploy/manifest-verify";
 import { ZodError } from "zod";
+import type { BosConfigInput } from "../../types";
+import { manifestDocumentUrl } from "../deploy/manifest-verify";
+import { walkRemotes } from "../remotes";
 import { asDigest, fetchVerified, isVerifyError, verifyDocument } from "./engine";
 
 export type ChainDepth = "pointer" | "entries" | "files";
@@ -189,7 +189,10 @@ async function walkRemotePin(
     const entries = Object.entries(manifest.files ?? {});
     remote.filesChecked = entries.length;
 
-    const check = async ([path, expected]: [string, string]): Promise<VerifyFileMismatch | null> => {
+    const check = async ([path, expected]: [
+      string,
+      string,
+    ]): Promise<VerifyFileMismatch | null> => {
       try {
         await fetchVerified({
           url: `${fileBase}/${path}`,

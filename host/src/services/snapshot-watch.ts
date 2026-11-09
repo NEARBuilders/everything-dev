@@ -7,8 +7,8 @@ const refOf = (bosUrl: string) => {
 };
 
 import { pointerFingerprint } from "everything-dev/fingerprint";
-import { verifySriForUrl } from "everything-dev/integrity";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
+import { asDigest, fetchVerified } from "everything-dev/verify";
 import { resolveRemoteVersion } from "everything-dev/version-manifest-resolve";
 import { logger } from "../utils/logger";
 import { ConfigService } from "./config";
@@ -231,14 +231,14 @@ async function verifyCurrentEntries(config: RuntimeConfig): Promise<void> {
           base: typeof parentRemote?.production === "string" ? parentRemote.production : "",
           digest: parentPin,
         });
-        await verifySriForUrl(target.url, resolved.entryIntegrity, { resolveEntryUrl: false });
+        await fetchVerified({ url: target.url, expected: asDigest(resolved.entryIntegrity) });
       } else if (parentRemote && typeof parentRemote.integrity === "string") {
-        await verifySriForUrl(target.url, parentRemote.integrity, { resolveEntryUrl: false });
+        await fetchVerified({ url: target.url, expected: asDigest(parentRemote.integrity) });
       }
       continue;
     }
     if (target.integrity) {
-      await verifySriForUrl(target.url, target.integrity, { resolveEntryUrl: false });
+      await fetchVerified({ url: target.url, expected: asDigest(target.integrity) });
     }
   }
 }

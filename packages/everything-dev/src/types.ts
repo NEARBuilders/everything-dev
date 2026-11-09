@@ -56,6 +56,10 @@ export const FederationEntrySchema = z.object({
   entryUrl: z.string().optional(),
   source: SourceModeSchema,
   integrity: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests — the
+   * integrity-in-pipeline registry's keying source (#642 revival, ADR 0046
+   * ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
 });
 export type FederationEntry = z.infer<typeof FederationEntrySchema>;
 
@@ -177,6 +181,10 @@ export const RuntimePluginConfigSchema = z.object({
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
   entryUrl: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests (hashed
+   * entry, ssr entry, files-map entries) — the integrity-in-pipeline
+   * registry's keying source (#642 revival, ADR 0046 ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
   ui: PluginRuntimeUiSchema.optional(),
@@ -203,6 +211,10 @@ export const RuntimeDependencyNodeSchema = z.object({
   variables: JsonObjectSchema.optional(),
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests — the
+   * integrity-in-pipeline registry's keying source (#642 revival, ADR 0046
+   * ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
   ui: PluginRuntimeUiSchema.optional(),

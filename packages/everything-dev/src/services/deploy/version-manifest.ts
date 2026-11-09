@@ -162,6 +162,25 @@ function remoteVersionFromManifest(
   };
 }
 
+/** Every artifact URL the resolved pin attests, keyed by the URL the runtime
+ * actually fetches (the resolved hashed entry, the ssr entry, and each file
+ * in the pin's files map) → its SRI. Integrity-in-pipeline keying: register
+ * these and the loader verifies bytes at fetch time (#642's fork class —
+ * fixed-name keying beside hashed fetches — cannot reconstruct this map). */
+export function resolvedIntegrityMap(r: ResolvedRemoteVersion): Record<string, string> {
+  const map: Record<string, string> = {
+    [r.entryUrl]: r.entryIntegrity,
+  };
+  if (r.ssrEntryUrl && r.ssrIntegrity) {
+    map[r.ssrEntryUrl] = r.ssrIntegrity;
+  }
+  const fileBase = r.dir ? `${r.base.replace(/\/$/, "")}/${r.dir}` : r.base.replace(/\/$/, "");
+  for (const [file, integrity] of Object.entries(r.files ?? {})) {
+    map[`${fileBase}/${file.replace(/^\//, "")}`] = integrity;
+  }
+  return map;
+}
+
 /**
  * Staged-remote preference (ADR 0020/0021 self-contained tier): when a runtime
  * stages its own namespace under `BOS_BUNDLE_DIR`, a remote resolves from the

@@ -1,9 +1,5 @@
 import type { BosConfigInput } from "../../types";
-import {
-  collectPinnedRemotes,
-  digestOf,
-  verifyChain,
-} from "../verify/chain";
+import { collectPinnedRemotes, digestOf, verifyChain } from "../verify/chain";
 
 /**
  * Rollback safety gate (atomic-deploys 11): before republishing a historical

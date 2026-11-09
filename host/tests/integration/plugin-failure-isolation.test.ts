@@ -6,6 +6,7 @@ const usePluginMock = vi.fn();
 
 vi.mock("@module-federation/enhanced/runtime", () => ({
   createInstance: () => null,
+  getInstance: () => null,
 }));
 vi.mock("every-plugin", () => ({
   createPluginRuntime: () => ({ __mfInstance: undefined, usePlugin: usePluginMock }),

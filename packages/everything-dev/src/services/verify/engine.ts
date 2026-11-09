@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { Context, Data, Effect, Layer } from "effect";
 import type { ZodType } from "zod";
+import { fetchRaw } from "../../utils/http-client";
+
+const defaultVerifyFetch = (url: string): Promise<Response> =>
+  fetchRaw(url, undefined, "30 seconds");
 
 export class IntegrityMismatch extends Data.TaggedError("IntegrityMismatch")<{
   readonly url: string;
@@ -64,8 +68,8 @@ export const clearVerifiedCache = (): void => {
   verifiedCache.clear();
 };
 
-const sha384Of = (bytes: Uint8Array): Digest =>
-  `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
+export const computeSri = (content: string | Uint8Array): Digest =>
+  `sha384-${createHash("sha384").update(content).digest("base64")}`;
 
 const textOf = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
@@ -80,7 +84,7 @@ const fetchVerifiedEffect = (
       if (cached) return cached;
     }
     const response = yield* Effect.tryPromise({
-      try: () => (options?.fetchImpl ?? fetch)(url),
+      try: () => (options?.fetchImpl ?? defaultVerifyFetch)(url),
       catch: (cause) => new ProvenanceUnknown({ url, cause }),
     });
     if (!response.ok) {
@@ -96,7 +100,7 @@ const fetchVerifiedEffect = (
         catch: (cause) => new ProvenanceUnknown({ url, cause }),
       }),
     );
-    const actual = sha384Of(bytes);
+    const actual = computeSri(bytes);
     if (actual !== expected) {
       return yield* new IntegrityMismatch({ url, expected, actual });
     }

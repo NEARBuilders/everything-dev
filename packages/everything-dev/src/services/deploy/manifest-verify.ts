@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { asDigest, fetchVerified, isVerifyError } from "../verify/engine";
+import { asDigest, computeSri, fetchVerified, isVerifyError } from "../verify/engine";
 
 export interface ManifestPin {
   /** versioned manifest filename, relative to the remote's production base */
@@ -15,7 +14,7 @@ export function manifestDocumentUrl(base: string, manifest: string): string {
 }
 
 export function computeManifestSri(text: string): string {
-  return `sha384-${createHash("sha384").update(text).digest("base64")}`;
+  return computeSri(text);
 }
 
 export function reasonOf(error: unknown): string {

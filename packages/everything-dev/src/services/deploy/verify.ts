@@ -2,10 +2,7 @@ import type { BosConfigInput } from "../../types";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { parseRuntimeRef } from "../registry/keys";
 import { readManifestTag } from "../registry/pointer";
-import {
-  type VerifyReport,
-  verifyChain,
-} from "../verify/chain";
+import { type VerifyReport, verifyChain } from "../verify/chain";
 
 /**
  * The pin→bytes proof (#826 drift alarm, the 061 `bos verify` core): for

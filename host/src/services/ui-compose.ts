@@ -16,7 +16,6 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { Clock, Data, Effect, Schema } from "effect";
-import { computeSriHash } from "everything-dev/integrity";
 import {
   CORE_UI_PLUGIN_KEY as CORE_UI_KEY,
   type ComposePayload,
@@ -30,6 +29,7 @@ import {
   type RemoteEntry,
   type RouteConfigModule,
 } from "everything-dev/ui/manifest";
+import { asDigest, fetchVerified } from "everything-dev/verify";
 import type { RouterModule } from "../types";
 import { logger } from "../utils/logger";
 import type { RuntimeConfig } from "./config";
@@ -196,19 +196,25 @@ const loadRemoteManifestCached = Effect.fn("loadRemoteManifestCached")(function*
   }
   const fresh = yield* Effect.tryPromise({
     try: async () => {
-      const response = await runFetch(manifestUrl);
-      if (!response.ok) {
-        throw new Error(`manifest fetch ${response.status} for ${manifestUrl}`);
+      if (!source.manifestIntegrity) {
+        const response = await runFetch(manifestUrl);
+        if (!response.ok) {
+          throw new Error(`manifest fetch ${response.status} for ${manifestUrl}`);
+        }
+        return await response.text();
       }
-      const text = await response.text();
-      if (source.manifestIntegrity && computeSriHash(text) !== source.manifestIntegrity) {
+      const bytes = await fetchVerified({
+        url: manifestUrl,
+        expected: asDigest(source.manifestIntegrity),
+      }).catch((cause) => {
         throw new Error(
           `manifest bytes at ${manifestUrl} do not match the resolved pin's SRI — ` +
             `the resolved config is older than the deployed bundles (stale host or rolled-back publish); ` +
             `redeploy or restart the host to re-resolve`,
+          { cause },
         );
-      }
-      return text;
+      });
+      return new TextDecoder().decode(bytes);
     },
     catch: (cause) =>
       new UiComposeError({ operation: `Failed to load UI manifest from ${manifestUrl}`, cause }),

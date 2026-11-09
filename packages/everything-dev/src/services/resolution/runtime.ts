@@ -15,7 +15,11 @@ import type {
 import { fetchJsonOrNull } from "../../utils/http-client";
 import { getNetworkIdForAccount } from "../../utils/network";
 import { fetchApiPluginManifest } from "../codegen/api-contract";
-import { type ResolvedRemoteVersion, resolveRemoteVersion } from "../deploy/version-manifest";
+import {
+  type ResolvedRemoteVersion,
+  resolvedIntegrityMap,
+  resolveRemoteVersion,
+} from "../deploy/version-manifest";
 import { manifestPluginsToNodes } from "../registry/dag";
 import {
   ConfigExtendsError,
@@ -422,11 +426,13 @@ async function deriveVersionManifestFields(
   await derive("app.api", config.app.api, result.api, (r) => {
     result.api.entryUrl = r.entryUrl;
     result.api.integrity = r.entryIntegrity;
+    result.api.integrityMap = resolvedIntegrityMap(r);
   });
   if (result.auth) {
     await derive("app.auth", config.app.auth, result.auth, (r) => {
       result.auth!.entryUrl = r.entryUrl;
       result.auth!.integrity = r.entryIntegrity;
+      result.auth!.integrityMap = resolvedIntegrityMap(r);
     });
     await derive(
       "app.auth.ui",
@@ -449,6 +455,7 @@ async function deriveVersionManifestFields(
     await derive(`plugins.${key}`, pluginConfig, plugin, (r) => {
       plugin.entryUrl = r.entryUrl;
       plugin.integrity = r.entryIntegrity;
+      plugin.integrityMap = resolvedIntegrityMap(r);
     });
     await derive(
       `plugins.${key}.ui`,

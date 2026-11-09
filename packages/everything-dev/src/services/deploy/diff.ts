@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { BosConfigInput } from "../../types";
+import { computeSri } from "../verify/engine";
 import { collectRemoteDescriptors } from "./rollback";
 import type { DistFile } from "./storage";
 
@@ -40,7 +40,7 @@ export function workspaceKeyOfBase(base: string): string | null {
 
 /** The sha384 SRI the storage route would compute for these bytes. */
 export function localObjectIntegrity(bytes: Uint8Array): string {
-  return `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
+  return computeSri(bytes);
 }
 
 export function localSriMap(files: DistFile[]): Record<string, string> {

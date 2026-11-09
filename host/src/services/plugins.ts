@@ -1,7 +1,6 @@
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { Cause, Config, Context, Data, Effect, Layer, Option, Redacted } from "effect";
-import { createPluginRuntime } from "every-plugin";
 import type { PluginLoadFailureInfo, PluginWarningInfo } from "every-plugin/errors";
 import {
   classifyPluginFailure,
@@ -17,7 +16,7 @@ import {
 } from "every-plugin/shared-deps-spec";
 import type { BosEnv } from "everything-dev/config";
 import { buildDependencyDAG, getDependenciesForNode, getSingletonKey } from "everything-dev/dag";
-import { installIntegrityFetchHook } from "everything-dev/federation";
+import { createPluginRuntime } from "everything-dev/federation";
 import { IntegrityRegistry, verifyConfigAgainstChain } from "everything-dev/integrity";
 import type { RuntimeConfig, RuntimePluginConfig, SharedConfig } from "everything-dev/types";
 import { entryUrls, type RemoteEntry } from "everything-dev/ui/manifest";
@@ -473,7 +472,11 @@ const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (para
   pluginsClient?: Record<string, unknown>;
 }) {
   const { runtime, entry, integrityRegistry, env, config, corsOrigins, pluginsClient } = params;
-  if (entry.config.integrity) {
+  if (entry.config.integrityMap) {
+    for (const [url, integrity] of Object.entries(entry.config.integrityMap)) {
+      integrityRegistry.register(url, integrity);
+    }
+  } else if (entry.config.integrity) {
     integrityRegistry.registerEntry(entry.config.url, entry.config.integrity);
   }
 
@@ -653,20 +656,18 @@ export const initializePlugins = Effect.fn("initializePlugins")(
           mergeSharedMaps(config.api.shared, config.auth?.shared, ...pluginSharedMaps),
         );
 
-        const runtime = createPluginRuntime({
-          registry: Object.fromEntries(
-            allEntries.map((entry) => {
-              const remoteUrl = entryUrls(pluginRemote(entry.config, entry.key), config.env).ui;
-              return [entry.runtimeId, { remote: remoteUrl }];
-            }),
-          ),
-          secrets: {},
-        });
-
-        const mfInstance = (runtime as any).__mfInstance as any;
-        if (mfInstance) {
-          installIntegrityFetchHook(mfInstance, integrityRegistry);
-        }
+        const runtime = createPluginRuntime(
+          {
+            registry: Object.fromEntries(
+              allEntries.map((entry) => {
+                const remoteUrl = entryUrls(pluginRemote(entry.config, entry.key), config.env).ui;
+                return [entry.runtimeId, { remote: remoteUrl }];
+              }),
+            ),
+            secrets: {},
+          },
+          { integrityRegistry },
+        );
 
         return { runtime, integrityRegistry };
       },

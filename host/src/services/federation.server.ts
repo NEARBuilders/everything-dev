@@ -3,7 +3,6 @@ import path from "node:path";
 import { createInstance } from "@module-federation/enhanced/runtime";
 import { Context, Effect, Layer, Schedule, Semaphore } from "effect";
 import type { BosEnv } from "everything-dev/config";
-import { verifySriForUrl } from "everything-dev/integrity";
 import {
   type ConstructedTree,
   type ConstructInput,
@@ -13,6 +12,7 @@ import {
   UI_EXPOSES,
   UI_REMOTE_SERVER_ENTRY_FILENAME,
 } from "everything-dev/ui/manifest";
+import { asDigest, fetchVerified } from "everything-dev/verify";
 import type { RouterModule } from "../types";
 import type { RuntimeConfig } from "./config";
 import { ExposeModuleMissing, FederationError } from "./errors";
@@ -272,12 +272,15 @@ async function verifySsrEntryIntegrity(entryUrl: string, expectedIntegrity: stri
     return cached.value;
   }
 
-  const verification = verifySriForUrl(entryUrl, expectedIntegrity, {
-    resolveEntryUrl: false,
-  }).catch((error) => {
-    verifiedSsrEntryCache.delete(cacheKey);
-    throw error;
-  });
+  const verification = fetchVerified({
+    url: entryUrl,
+    expected: asDigest(expectedIntegrity),
+  })
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      verifiedSsrEntryCache.delete(cacheKey);
+      throw error;
+    });
 
   verifiedSsrEntryCache.set(cacheKey, {
     value: verification,
