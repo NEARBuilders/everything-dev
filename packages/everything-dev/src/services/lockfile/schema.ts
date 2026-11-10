@@ -14,7 +14,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -67,6 +67,20 @@ export const CompositionLockfileSchema = z
     /** Per-remote contract hash (`plugin.manifest.json`'s
      * `contract.types.sha256`). */
     contracts: z.record(z.string(), z.string()).optional(),
+    /** The template sync baseline (ADR 0047 — the absorbed
+     * `.bos/sync-snapshot.json`): per-file template hashes recorded at
+     * init/sync/import, read by `bos sync`'s three-way comparison. A local
+     * annotation, never produced by `lockfileOf` — writers carry it forward
+     * from the existing file, and it never enters the lockfile digest (the
+     * digest answers "what exact composition was live"; the baseline is not
+     * composition). */
+    template: z
+      .object({
+        syncedAt: z.string().min(1),
+        files: z.record(z.string(), z.string()),
+      })
+      .strict()
+      .optional(),
     /** THE composition identity — equal to `pointerDigest(config)` by
      * construction (`lockfileOf`), recomputable from `remotes` alone
      * (`lockfilePointerDigest`). */
@@ -156,8 +170,25 @@ export function serializeLockfile(lock: CompositionLockfile): string {
   return `${JSON.stringify(lock, null, 2)}\n`;
 }
 
+/** Writers carry the `template` annotation forward from the existing file:
+ * `lockfileOf` never produces it, so a producer rewrite (`bos lock`, the
+ * deploy train's persist leg) must not silently drop the sync baseline the
+ * file already carries. A corrupt existing file degrades to a plain write. */
+function carriedTemplate(lock: CompositionLockfile, existing: string | null): CompositionLockfile {
+  if (!existing) return lock;
+  try {
+    const parsed = parseLockfile(existing);
+    if (!parsed.template) return lock;
+    return { ...lock, template: parsed.template };
+  } catch {
+    return lock;
+  }
+}
+
 /** The lockfile's content digest — what a deployment record names when it
- * answers "what exact composition was live". */
+ * answers "what exact composition was live". Producers serialize `lockfileOf`
+ * output, which never carries the `template` annotation, so the digest stays
+ * a composition identity even when the on-disk file carries a baseline. */
 export function digestOfLockfile(serialized: string): string {
   return createHash("sha256").update(serialized).digest("hex");
 }
@@ -167,12 +198,14 @@ export function parseLockfile(bytes: string): CompositionLockfile {
 }
 
 /** The sync producer for the deploy train (its publish path is sync-fs):
- * atomic temp + rename, parent dirs created. */
+ * atomic temp + rename, parent dirs created. Carries the `template`
+ * annotation forward from the existing file. */
 export function writeLockfileSync(lock: CompositionLockfile, configDir?: string): string {
   const target = lockfilePath(configDir);
+  const existing = existsSync(target) ? readFileSync(target, "utf8") : null;
   mkdirSync(path.dirname(target), { recursive: true });
   const temp = `${target}.tmp`;
-  writeFileSync(temp, serializeLockfile(lock));
+  writeFileSync(temp, serializeLockfile(carriedTemplate(lock, existing)));
   renameSync(temp, target);
   return target;
 }
@@ -206,8 +239,8 @@ export async function writeLockfile(
   opts?: { check?: boolean },
 ): Promise<LockWriteResult> {
   const target = lockfilePath(configDir);
-  const serialized = serializeLockfile(lock);
   const existing = await readFile(target, "utf8").catch(() => null);
+  const serialized = serializeLockfile(carriedTemplate(lock, existing));
   if (opts?.check) {
     if (existing === null) {
       return {

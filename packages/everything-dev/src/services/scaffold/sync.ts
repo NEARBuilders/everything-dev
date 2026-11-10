@@ -716,8 +716,13 @@ export async function syncTemplate(
       }
 
       const snapshotHash = snapshotFiles[destPath];
+      // No baseline + local divergence ⇒ conflict, never a silent template
+      // win (ADR 0047): an unrecorded file's history is unknown — the
+      // template version may clobber real work. The remedies are explicit:
+      // record a baseline (`bos lock` + commit) or take the template
+      // (`--force`, with a backup).
       if (!snapshotHash) {
-        updated.push(destPath);
+        conflicted.push(destPath);
         continue;
       }
 
@@ -744,6 +749,13 @@ export async function syncTemplate(
     // aborts the whole run before any write — the clean updates and additions
     // wait for a resolution, so a snapshot never half-advances.
     if (conflicted.length > 0 && !options.force && !options.dryRun) {
+      const unbaselined = conflicted.filter((destPath) => !snapshotFiles[destPath]);
+      const baselineNote =
+        unbaselined.length > 0
+          ? ` — ${unbaselined.length} of them have no recorded baseline (bos.lock.json's ` +
+            "template.sync): record one with `bos lock` + commit, or take the template once " +
+            "with --force and they baseline cleanly afterwards"
+          : "";
       return {
         status: "conflicted",
         updated: [],
@@ -752,7 +764,8 @@ export async function syncTemplate(
         conflicted,
         error:
           "Local edits conflict with the upstream template (run `bos upgrade --force` to " +
-          `overwrite — backups land in .bos/sync-backup/): ${conflicted.join(", ")}`,
+          `overwrite — backups land in .bos/sync-backup/): ${conflicted.join(", ")}` +
+          baselineNote,
       };
     }
 
