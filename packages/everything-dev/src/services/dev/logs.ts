@@ -392,11 +392,18 @@ export function formatLogLine(entry: LogEntry): string {
   return [`${head}${first}`, ...rest.map((line) => `${pad}${line}`)].join("\n");
 }
 
-const DATED_LOG_RE = /^dev-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d+\.log$/;
+const DATED_LOG_RE = /^dev-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?\.log$/;
 const LATEST_PID_RE = /^dev-latest-\d+\.log$/;
+const LATEST_LEGACY_RE = /^dev-latest\.log$/;
+const FRAMEWORK_LOG_RE = /^framework-\d+\.log$/;
+const REGRESSION_LOG_RE = /^regression-[\w-]+\.log$/;
 
 /** Dated session logs beyond the newest KEEP are pruned each boot, as is
- * anything older than MAX_AGE — bounded sediment, never unbounded growth. */
+ * anything older than MAX_AGE — bounded sediment, never unbounded growth.
+ * The patterns cover every writer that lands in .bos/logs: the dev logger's
+ * PID-suffixed names and its pre-#476 PID-less legacy names, the legacy
+ * PID-less dev-latest.log, and the regression stack's framework-<port> /
+ * regression-<mode> wrappers. */
 const PRUNE_KEEP = 20;
 const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** Files touched within this window are never pruned — a concurrent live
@@ -413,7 +420,15 @@ export async function pruneDatedLogs(dir: string): Promise<void> {
   const now = Date.now();
   const prunable: Array<{ name: string; mtimeMs: number }> = [];
   for (const name of names) {
-    if (!DATED_LOG_RE.test(name) && !LATEST_PID_RE.test(name)) continue;
+    if (
+      !DATED_LOG_RE.test(name) &&
+      !LATEST_PID_RE.test(name) &&
+      !LATEST_LEGACY_RE.test(name) &&
+      !FRAMEWORK_LOG_RE.test(name) &&
+      !REGRESSION_LOG_RE.test(name)
+    ) {
+      continue;
+    }
     try {
       const mtimeMs = statSync(join(dir, name)).mtimeMs;
       if (now - mtimeMs > PRUNE_SKIP_MS) prunable.push({ name, mtimeMs });

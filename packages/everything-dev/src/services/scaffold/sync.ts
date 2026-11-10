@@ -1,4 +1,12 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { glob } from "glob";
 import { parse as parseYaml } from "yaml";
@@ -63,6 +71,25 @@ function computeLocalHash(projectDir: string, filePath: string): string | null {
   }
 }
 
+/** Backup dirs are timestamped per sync that overwrites local edits —
+ * bounded to the newest KEEP so upgrade sediment can't accumulate forever.
+ * ISO-format names sort lexicographically = chronologically. */
+const SYNC_BACKUP_KEEP = 10;
+
+function pruneSyncBackups(projectDir: string): void {
+  const root = join(projectDir, ".bos", "sync-backup");
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return;
+  }
+  const dirs = entries.filter((name) => /^\d{4}-\d{2}-\d{2}T/.test(name)).sort();
+  for (const name of dirs.slice(0, Math.max(0, dirs.length - SYNC_BACKUP_KEEP))) {
+    rmSync(join(root, name), { recursive: true, force: true });
+  }
+}
+
 function backupFiles(projectDir: string, filePaths: string[]): string | null {
   const filesToBackup = filePaths.filter((f) => existsSync(join(projectDir, f)));
   if (filesToBackup.length === 0) return null;
@@ -76,6 +103,8 @@ function backupFiles(projectDir: string, filePaths: string[]): string | null {
     mkdirSync(dirname(dest), { recursive: true });
     copyFileSync(src, dest);
   }
+
+  pruneSyncBackups(projectDir);
 
   return backupDir;
 }
