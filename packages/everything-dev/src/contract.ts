@@ -768,8 +768,18 @@ export const UpgradeOptionsSchema = z.object({
 
   check: z.boolean().default(false).describe("CI check — exit 1 when updates are available"),
 
-  /** Overwrite conflicted template files (with a backup) instead of refusing. */
+  /** Overwrite conflicted template files (with a backup) instead of refusing.
+   * With the interactive plan (a TTY, no --force) this flag is usually
+   * unnecessary — the plan prompts per file instead. */
   force: z.boolean().default(false),
+
+  /** The approved write set (the interactive plan's file selection, or a
+   * hand-written `--overwrite a,b,c`): an exhaustive filter over the files
+   * the sync would write; conflicted files outside it are preserved. */
+  overwrite: z.array(z.string()).optional(),
+
+  /** Run `bos clean` after a successful upgrade (backups kept). */
+  cleanAfter: z.boolean().default(false),
 
   noInstall: z.boolean().default(false).describe("Skip pnpm install"),
 

@@ -5,6 +5,7 @@ import process from "node:process";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract";
 import { readJsonFile } from "../../utils/json-file";
 import { timePhase } from "../../utils/timing";
+import { executeClean } from "../clean";
 import { readWorkspaceCatalog } from "../workspace/catalog";
 import {
   reconcilePackageManagerPin,
@@ -41,6 +42,30 @@ export * from "./upgrade-packages";
 export * from "./upgrade-source";
 
 const UPSTREAM_ISSUE_URL = "https://github.com/NEARBuilders/everything-dev/issues";
+
+/** The interactive upgrade's post-step (`bos clean`): prune the regenerable
+ * sediment an upgrade leaves behind — never the sync backups this run just
+ * created (they are the review surface for the files it overwrote).
+ * Best-effort: an uncleanable state never fails an applied upgrade. */
+async function finalizeWithClean(
+  projectDir: string,
+  result: UpgradeResult,
+  options: UpgradeOptions,
+): Promise<UpgradeResult> {
+  if (!options.cleanAfter || result.status !== "upgraded") return result;
+  try {
+    const report = executeClean(projectDir, { skip: ["sync-backup", "import-backup"] });
+    return {
+      ...result,
+      notes: [
+        ...(result.notes ?? []),
+        `post-upgrade clean: removed ${report.entries.filter((e) => e.action === "removed").length} regenerable target(s) — upgrade backups kept`,
+      ],
+    };
+  } catch {
+    return result;
+  }
+}
 
 export async function upgradeTemplate(
   projectDir: string,
@@ -166,8 +191,10 @@ export async function upgradeTemplate(
   // Pre-flight (ADR 0032): refuse applies of new packages against stale
   // framework-owned files. The template reconciliation must be ready to run
   // when the new packages land; existing conflicts abort before Phase 1 so a
-  // resolution (`--force`, or accepting the template) can happen cleanly.
-  if (versionDelta && !options.noSync && !options.force) {
+  // resolution (`--force`, or the interactive file selection) can happen
+  // cleanly. An approved write set (`overwrite`) IS the resolution — the
+  // per-file selection governs the migration phase's sync instead.
+  if (versionDelta && !options.noSync && !options.force && !options.overwrite) {
     const preflight = await timePhase(timings, "preflight template sync", () =>
       syncTemplate(projectDir, {
         dryRun: true,
@@ -265,6 +292,7 @@ export async function upgradeTemplate(
       "--no-install",
       ...(options.noSync ? ["--no-sync"] : []),
       ...(options.force ? ["--force"] : []),
+      ...(options.overwrite?.length ? ["--overwrite", options.overwrite.join(",")] : []),
       ...(options.noRealign ? ["--no-realign"] : []),
       "--json",
     ];
@@ -299,15 +327,19 @@ export async function upgradeTemplate(
         mainPkg?.from && mainPkg.from !== mainPkg.to
           ? buildChangelogUrl(mainPkg.from, mainPkg.to, parentSource.repository)
           : undefined;
-      return {
-        ...childUpgrade,
-        packages: [
-          ...packages,
-          ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
-        ],
-        timings: [...timings, ...(childUpgrade.timings ?? [])],
-        changelogUrl,
-      };
+      return await finalizeWithClean(
+        projectDir,
+        {
+          ...childUpgrade,
+          packages: [
+            ...packages,
+            ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
+          ],
+          timings: [...timings, ...(childUpgrade.timings ?? [])],
+          changelogUrl,
+        },
+        options,
+      );
     } catch {
       return {
         status: "error",
@@ -335,13 +367,17 @@ export async function upgradeTemplate(
     mainPkg?.from && mainPkg.from !== mainPkg.to
       ? buildChangelogUrl(mainPkg.from, mainPkg.to, parentSource.repository)
       : undefined;
-  return {
-    ...migrationResult,
-    packages: [
-      ...packages,
-      ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
-    ],
-    timings: [...timings, ...(migrationResult.timings ?? [])],
-    changelogUrl,
-  };
+  return await finalizeWithClean(
+    projectDir,
+    {
+      ...migrationResult,
+      packages: [
+        ...packages,
+        ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
+      ],
+      timings: [...timings, ...(migrationResult.timings ?? [])],
+      changelogUrl,
+    },
+    options,
+  );
 }

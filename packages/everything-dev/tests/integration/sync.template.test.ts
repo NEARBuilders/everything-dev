@@ -287,6 +287,89 @@ describe("syncTemplate", () => {
     expect(again.conflicted).toEqual([]);
   });
 
+  it("an approved write set writes the selection and preserves the rest — never an abort", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"]);
+    tempDirs.push(projectDir);
+
+    const parentFixture = mkdtempSync(join(tmpdir(), "bos-sync-parent-plan-"));
+    tempDirs.push(parentFixture);
+    mkdirSync(join(parentFixture, "api"), { recursive: true });
+    writeFileSync(
+      join(parentFixture, "bos.config.json"),
+      `${JSON.stringify({ account: "dev.everything.near", domain: "everything.dev" }, null, 2)}\n`,
+    );
+    // Two kinds of divergence: a hand-edited file whose template also moved
+    // (conflicted), and an untouched file whose template moved (updated).
+    const conflictedTemplate = `{"template": "reformed"}\n`;
+    writeFileSync(join(parentFixture, "biome.json"), conflictedTemplate);
+    const updatedTemplate = `{"compilerOptions": {"target": "ES2029"}}\n`;
+    writeFileSync(join(parentFixture, "api", "tsconfig.json"), updatedTemplate);
+    const childEdits = `{ "local": "hand-edit" }\n`;
+    writeFileSync(join(projectDir, "biome.json"), childEdits);
+
+    initSourceModule.resolveSourceDir.mockResolvedValue({
+      sourceDir: parentFixture,
+      parentConfig: { account: "dev.everything.near", domain: "everything.dev" } as never,
+      cleanup: async () => {},
+    });
+
+    const result = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      overwrite: ["api/tsconfig.json"],
+    });
+
+    expect(result.status).toBe("synced");
+    expect(result.conflicted).toContain("biome.json");
+    expect(result.updated).toContain("api/tsconfig.json");
+    // The selected file carries template bytes; the deselected conflict keeps
+    // the local copy.
+    expect(readFileSync(join(projectDir, "api", "tsconfig.json"), "utf-8")).toBe(updatedTemplate);
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
+    expect(result.backupDir).toBeDefined();
+  });
+
+  it("a preserved conflict re-asks on the next upgrade instead of going stale", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"]);
+    tempDirs.push(projectDir);
+
+    const parentFixture = mkdtempSync(join(tmpdir(), "bos-sync-parent-preserve-"));
+    tempDirs.push(parentFixture);
+    mkdirSync(join(parentFixture, "api"), { recursive: true });
+    writeFileSync(
+      join(parentFixture, "bos.config.json"),
+      `${JSON.stringify({ account: "dev.everything.near", domain: "everything.dev" }, null, 2)}\n`,
+    );
+    const conflictedTemplate = `{"template": "reformed"}\n`;
+    writeFileSync(join(parentFixture, "biome.json"), conflictedTemplate);
+    const childEdits = `{ "local": "hand-edit" }\n`;
+    writeFileSync(join(projectDir, "biome.json"), childEdits);
+
+    initSourceModule.resolveSourceDir.mockResolvedValue({
+      sourceDir: parentFixture,
+      parentConfig: { account: "dev.everything.near", domain: "everything.dev" } as never,
+      cleanup: async () => {},
+    });
+
+    // Upgrade 1: the user preserves the conflicted file (not in the write set).
+    const first = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      overwrite: [],
+    });
+    expect(first.status).toBe("synced");
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
+
+    // Upgrade 2, non-interactive: the template hasn't moved again, and the
+    // file's baseline still names the ORIGINAL template — the preserve did
+    // not launder the local fork into the new baseline, so it conflicts
+    // (re-asks) instead of silently resolving either way.
+    const second = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+    expect(second.status).toBe("conflicted");
+    expect(second.conflicted).toContain("biome.json");
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
+  });
+
   it("with force the template wins and the child fork is backed up", async () => {
     const projectDir = await scaffoldProject(["ui", "api"]);
     tempDirs.push(projectDir);

@@ -5,6 +5,7 @@ import process from "node:process";
 import { Effect } from "effect";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { upgradeTemplate } from "../cli/upgrade";
+import { planUpgradeInteraction } from "../cli/upgrade-plan";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import { generateCodeArtifacts } from "../services/codegen/artifacts";
 import { checkFederationCompat, checkUiCompositionCompat } from "../services/federation/service";
@@ -120,7 +121,11 @@ export function registerUpgrade(builder: BosBuilder) {
             };
           }
 
-          return await upgradeTemplate(projectDir, input);
+          // The interactive plan (TTY only): show the version delta and the
+          // exact files, let the user toggle per file, offer the post-upgrade
+          // clean. `--force` and non-TTY runs keep the classic behavior.
+          const decision = await planUpgradeInteraction(projectDir, input);
+          return await upgradeTemplate(projectDir, { ...input, ...decision });
         },
         catch: (error) => ({
           status: "error" as const,

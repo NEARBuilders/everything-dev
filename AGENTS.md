@@ -298,7 +298,7 @@ Two resolution rules keep this safe (ADR 0018): **bundler-configuration code res
 bos sync                 # Pull updates from published config/template state (release-scoped — ADR 0034)
 bos lock                 # Freeze the resolved composition + sync baseline into bos.lock.json (ADR 0042/0047) — commit the result; --check is the CI drift gate
 bos clean                # Remove regenerable .bos state (logs, staging, caches) — --dry-run previews; never touches db, session, ports, deploy-state
-bos upgrade              # Check for new versions, update, then sync
+bos upgrade              # Check for new versions, update, then sync (TTY: shows the plan first — files to write with space-toggle per file, post-upgrade clean; --force skips the plan)
 bos upgrade --check      # Manual drift alarm: exit 1 when updates are available (prints what drifted)
 bos manifest            # Show the resolved release manifest (--check adds the compat gate)
 bos publish              # Re-publish the resolved config to FastKV (config-only; authored hand-edits merge over what's live)
