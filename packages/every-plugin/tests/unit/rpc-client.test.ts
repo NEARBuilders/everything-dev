@@ -23,38 +23,33 @@ async function sentRequest(fetch: ReturnType<typeof stubFetch>) {
   return input instanceof Request ? input : new Request(input, init);
 }
 
-describe("createRpcClient headers", () => {
+describe("createRpcClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the JSON content-type and body when custom headers are passed", async () => {
+  it("joins the default /api/rpc path onto the host url", async () => {
     const fetch = stubFetch();
-    const client = createRpcClient<typeof contract>(
-      { hostUrl: "https://api.example.test", path: "/api/rpc" },
-      new Headers({ "x-api-key": "test-key" }),
-    );
+    const client = createRpcClient<typeof contract>("https://api.example.test");
 
     await expect(client.echo({ value: "hi" })).resolves.toEqual({ value: "ok" });
 
     const request = await sentRequest(fetch);
     expect(request.url).toBe("https://api.example.test/api/rpc/echo");
-    expect(request.headers.get("x-api-key")).toBe("test-key");
     expect(request.headers.get("content-type")).toContain("application/json");
     expect(await request.json()).toEqual({ json: { value: "hi" } });
   });
 
-  it("sends the same request without custom headers", async () => {
+  it("joins a custom path for namespaced plugin surfaces", async () => {
     const fetch = stubFetch();
-    const client = createRpcClient<typeof contract>({
-      hostUrl: "https://api.example.test",
-      path: "/api/rpc",
-    });
+    const client = createRpcClient<typeof contract>(
+      "https://api.example.test",
+      "/api/rpc/feedback",
+    );
 
     await client.echo({ value: "hi" });
 
     const request = await sentRequest(fetch);
-    expect(request.headers.get("content-type")).toContain("application/json");
-    expect(await request.json()).toEqual({ json: { value: "hi" } });
+    expect(request.url).toBe("https://api.example.test/api/rpc/feedback/echo");
   });
 });
