@@ -102,17 +102,21 @@ state disagree, believe the state and fix the doc.
 | `logs/dev-latest.log` + dated `logs/dev-*.log` | what **actually ran**: which MF bundles loaded (`auth=https://cdn…`), compose warnings, per-service boot logs. `bos logs` reads it. This is the truth of last resort when a boot behaves differently than its config suggests |
 | `platform-manifest.json` | the resolved platform release — what the `platform:` pin actually pulled (source, resolvedAt, manifest) |
 | `deploy-state.json` | what was last published (version, apps) — confuses nobody when "is production serving my code?" |
-| `sync-snapshot.json` + `sync-backup/<date>/` | what the last `bos upgrade` reconciled, and pre-upgrade copies of template-owned files you'd edited — the diff surface for merge-review on upgrades |
+| `sync-backup/<date>/` | pre-upgrade copies of template-owned files you'd edited — the review surface for `--force` resolutions, bounded to the newest 10. The sync baseline itself lives in `bos.lock.json`'s `template.sync` (ADR 0047) |
 | `regression/*.json` | cached seeded sessions (`cookies.json`, `seed.json`, …) — why regression specs start signed-in without minting their own |
 
 **Clean up at source.** These are the runtime's artifacts, not yours to hack
-around. Logs currently accumulate with no rotation — 79 files / 4.6 MB in nine
-working days here — and the durable fix is upstream
-(right now: `TODO(#596)`); deleting dated `.bos/logs/*.log` is safe in the
-meantime. The regression caches are safe to wipe whenever fixtures drift: the
-next run re-seeds them. Anything else under `.bos/` (`session.json`,
-`sync-backup/`) is state you regenerate by re-running the responsible command —
-when a surface feels stale, regenerate it in place rather than editing it.
+around. Logs rotate at the source: every dev boot prunes dated logs beyond
+the newest 20 and anything older than a week — across every writer's names,
+including the regression stack's `framework-*`/`regression-*` wrappers and
+the pre-PID legacy formats the original pruner couldn't see; files touched
+within 24h are never pruned (a live session may be appending). Deleting
+`.bos/logs/*.log` by hand is always safe too. The regression caches are safe
+to wipe whenever fixtures drift: the next run re-seeds them. Anything else
+under `.bos/` (`session.json`, `sync-backup/`) is state you regenerate by
+re-running the responsible command — when a surface feels stale, regenerate
+it in place rather than editing it. `.bos/` is local-only runtime state
+(ADR 0047): the only committed artifact is `bos.lock.json`.
 
 ## Where source actually lives
 
