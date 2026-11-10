@@ -11,6 +11,7 @@ import { DrizzleKit, makeDrizzleKitLive } from "./db/drizzle-kit";
 import { migrateLegacyComposeState } from "./env/legacy-databases";
 import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
 import { registerBuild } from "./handlers/build";
+import { registerClean } from "./handlers/clean";
 import { registerConfig } from "./handlers/config";
 import { registerDb } from "./handlers/db";
 import { registerDeploy } from "./handlers/deploy";
@@ -142,6 +143,7 @@ export default createPlugin({
     ...registerBuild(builder),
     ...registerDeploy(builder),
     ...registerLock(builder),
+    ...registerClean(builder),
     ...registerSmoke(builder),
     ...registerKeys(builder),
     ...registerSecrets(builder),

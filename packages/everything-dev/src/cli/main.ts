@@ -9,6 +9,7 @@ import { installBundleFetchFromEnv } from "../services/resolution/resolver";
 import { printBanner } from "../utils/banner";
 import { formatUnknownError } from "../utils/errors";
 import { findCommandDescriptor } from "./catalog";
+import { cleanRenderers } from "./commands/clean";
 import type { CommandContext } from "./commands/context";
 import { dbRenderers } from "./commands/db";
 import { runDev, runStart } from "./commands/dev";
@@ -36,6 +37,7 @@ const preCalls: Record<string, (ctx: CommandContext) => Promise<void>> = {
 };
 
 const renderers = {
+  ...cleanRenderers,
   ...dbRenderers,
   ...inspectRenderers,
   ...lifecycleRenderers,
