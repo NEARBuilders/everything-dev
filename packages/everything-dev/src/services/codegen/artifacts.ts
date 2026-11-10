@@ -169,7 +169,7 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
   // rename; dev/build/train paths warn and continue (a flaky remote must
   // not block a boot — the runtime load fails loudly on its own).
   // The composition lockfile (ADR 0042), when present, is the runtime map's
-  // provenance input: the explainer reports the frozen fingerprint and any
+  // provenance input: the explainer reports the frozen pointer digest and any
   // drift between serving digests and frozen ones instead of drifting
   // silently. Absent or corrupt → null (the explainer degrades, the build
   // doesn't fail).

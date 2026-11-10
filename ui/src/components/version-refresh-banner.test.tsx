@@ -28,7 +28,7 @@ afterEach(() => {
   cleanup();
 });
 
-const runtimeConfig = { deploymentFingerprint: "v1" } as never;
+const runtimeConfig = { deploymentDigest: "v1" } as never;
 
 describe("VersionRefreshBanner", () => {
   it("renders nothing before a new version is reported", async () => {
@@ -56,7 +56,7 @@ describe("VersionRefreshBanner", () => {
     expect(versionCheck.startVersionWatch).not.toHaveBeenCalled();
   });
 
-  it("does not arm the poller without a fingerprint (pre-atomic-deploys runtimes)", async () => {
+  it("does not arm the poller without a serving digest (pre-atomic-deploys runtimes)", async () => {
     auth.getSession.mockResolvedValue({ data: { user: {} } });
     render(<VersionRefreshBanner runtimeConfig={{}} />);
     await new Promise((resolve) => setTimeout(resolve, 20));

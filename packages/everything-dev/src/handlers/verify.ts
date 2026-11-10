@@ -3,10 +3,11 @@ import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import {
   type VerifyFreshness,
   type VerifyRemoteResult,
-  verifyPublishedPins,
+  type VerifyReport,
   verifyReleaseFreshness,
 } from "../services/deploy/verify";
 import { resolvePublishedConfig } from "../services/registry/published";
+import { verifyChain } from "../services/verify/chain";
 import type { BosConfig, BosConfigInput } from "../types";
 import type { BosBuilder } from "./shared";
 
@@ -53,18 +54,21 @@ export function registerVerify(builder: BosBuilder) {
         }
 
         const config: BosConfigInput = authored as unknown as BosConfigInput;
-        const report = await verifyPublishedPins({ config });
+        const chain = await verifyChain({
+          config,
+          depth: input.depth,
+        });
+        const report: VerifyReport = { remotes: chain.remotes };
         const freshness = await verifyReleaseFreshness({
           config,
           ...(input.registry ? { registry: input.registry } : {}),
         });
-        const rot = report.remotes.some(
-          (remote) => !remote.manifestOk || remote.mismatches.length > 0,
-        );
+        const rot = !chain.ok;
         const behind = freshness?.behind === true;
         return {
           status: rot ? ("fail" as const) : behind ? ("drift" as const) : ("ok" as const),
           remotes: report.remotes,
+          ...(input.depth !== "files" ? { entries: chain.entries } : {}),
           ...(freshness ? { freshness: freshness as VerifyFreshness } : {}),
         };
       });

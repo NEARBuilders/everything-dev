@@ -8,8 +8,8 @@
  * (ADR 0040) — one vocabulary for the same bytes; the scope differs (the
  * platform's per-release memory of inherited slots vs this app's frozen
  * whole). The `remotes` record is written in `walkRemotes` order — including
- * entries that freeze nothing — so the stored fingerprint recomputes exactly
- * (`lockfileFingerprint` ≡ `pointerFingerprint` over the same config), and
+ * entries that freeze nothing — so the stored pointer digest recomputes exactly
+ * (the `pointerDigest` field ≡ `pointerDigest(config)` over the same config), and
  * JSON round-trips preserve that order.
  */
 
@@ -19,7 +19,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { BosConfig } from "../../types";
-import { pointerFingerprint } from "../registry/fingerprint";
+import { digestOfParts, pointerDigest } from "../registry/digest";
 import { walkRemotes } from "../remotes";
 
 export const LOCKFILE_NAME = "bos.lock.json";
@@ -50,7 +50,7 @@ export type LockfileRemote = z.infer<typeof LockfileRemoteSchema>;
 
 export const CompositionLockfileSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     kind: z.literal("everything-dev/composition-lockfile"),
     runtimeRef: z.string().regex(/^bos:\/\/[^/]+\/[^/]+$/),
     /** The release the composition resolves to; null when the runtime is
@@ -58,7 +58,7 @@ export const CompositionLockfileSchema = z
      * returned. */
     release: z.string().min(1).nullable(),
     /** The frozen composition, in `walkRemotes` order (dotted config path →
-     * coordinate). Order is load-bearing: the fingerprint recomputes from it. */
+     * coordinate). Order is load-bearing: the pointer digest recomputes from it. */
     remotes: z.record(z.string(), LockfileRemoteSchema),
     /** Shared-singleton versions the composition is verified against —
      * recorded when the sources provide them (remote plugin manifests, the
@@ -67,10 +67,10 @@ export const CompositionLockfileSchema = z
     /** Per-remote contract hash (`plugin.manifest.json`'s
      * `contract.types.sha256`). */
     contracts: z.record(z.string(), z.string()).optional(),
-    /** THE composition identity — equal to `pointerFingerprint(config)` by
+    /** THE composition identity — equal to `pointerDigest(config)` by
      * construction (`lockfileOf`), recomputable from `remotes` alone
-     * (`lockfileFingerprint`). */
-    fingerprint: z.string().regex(/^[0-9a-f]{16}$/),
+     * (`lockfilePointerDigest`). */
+    pointerDigest: z.string().regex(/^[0-9a-f]{16}$/),
     resolvedAt: z.string().min(1),
   })
   .strict();
@@ -89,15 +89,15 @@ function descriptorPart(
   return `${remote}:${digestPart}:${directPart}`;
 }
 
-/** The load-side identity check: recompute the fingerprint from the stored
- * `remotes` record (insertion order — JSON round-trips preserve it) and
- * compare. A mismatch means the file was hand-edited or written by a
- * different fingerprint implementation — refuse, loud. */
-export function lockfileFingerprint(lock: CompositionLockfile): string {
+/** The load-side identity check: recompute the pointer digest from the
+ * stored `remotes` record (insertion order — JSON round-trips preserve it)
+ * and compare. A mismatch means the file was hand-edited or written by a
+ * different digest implementation — refuse, loud. */
+export function lockfilePointerDigest(lock: CompositionLockfile): string {
   const parts = Object.entries(lock.remotes).map(([remote, entry]) =>
     entry.kind === "pluginRef" ? `${remote}:${entry.ref}` : descriptorPart(remote, entry),
   );
-  return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
+  return digestOfParts(parts);
 }
 
 export function lockfileOf(input: {
@@ -140,14 +140,14 @@ export function lockfileOf(input: {
     },
   );
   return CompositionLockfileSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "everything-dev/composition-lockfile",
     runtimeRef: `bos://${input.account}/${input.gateway}`,
     release: input.release ?? null,
     remotes,
     ...(input.sharedSingletons ? { sharedSingletons: input.sharedSingletons } : {}),
     ...(input.contracts ? { contracts: input.contracts } : {}),
-    fingerprint: pointerFingerprint(input.config),
+    pointerDigest: pointerDigest(input.config),
     resolvedAt: input.resolvedAt ?? new Date().toISOString(),
   });
 }
@@ -192,7 +192,7 @@ export async function readLockfileIfExists(
 export interface LockWriteResult {
   status: "written" | "unchanged" | "drift";
   path: string;
-  fingerprint: string;
+  pointerDigest: string;
   /** The `--check` refusal reasons — empty unless status is "drift". */
   drift: string[];
 }
@@ -213,7 +213,7 @@ export async function writeLockfile(
       return {
         status: "drift",
         path: target,
-        fingerprint: lock.fingerprint,
+        pointerDigest: lock.pointerDigest,
         drift: ["bos.lock.json is missing — run `bos lock` and commit the result"],
       };
     }
@@ -221,13 +221,13 @@ export async function writeLockfile(
       return {
         status: "drift",
         path: target,
-        fingerprint: lock.fingerprint,
+        pointerDigest: lock.pointerDigest,
         drift: [
           "bos.lock.json differs from the resolved composition — run `bos lock` and commit the result",
         ],
       };
     }
-    return { status: "unchanged", path: target, fingerprint: lock.fingerprint, drift: [] };
+    return { status: "unchanged", path: target, pointerDigest: lock.pointerDigest, drift: [] };
   }
   await mkdir(path.dirname(target), { recursive: true });
   const temp = `${target}.tmp`;
@@ -236,7 +236,7 @@ export async function writeLockfile(
   return {
     status: existing === serialized ? "unchanged" : "written",
     path: target,
-    fingerprint: lock.fingerprint,
+    pointerDigest: lock.pointerDigest,
     drift: [],
   };
 }

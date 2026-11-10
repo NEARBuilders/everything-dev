@@ -16,7 +16,7 @@ const ENTRY: ReconcilerWatchEntry = { ...NS };
 const deployRow = (overrides: Partial<DeploySummary> = {}): DeploySummary => ({
   key: "apps/app1.near/app1.dev/manifests/2026-10-22T00-00-00.json",
   publishedAt: "2026-10-22T00:00:00.000Z",
-  fingerprint: "fp-1",
+  pointerDigest: "fp-1",
   imageRef: "ghcr.io/nearbuilders/everything-dev@v1",
   blockHeight: 100,
   ...overrides,
@@ -156,27 +156,27 @@ describe("decideReconcile (pure)", () => {
   it("assumes the baseline when the instance is running at first observation", () => {
     expect(decideReconcile({ running: true, converged: undefined }, "fp-1")).toEqual({
       action: "baseline",
-      fingerprint: "fp-1",
+      pointerDigest: "fp-1",
     });
   });
 
   it("converges at boot when the instance is not running", () => {
     expect(decideReconcile({ running: false, converged: undefined }, "fp-1")).toEqual({
       action: "converge",
-      fingerprint: "fp-1",
+      pointerDigest: "fp-1",
     });
   });
 
-  it("no-ops on an unchanged fingerprint", () => {
+  it("no-ops on an unchanged pointerDigest", () => {
     expect(decideReconcile({ running: true, converged: "fp-1" }, "fp-1")).toEqual({
       action: "noop",
     });
   });
 
-  it("converges on a changed fingerprint", () => {
+  it("converges on a changed pointerDigest", () => {
     expect(decideReconcile({ running: true, converged: "fp-1" }, "fp-2")).toEqual({
       action: "converge",
-      fingerprint: "fp-2",
+      pointerDigest: "fp-2",
     });
   });
 });
@@ -217,7 +217,7 @@ describe("reconciler tick", () => {
     expect(status.namespaces[0]).toMatchObject({
       account: NS.account,
       gateway: NS.gateway,
-      convergedFingerprint: "fp-1",
+      convergedDigest: "fp-1",
       bootAssumed: true,
       drift: undefined,
     });
@@ -230,7 +230,7 @@ describe("reconciler tick", () => {
     h.setCurrent({ running: false });
     const status = await runTick(h);
     expect(status.namespaces[0]).toMatchObject({
-      convergedFingerprint: "fp-1",
+      convergedDigest: "fp-1",
       bootAssumed: false,
       instanceUrl: "http://127.0.0.1:4001",
     });
@@ -242,13 +242,13 @@ describe("reconciler tick", () => {
     });
   });
 
-  it("no-ops on an unchanged fingerprint", async () => {
+  it("no-ops on an unchanged pointerDigest", async () => {
     const h = makeHarness();
     h.setDeploys([deployRow()]);
     h.setCurrent({ running: false });
     await runTick(h);
     const second = await runTick(h);
-    expect(second.namespaces[0]).toMatchObject({ convergedFingerprint: "fp-1" });
+    expect(second.namespaces[0]).toMatchObject({ convergedDigest: "fp-1" });
     expect(h.descriptorOf(1)).toBeDefined();
     expect(h.descriptorOf(2)).toBeUndefined();
   });
@@ -262,13 +262,13 @@ describe("reconciler tick", () => {
       deployRow({
         key: "apps/app1.near/app1.dev/manifests/2026-10-22T01-00-00.json",
         publishedAt: "2026-10-22T01:00:00.000Z",
-        fingerprint: "fp-2",
+        pointerDigest: "fp-2",
         imageRef: "ghcr.io/nearbuilders/everything-dev@v2",
         blockHeight: 110,
       }),
     ]);
     const status = await runTick(h);
-    expect(status.namespaces[0]).toMatchObject({ convergedFingerprint: "fp-2" });
+    expect(status.namespaces[0]).toMatchObject({ convergedDigest: "fp-2" });
     expect(h.descriptorOf(2)?.image).toBe("ghcr.io/nearbuilders/everything-dev@v2");
   });
 
@@ -277,15 +277,15 @@ describe("reconciler tick", () => {
     h.setDeploys([deployRow()]);
     h.setCurrent({ running: false });
     await runTick(h);
-    h.setDeploys([deployRow({ fingerprint: "fp-2" })]);
+    h.setDeploys([deployRow({ pointerDigest: "fp-2" })]);
     h.failDeploy("daemon unreachable");
     const failed = await runTick(h);
     expect(failed.namespaces[0]?.drift?.reason).toContain("daemon unreachable");
-    expect(failed.namespaces[0]?.convergedFingerprint).toBe("fp-1");
+    expect(failed.namespaces[0]?.convergedDigest).toBe("fp-1");
     h.failDeploy("");
     const recovered = await runTick(h);
     expect(recovered.namespaces[0]).toMatchObject({
-      convergedFingerprint: "fp-2",
+      convergedDigest: "fp-2",
       drift: undefined,
     });
   });
@@ -344,7 +344,7 @@ describe("reconciler tick", () => {
     h.setDeploys([]);
     const status = await runTick(h);
     expect(status.namespaces[0]).toMatchObject({
-      convergedFingerprint: undefined,
+      convergedDigest: undefined,
       drift: undefined,
     });
     expect(h.descriptorOf(1)).toBeUndefined();

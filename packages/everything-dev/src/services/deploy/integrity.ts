@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Data } from "effect";
 import { fetchResponse } from "../../utils/http-client";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
+import { computeSri } from "../verify/engine";
 
 const DEFAULT_MAX_SRI_RESPONSE_BYTES = 20 * 1024 * 1024;
 
@@ -11,7 +12,7 @@ interface SriUrlOptions {
 }
 
 export function computeSriHash(content: string | Buffer): string {
-  return `sha384-${createHash("sha384").update(content).digest("base64")}`;
+  return computeSri(content);
 }
 
 function resolveSriTargetUrl(url: string, options?: SriUrlOptions): string {

@@ -92,7 +92,7 @@ describe("GET /.well-known/version build identity (#537)", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.build).toBeUndefined();
-      expect(body.fingerprint).toBeDefined();
+      expect(body.deploymentDigest).toBeDefined();
     });
   });
 

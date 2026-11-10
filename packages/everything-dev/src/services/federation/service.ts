@@ -1,12 +1,20 @@
 import { readFileSync } from "node:fs";
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
+import {
+  createPluginRuntime as createManagedPluginRuntime,
+  type InferRegistryFromEntries,
+  type PluginRegistryEntry,
+  type PluginRuntime,
+  type PluginRuntimeConfig,
+} from "every-plugin";
 import { isEffectCriticalSharedDep } from "every-plugin/build/rspack";
 import type { BosConfig, BosPluginRef } from "../../types";
 import { fetchRaw } from "../../utils/http-client";
 import { satisfiesConstraint } from "../../utils/semver";
-import { computeSriHash, type IntegrityRegistry } from "../deploy/integrity";
+import type { IntegrityRegistry } from "../deploy/integrity";
 import { readBundleCache, writeBundleCache } from "../registry/bundle-cache";
+import { computeSri, IntegrityMismatch } from "../verify/engine";
 
 type FederationInstance = ReturnType<typeof createInstance>;
 
@@ -57,7 +65,7 @@ export function installIntegrityFetchHook(
 
     return fetchRaw(url as string, init as RequestInit, "15 seconds").then(async (res) => {
       const buffer = Buffer.from(await res.arrayBuffer());
-      const computed = computeSriHash(buffer);
+      const computed = computeSri(new Uint8Array(buffer));
 
       if (computed !== expectedHash) {
         // ticket 09 (atomic-deploys): an SRI mismatch is treated like an
@@ -65,7 +73,7 @@ export function installIntegrityFetchHook(
         // same pin when cached) serve instead, and the corrupted bytes are
         // never written into the cache.
         const cached = await readBundleCache(url as string, { cacheDir: options?.cacheDir });
-        if (cached && computeSriHash(Buffer.from(cached)) === expectedHash) {
+        if (cached && computeSri(new Uint8Array(cached)) === expectedHash) {
           console.warn(
             `[SRI] Origin bytes failed verification for ${url} — serving last-known-good from the bundle cache`,
           );
@@ -74,13 +82,19 @@ export function installIntegrityFetchHook(
             headers: { "x-bundle-cache": "stale" },
           });
         }
-        console.error(
-          `[SRI] Integrity check failed in MF fetch pipeline for ${url}\n  Expected: ${expectedHash}\n  Computed: ${computed}`,
-        );
-        return new Response(`Integrity check failed for ${url}`, {
-          status: 500,
-          statusText: "Integrity Check Failed",
+        const mismatch = new IntegrityMismatch({
+          url,
+          expected: expectedHash,
+          actual: computed,
         });
+        console.error(`[SRI] ${mismatch._tag} in the MF fetch pipeline — ${mismatch.message}`);
+        return new Response(
+          `${mismatch._tag}: integrity check failed for ${url} (expected ${expectedHash}, actual ${computed})`,
+          {
+            status: 500,
+            statusText: "Integrity Check Failed",
+          },
+        );
       }
 
       // verified: pin-checked write-through
@@ -97,6 +111,33 @@ export function installIntegrityFetchHook(
       });
     });
   });
+}
+
+export interface HostPluginRuntimeOptions {
+  /** The integrity-in-pipeline registry: resolved artifact URLs → pin SRI.
+   * When present, the MF fetch hook installs inside this factory — the
+   * loader verifies every registered byte at fetch time (#642 revival). */
+  readonly integrityRegistry?: IntegrityRegistry;
+  readonly cacheDir?: string;
+}
+
+export function createPluginRuntime<TRegistry extends Record<string, PluginRegistryEntry>>(
+  config: PluginRuntimeConfig<TRegistry>,
+  options?: HostPluginRuntimeOptions,
+): PluginRuntime<InferRegistryFromEntries<TRegistry>> {
+  const runtime = createManagedPluginRuntime(config);
+  if (options?.integrityRegistry) {
+    try {
+      installIntegrityFetchHook(getFederationInstance(), options.integrityRegistry, {
+        cacheDir: options.cacheDir,
+      });
+    } catch (error) {
+      console.warn(
+        `[SRI] MF instance unavailable for the integrity hook — verification degrades to the entry gates: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return runtime;
 }
 
 export function getFederationInstance(): FederationInstance {

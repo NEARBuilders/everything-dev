@@ -15,7 +15,7 @@ The architecture review's §6 names the shape these halves converge on: **discov
 
 **1. Two planes, explicit.**
 
-- **Control plane** — produces and activates: the registry wire (config, thin tag, version records, deploy records — activation + provenance), the deploy train and CI (build → verify → publish → **stage** → promote), the gates (`bos lock --check`, smoke, sentinel, drift alarms).
+- **Control plane** — produces and activates: the registry wire (config, thin tag, version records, deploy records — activation + provenance), the deploy train and CI (build → verify → publish → **stage** → promote), the gates (`bos lock --check`, smoke, sentinel, drift alarms — the smoke leg's verification mechanics are [ADR 0046](./0046-manifest-attribution.md)'s: the chain walker walks the spine in-image and a broken prefix fails the boot).
 - **Application runtime** — consumes: starts from a digest-verified approved artifact, serves, reports health and active composition, and converges on newer activations through the pointer watch. The registry is a *background freshness channel*, never a boot dependency for restarts. Fail-loud survives for **fresh activations** — a host that has never verified anything and cannot reach the registry still refuses, exactly as today.
 
 **2. The boot contract (the precedence order is unchanged; the roles are now named).**

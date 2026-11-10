@@ -24,8 +24,8 @@ export const lockRenderers: Record<string, ResultRenderer> = {
       console.log(colors.green(`${icons.ok} Froze the resolved composition`));
       console.log(`  ${colors.dim("Written:")} ${result.path}`);
     }
-    if (result.fingerprint) {
-      console.log(`  ${colors.dim("Fingerprint:")} ${result.fingerprint}`);
+    if (result.pointerDigest) {
+      console.log(`  ${colors.dim("Pointer digest:")} ${result.pointerDigest}`);
     }
     console.log();
   },

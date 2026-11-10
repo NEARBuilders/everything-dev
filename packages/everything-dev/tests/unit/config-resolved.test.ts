@@ -16,6 +16,8 @@ import { openResolution } from "../../src/services/resolution/session";
 import { BosConfigInputSchema } from "../../src/types";
 
 vi.mock("../../src/services/deploy/version-manifest", () => ({
+  // ticket 03 stamps the resolved artifact map onto every slot
+  resolvedIntegrityMap: () => ({}),
   resolveRemoteVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
     entryIntegrity: "sha384-entry",

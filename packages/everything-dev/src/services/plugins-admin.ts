@@ -279,7 +279,7 @@ export class PluginAdminService extends Context.Service<
               key: input.key,
               path: localPath,
               production,
-              fingerprint: result.fingerprint,
+              pointerDigest: result.pointerDigest,
               version: manifest?.plugin.version,
             };
           }),

@@ -93,7 +93,8 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     if (result.path) console.log(`  ${colors.dim("Path:")} ${result.path}`);
     if (result.production) console.log(`  ${colors.dim("Production:")} ${result.production}`);
     if (result.version) console.log(`  ${colors.dim("Version:")} ${result.version}`);
-    if (result.fingerprint) console.log(`  ${colors.dim("Fingerprint:")} ${result.fingerprint}`);
+    if (result.pointerDigest)
+      console.log(`  ${colors.dim("Pointer digest:")} ${result.pointerDigest}`);
     console.log();
     return;
   },
@@ -269,8 +270,8 @@ export const publishRenderers: Record<string, ResultRenderer> = {
       console.log();
       return;
     }
-    if (deployResult.fingerprint) {
-      console.log(`  ${colors.dim("Fingerprint:")} ${deployResult.fingerprint}`);
+    if (deployResult.pointerDigest) {
+      console.log(`  ${colors.dim("Pointer digest:")} ${deployResult.pointerDigest}`);
     }
     if (deployResult.status === "dry-run") {
       console.log();

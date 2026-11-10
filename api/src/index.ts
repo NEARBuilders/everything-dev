@@ -53,11 +53,11 @@ export default createPlugin.withPlugins<PluginsClient>()({
               .min(1000)
               .max(600000)
               .default(15000)
-              .describe("Bounded poll cadence for fingerprint checks"),
+              .describe("Bounded poll cadence for digest checks"),
           })
           .optional()
           .describe(
-            "Reconciler (plan 055 ticket 08): converges hosted instances to each namespace's latest published fingerprint via the hosting adapter. Requires the alchemy optional peer for the docker adapter.",
+            "Reconciler (plan 055 ticket 08): converges hosted instances to each namespace's latest published pointer digest via the hosting adapter. Requires the alchemy optional peer for the docker adapter.",
           ),
       })
       .optional(),

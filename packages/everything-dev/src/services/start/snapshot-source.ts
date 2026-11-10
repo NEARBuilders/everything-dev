@@ -5,7 +5,7 @@
  * ONLY to transport failures; a definitive negative (the runtime has no
  * published config) is a state change, not an outage, and fails loud without
  * consulting the snapshot. The snapshot's own integrity is checked without
- * the network (fingerprint recomputation — `verifiedBootSnapshot`), so a
+ * the network (digest recomputation — `verifiedBootSnapshot`), so a
  * snapshot boot never serves bytes nobody verified.
  */
 import type { BosConfig } from "../../types";

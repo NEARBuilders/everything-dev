@@ -8,7 +8,8 @@ import { pgliteDefaultUrlForSlug } from "../../db/binding";
  * The runtime-image boot gate: boots a runtime image the way production
  * boots — identity from BOS_ACCOUNT/BOS_GATEWAY env and the published config
  * from the registry — and asserts the boot surface: /health, one SSR page,
- * the OpenAPI spec, and `bos mf check` in-image. Health/SSR/API polls run
+ * the OpenAPI spec, `bos mf check` in-image, and the
+ * entries-depth chain walk in-image. Health/SSR/API polls run
  * concurrently against a shared boot deadline; a container that exits early
  * fails fast (the start stack exits non-zero when a service fails to boot),
  * and the failure path probes the CDN from inside the container to classify
@@ -323,6 +324,34 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
       60_000,
     );
 
+    // The chain walk as a pre-promotion leg (ADR 0046): the booted identity's
+    // published config walks at entries depth inside the container — pinned
+    // manifest documents and their remoteEntry/ssr bytes byte-for-byte. Rot
+    // here means the just-published config points at bytes the CDN does not
+    // serve; the promotion must not happen.
+    console.log(`  … bos verify --depth entries (in-image)`);
+    const chain = await pollUntil(
+      "bos verify --depth entries",
+      async () => {
+        const result = docker([
+          "exec",
+          container,
+          "node",
+          "./node_modules/everything-dev/dist/cli.mjs",
+          "verify",
+          "--depth",
+          "entries",
+        ]);
+        if (result.status !== 0) {
+          throw new Error(
+            `bos verify failed (exit ${result.status})\n${result.stdout}${result.stderr}`,
+          );
+        }
+        return (result.stdout.trim().split("\n").at(-1) ?? "").slice(0, 400);
+      },
+      120_000,
+    );
+
     // ADR 0034: the boot gate also self-describes — the in-image platform
     // release manifest must exist and parse (the release contract ships in
     // the same bytes the host boots from).
@@ -346,7 +375,7 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     const mb = (Number(sizeResult.stdout.trim()) / (1024 * 1024)).toFixed(1);
     console.log(`  ℹ image size: ${mb} MB (${image})`);
 
-    const summary = `health: ${health}; ssr: ${ssr}; api: ${api}; mf compat: ${mf}; platform: ${platformVersion}`;
+    const summary = `health: ${health}; ssr: ${ssr}; api: ${api}; mf compat: ${mf}; chain: ${chain}; platform: ${platformVersion}`;
     console.log("smoke: PASS");
     return { ok: true, image, summary };
   } catch (error) {

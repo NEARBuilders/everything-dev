@@ -1,18 +1,18 @@
 import { Context, Effect, Layer, Ref } from "effect";
-import { deploymentFingerprint } from "everything-dev/fingerprint";
+import { deploymentDigest } from "everything-dev/digest";
 import type { RuntimeConfig } from "everything-dev/types";
 import { ConfigService } from "./config";
 import { type ClientConfigCacheState, createClientConfigCacheState } from "./serving-caches";
 import { createUiComposeCacheState, type UiComposeCacheState } from "./ui-compose";
 
-export { deploymentFingerprint };
+export { deploymentDigest };
 
 export interface RuntimeSnapshotState {
-  /** hash over the load-bearing remote coordinates — changes on every adopted deploy */
-  fingerprint: string;
+  /** the serving-generation digest — changes on every adopted deploy */
+  deploymentDigest: string;
   config: RuntimeConfig;
   /** the adopted published pointer — set by the coordinator on every swap;
-   * absent at boot (the fingerprint is the identity until the first adopt) */
+   * absent at boot (the digest is the identity until the first adopt) */
   pointer?: Record<string, unknown>;
   /** Boot-frozen slots (api, auth, plugin backends) whose pins the adopted
    * pointer moved — the swap cannot adopt them (MAP decision 3), so the
@@ -43,7 +43,7 @@ export interface RuntimeSnapshotState {
  * pre-warmed states built here.
  */
 export function createRuntimeSnapshotState(input: {
-  fingerprint: string;
+  deploymentDigest: string;
   config: RuntimeConfig;
   pointer?: Record<string, unknown>;
   restartRequired?: string[];
@@ -53,7 +53,7 @@ export function createRuntimeSnapshotState(input: {
   const composeState = input.composeState ?? createUiComposeCacheState();
   const clientConfigState = input.clientConfigState ?? createClientConfigCacheState();
   return {
-    fingerprint: input.fingerprint,
+    deploymentDigest: input.deploymentDigest,
     config: input.config,
     pointer: input.pointer,
     ...(input.restartRequired ? { restartRequired: input.restartRequired } : {}),
@@ -74,7 +74,7 @@ export function createRuntimeSnapshotState(input: {
  * swapped one — session-level blue/green without any draining machinery
  * (shadow-flip). A swap releases the previous state's caches, so repeated
  * adopts never accumulate old generations. API plugins and auth stay
- * boot-frozen by design (MAP decision 3); the fingerprint deliberately
+ * boot-frozen by design (MAP decision 3); the digest deliberately
  * includes their coordinates anyway — a published pointer that changed them
  * is change-detection signal for the watch fiber, even though a swap cannot
  * adopt them.
@@ -100,7 +100,7 @@ export class RuntimeSnapshot extends Context.Service<
         const config = yield* ConfigService;
         const ref = yield* Ref.make<RuntimeSnapshotState>(
           createRuntimeSnapshotState({
-            fingerprint: deploymentFingerprint(config),
+            deploymentDigest: deploymentDigest(config),
             config,
             ...(options?.composeState ? { composeState: options.composeState } : {}),
             ...(options?.clientConfigState ? { clientConfigState: options.clientConfigState } : {}),

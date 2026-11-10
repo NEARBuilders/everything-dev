@@ -1,12 +1,4 @@
-import { createHash } from "node:crypto";
-
-/**
- * The ONE manifest SRI-verify implementation (ticket #422): fetch a pinned
- * version manifest's bytes, compute the sha384 SRI, and compare against the
- * pin. Both rollback verification (atomic-deploys 11) and version-manifest
- * remote resolution (atomic-deploys 04) build on this — previously two (three
- * counting the publish pin check, which is rollback verification) copies.
- */
+import { asDigest, computeSri, fetchVerified, isVerifyError } from "../verify/engine";
 
 export interface ManifestPin {
   /** versioned manifest filename, relative to the remote's production base */
@@ -22,37 +14,40 @@ export function manifestDocumentUrl(base: string, manifest: string): string {
 }
 
 export function computeManifestSri(text: string): string {
-  return `sha384-${createHash("sha384").update(text).digest("base64")}`;
+  return computeSri(text);
 }
 
-/** Fetch the pinned manifest and verify its SRI — never throws; callers map
- * the failure reason to their own result shapes (a remote check, a thrown
- * resolution error, …). */
+export function reasonOf(error: unknown): string {
+  if (!isVerifyError(error)) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  if (error._tag === "IntegrityMismatch") {
+    return `integrity mismatch for ${error.url} (expected ${error.expected}, computed ${error.actual})`;
+  }
+  if (error._tag === "ProvenanceUnknown") {
+    if (error.status !== undefined) {
+      return `manifest fetch failed: ${error.status}`;
+    }
+    return `manifest fetch failed: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`;
+  }
+  return `signature invalid for ${error.url}: ${error.reason}`;
+}
+
 export async function fetchVerifiedManifest(input: {
   base: string;
   digest: ManifestPin;
   fetchImpl?: typeof fetch;
 }): Promise<VerifiedManifest> {
   const manifestUrl = manifestDocumentUrl(input.base, input.digest.manifest);
-  let response: Response;
   try {
-    response = await (input.fetchImpl ?? fetch)(manifestUrl);
+    const bytes = await fetchVerified({
+      url: manifestUrl,
+      expected: asDigest(input.digest.integrity),
+      fetchImpl: input.fetchImpl,
+      cache: false,
+    });
+    return { ok: true, text: new TextDecoder().decode(bytes) };
   } catch (error) {
-    return {
-      ok: false,
-      reason: `manifest fetch failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    return { ok: false, reason: reasonOf(error) };
   }
-  if (!response.ok) {
-    return { ok: false, reason: `manifest fetch failed: ${response.status}` };
-  }
-  const text = await response.text();
-  const computed = computeManifestSri(text);
-  if (computed !== input.digest.integrity) {
-    return {
-      ok: false,
-      reason: `integrity mismatch for ${manifestUrl} (expected ${input.digest.integrity}, computed ${computed})`,
-    };
-  }
-  return { ok: true, text };
 }

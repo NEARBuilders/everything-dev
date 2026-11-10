@@ -1,5 +1,5 @@
 import type { BosConfigInput } from "../../types";
-import { remoteDigests } from "../registry/fingerprint";
+import { remoteDigests } from "../registry/digest";
 import { walkRemotes } from "../remotes";
 
 /**

@@ -76,7 +76,7 @@ beforeEach(() => {
     bosConfigChanged: false,
     catalogChanged: false,
     generatedChanged: false,
-    resolved: { deps: {}, fingerprintSha256: "" },
+    resolved: { deps: {}, generatedDigest: "" },
   } as never);
   vi.spyOn(initModule, "runPnpmInstallForUpgrade").mockResolvedValue();
   vi.spyOn(initModule, "runTypesGen").mockResolvedValue();
