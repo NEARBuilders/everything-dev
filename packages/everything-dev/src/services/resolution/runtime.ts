@@ -688,6 +688,9 @@ const resolveCallOnlyEntry = Effect.fn("resolveCallOnlyEntry")(function* (
     {
       name: resolvePluginRuntimeName(source.name, undefined, pluginId),
       url: proxyUrl,
+      // "" is the honest "no artifact": call-only entries federation-load
+      // nothing, so there is no mf-manifest to point at — but the entry
+      // field itself is required by FederationEntrySchema.
       entry: "",
       source: "remote",
       port: parsePort(proxyUrl),
