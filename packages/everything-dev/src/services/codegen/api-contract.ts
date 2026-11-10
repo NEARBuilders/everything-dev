@@ -876,7 +876,7 @@ export async function syncApiContractBridge(opts: {
   }
 
   for (const [key, plugin] of pluginEntries) {
-    if (!plugin.url && !plugin.localPath) {
+    if (!plugin.url && !plugin.localPath && !plugin.contractUrl) {
       console.warn(
         `[API Contract] Skipping plugin "${key}" — no URL resolved (local path missing and no production URL configured)`,
       );
@@ -889,18 +889,23 @@ export async function syncApiContractBridge(opts: {
 
   const pluginResults = await Promise.allSettled(
     resolvablePlugins.map(async ([key, plugin]) => {
+      // call-only attachments fetch types from the CONTRACT origin (the
+      // stamped artifact base) — the plugin url is the traffic endpoint and
+      // may serve no manifest at all (a live app domain 404s it).
+      const contractBase = plugin.contractUrl ?? plugin.url;
       const source = await resolveContractSource({
         configDir: opts.configDir,
         runtimeDir,
         key,
         source: plugin,
-        baseUrl: plugin.url,
+        baseUrl: contractBase,
         generatedSubdir: `plugins/${key}`,
       });
       return {
         key,
         source,
         plugin,
+        contractBase,
       };
     }),
   );
@@ -912,7 +917,7 @@ export async function syncApiContractBridge(opts: {
       status.push({
         key,
         source: plugin.source,
-        url: plugin.source !== "local" ? plugin.url : undefined,
+        url: result.value.contractBase,
         localPath: plugin.source === "local" ? plugin.localPath : undefined,
       });
       if (result.value.source.generatedPath) {
@@ -922,7 +927,12 @@ export async function syncApiContractBridge(opts: {
       const message =
         result.reason instanceof Error ? result.reason.message : String(result.reason);
       console.warn(`[API Contract] Failed to resolve plugin "${key}": ${message}`);
-      status.push({ key, source: "failed", url: plugin.url || undefined, error: message });
+      status.push({
+        key,
+        source: "failed",
+        url: plugin.contractUrl ?? plugin.url ?? undefined,
+        error: message,
+      });
       excludedPluginKeys.add(key);
     }
   });

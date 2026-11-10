@@ -51,17 +51,20 @@ export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
 export type AttachmentInput = AttachmentRef;
 
 /**
- * A `plugins.<key>` attachment — the shared attachment fields plus `mode`.
- * `mode: "rpc"` consumes the deployed plugin's API as a typed RPC client over
- * the host's `/api/rpc/{key}` proxy: never federation-loaded, no routes
- * composed, no background services. Explicit URLs only — `local:` is refused
- * (the remote app's workspace is its own repo's concern) — and `production`
- * is authored directly because an rpc entry has no workspace for the deploy
- * train to stage and stamp. An authored `proxy` takes precedence over rpc.
+ * A `plugins.<key>` attachment — the shared attachment fields plus `contract`,
+ * completing the attachment-level `proxy` field: an entry that declares
+ * `proxy` (and no `path`/`extends`/URL fields) is **call-only** — it consumes
+ * a deployed app's API as a typed oRPC client over the host's
+ * `/api/rpc/{key}` proxy. Never federation-loaded, no routes composed, no
+ * background services, no UI source. `proxy` is the traffic endpoint (the
+ * live app origin; dev overrides through bos.dev.ts); `contract` is the
+ * types locator — a `bos://account/gateway[#target]` ref whose targeted
+ * entry's stamped production serves the sha256-verified contract types. The
+ * two live at different origins in production and must be authored
+ * separately.
  */
 export const PluginAttachmentRefSchema = AttachmentRefSchema.extend({
-  mode: z.literal("rpc").optional(),
-  production: z.string().optional(),
+  contract: z.string().optional(),
 });
 export type PluginAttachmentRef = z.infer<typeof PluginAttachmentRefSchema>;
 

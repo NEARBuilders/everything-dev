@@ -4,11 +4,12 @@ import type { RuntimePluginConfig } from "everything-dev/types";
 import { logger } from "../utils/logger";
 
 /**
- * A call-only plugin attachment (`plugins.<key>.mode: "rpc"`): the host never
- * federation-loads the plugin — it holds a typed oRPC client over the remote's
- * `/api/rpc` and forwards browser traffic (`/api/rpc/{key}/*`) to the same
- * target. The declared secret, when present in the environment, rides as
- * `x-api-key` on both paths and never leaves the server.
+ * A call-only plugin attachment (`plugins.<key>` authored with `proxy` +
+ * `contract`): the host never federation-loads the plugin — it holds a typed
+ * oRPC client over the remote's `/api/rpc` and forwards browser traffic
+ * (`/api/rpc/{key}/*`) to the same target. The declared secret, when present
+ * in the environment, rides as `x-api-key` on both paths and never leaves
+ * the server.
  *
  * The client is typed at the CONSUMER (generated `plugins-types.gen.ts`
  * narrows it per contract); at runtime it is the plain oRPC proxy, so
@@ -23,7 +24,8 @@ export interface RpcPluginClient {
   metadata: { remoteUrl: string; version?: string };
   /** routes-layer forward target for `/api/rpc/{key}/*` */
   proxy: { target: string; apiKey?: string };
-  /** reachability probe — the remote's plugin manifest, not a bundle artifact */
+  /** reachability probe — the TRAFFIC endpoint's rpc ping, not the
+   * artifact CDN's manifest (manifest-200 says nothing about serving) */
   probeUrl: string;
   warnings: [];
 }
@@ -79,7 +81,7 @@ export function createRpcPluginClient(
     router: undefined,
     metadata: { remoteUrl: target },
     proxy: { target, ...(apiKey ? { apiKey } : {}) },
-    probeUrl: `${target}/plugin.manifest.json`,
+    probeUrl: `${target}/api/rpc/ping`,
     warnings: [],
   };
 }

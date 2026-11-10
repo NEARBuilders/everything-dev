@@ -382,7 +382,7 @@ function describeBackend(
         digest?: { manifest?: string };
         integrity?: string;
         dependsOn?: string[];
-        mode?: "rpc";
+        contractUrl?: string;
       }
     | undefined,
 ): BackendRecord | null {
@@ -419,7 +419,16 @@ function describeBackend(
       ...(digest ? { digest } : {}),
       ...(remote.integrity ? { integrity: remote.integrity } : {}),
       ...(dependsOn ? { dependsOn } : {}),
-      ...(remote.mode === "rpc" ? { mode: "rpc" as const } : {}),
+      // call-only attachments: location is the traffic endpoint (the live
+      // app origin), but the plugin-manifest inventory reads from the
+      // CONTRACT origin (the stamped artifact base) — that is where the
+      // manifest actually serves.
+      ...(remote.contractUrl
+        ? {
+            callOnly: true as const,
+            pluginManifestUrl: pluginManifestUrlFor(remote.contractUrl),
+          }
+        : {}),
     };
   }
   return null;
@@ -461,8 +470,9 @@ export interface BackendRecord {
   contractSha256?: string;
   /** Where the remote manifest asset was fetched from. */
   pluginManifestUrl?: string;
-  /** call-only attachment (`mode: "rpc"`) — no federation bundle is composed */
-  mode?: "rpc";
+  /** call-only attachment (`proxy` + `contract`) — no federation bundle is
+   * composed; location is the traffic endpoint */
+  callOnly?: true;
   note?: string;
 }
 

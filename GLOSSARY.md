@@ -208,16 +208,16 @@ _Avoid_: KMS (implies an external service), .env (the vault's whole point is not
 The per-runtime AES key that seals a runtime's secrets — HKDF'd from the platform root secret (`BETTER_AUTH_SECRET`) with a runtime-scoped salt. Its source is a swappable sub-seam: the custody-TEE swap (ticket 13) changes where the KEK comes from without touching the schema, CLI, or config declarations.
 _Avoid_: root key (that's the platform secret the KEK derives from), master key
 
-## Rpc-mode plugin entries
+## Call-only plugins
 
-**Rpc-mode plugin entry**:
-A `plugins.<key>` attachment with `mode: "rpc"` — consumes a deployed app's API as a typed oRPC client without federation-loading its bundle, mounting its routes, or running its services. Explicit URLs only (`local:` refused, an authored `production` because there is no workspace for the deploy train to stamp); an authored `proxy` takes precedence and wins.
-_Avoid_: remote plugin (that's a composed federation remote), proxy-only (proxy is the unrelated field)
+**Call-only plugin**:
+A `plugins.<key>` attachment authored with `proxy` + `contract` (+ optional `secrets`) and none of the composed source fields (`extends`, `path`, URL fields) — it consumes a deployed app's API as a typed oRPC client without federation-loading its bundle, composing its routes, or running its services. Detection is structural: proxy present, no source. The entry stays a regular plugin entry in every other respect.
+_Avoid_: rpc-mode (the superseded discriminator — removed), remote plugin (that's a composed federation remote), proxy-only (proxy alone is the traffic endpoint, not the concept)
 
-**Rpc attachment client**:
-The host's oRPC client over `{target}/api/rpc` for one rpc-mode entry, with the entry's declared secret riding as `x-api-key` — the secret never leaves the server. Typed at the consumer (generated `plugins-types.gen.ts`); plain proxy at runtime.
-_Avoid_: rpc client generically, api client (the browser-side host client)
+**Contract locator**:
+The call-only attachment's `contract` value — a `bos://account/gateway[#target]` ref whose targeted entry's stamped production is the artifact CDN origin serving the sha256-verified contract types. A pure type pointer: it merges nothing, adopts no UI, and never touches composable-entry resolution. Distinct origin from the traffic endpoint in production — that split is why call-only has two locators.
+_Avoid_: extends (that composes the targeted entry — merging, UI adoption, pins), types URL (the locator is a ref, not a URL)
 
-**Rpc proxy route**:
-The host's pass-through at `/api/rpc/{key}/*` forwarding to `{target}/api/rpc/*` with the same credential — how UI code reaches an rpc-mode plugin exactly like a composed one, through the one dispatch seam shared with composed-plugin routers.
-_Avoid_: reverse proxy (uncharged term), route mount (that's composing a local router)
+**Call-only proxy endpoint**:
+The attachment's `proxy` value — the live app origin whose `/api/rpc` serves the plugin's traffic. The host forwards `/api/rpc/{key}/*` to it with the declared secret as `x-api-key` (server-side only), through the same dispatch seam as composed-plugin routers; readiness probes its rpc ping, because a manifest-200 from the artifact CDN says nothing about whether the API serves.
+_Avoid_: contract origin (the CDN serving types — the other locator), reverse proxy (uncharged term)

@@ -25,6 +25,7 @@ import {
   LOCAL_PREFIX,
   type ResolvedComposableReference,
   resolveComposableReference,
+  resolveContractOrigin,
 } from "./load";
 import { type BosEnv, isPlainObject, resolveExtendsRef } from "./merge";
 
@@ -446,10 +447,6 @@ async function deriveVersionManifestFields(
       pluginConfig = config.app.auth;
     }
     if (!pluginConfig || typeof pluginConfig === "string") continue;
-    // rpc entries are call-only — no workspace is staged, so there is no
-    // version-manifest digest to pin and none is required (the derive's
-    // "remote must pin outside development" gate is composed-plugin policy).
-    if (plugin.mode === "rpc") continue;
     await derive(`plugins.${key}`, pluginConfig, plugin, (r) => {
       plugin.entryUrl = r.entryUrl;
       plugin.integrity = r.entryIntegrity;
@@ -502,6 +499,25 @@ const resolveRuntimePluginsEffect = Effect.fn("resolveRuntimePlugins")(function*
     entries,
     ({ pluginId, normalized }) =>
       Effect.gen(function* () {
+        const hasProxy = typeof normalized.proxy === "string" && normalized.proxy.length > 0;
+        const conflicted = (["extends", "development", "production", "ui"] as const).filter(
+          (field) => normalized[field] !== undefined,
+        );
+        if (hasProxy && conflicted.length > 0) {
+          throw new ConfigExtendsError({
+            message: `Plugin "${pluginId}" declares proxy (call-only) alongside ${conflicted.join(", ")} — a call-only entry declares proxy + contract (+ secrets) only; the proxy value is the traffic endpoint.`,
+          });
+        }
+        if (normalized.contract && !hasProxy) {
+          throw new ConfigExtendsError({
+            message: `Plugin "${pluginId}" declares contract without proxy — contract is the call-only types locator; add proxy: "<live app origin>" to point the client at the traffic endpoint.`,
+          });
+        }
+
+        if (hasProxy) {
+          return yield* resolveCallOnlyEntry(pluginId, normalized, baseDir, env);
+        }
+
         const resolvedReference = yield* Effect.tryPromise({
           try: () => resolveComposableReference(normalized, baseDir, env, `plugins.${pluginId}`),
           catch: (cause) => new ConfigExtendsError({ message: String(cause), cause }),
@@ -617,19 +633,6 @@ function buildRuntimePluginConfig(
 
   const routes = source.routes;
 
-  if (source.mode === "rpc") {
-    if (runtimeTarget.localPath || development?.startsWith(LOCAL_PREFIX)) {
-      throw new ConfigExtendsError({
-        message: `Plugin "${pluginId}" declares mode: "rpc" with a local target — rpc entries call a deployed host over HTTP; point "development"/"production" at explicit URLs.`,
-      });
-    }
-    if (!runtimeTarget.url) {
-      throw new ConfigExtendsError({
-        message: `Plugin "${pluginId}" declares mode: "rpc" but resolves to no URL — set "development" and/or "production".`,
-      });
-    }
-  }
-
   return {
     name: apiName,
     url: runtimeTarget.url,
@@ -649,9 +652,53 @@ function buildRuntimePluginConfig(
     ui,
     routes,
     dependsOn: source.dependsOn ? normalizeStringArray(source.dependsOn) : undefined,
-    mode: source.mode === "rpc" ? "rpc" : undefined,
   };
 }
+
+/**
+ * Resolve one call-only entry: the proxy value is the traffic endpoint and
+ * the `contract` locator resolves to the types origin. The structural guards
+ * (conflicting fields, contract presence) run in the resolution loop; this
+ * assumes they passed.
+ */
+const resolveCallOnlyEntry = Effect.fn("resolveCallOnlyEntry")(function* (
+  pluginId: string,
+  source: BosPluginRef,
+  baseDir: string,
+  env: BosEnv,
+): Effect.fn.Return<[string, RuntimePluginConfig], ConfigExtendsError> {
+  if (typeof source.contract !== "string" || source.contract.length === 0) {
+    throw new ConfigExtendsError({
+      message: `Plugin "${pluginId}" declares proxy (call-only) without a contract locator — add contract: "bos://account/gateway#app.api" pointing at the deployed app whose API it consumes.`,
+    });
+  }
+
+  const contractUrl = yield* Effect.tryPromise({
+    try: () => resolveContractOrigin(source.contract!, baseDir, env),
+    catch: (cause) =>
+      new ConfigExtendsError({
+        message: `Plugin "${pluginId}" contract locator failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        cause,
+      }),
+  });
+
+  const proxyUrl = source.proxy!.replace(/\/$/, "");
+  return [
+    pluginId,
+    {
+      name: resolvePluginRuntimeName(source.name, undefined, pluginId),
+      url: proxyUrl,
+      entry: "",
+      source: "remote",
+      port: parsePort(proxyUrl),
+      proxy: proxyUrl,
+      contractUrl,
+      secrets: normalizeStringArray(source.secrets),
+      connectSrc: normalizeStringArray(source.connectSrc),
+      dependsOn: source.dependsOn ? normalizeStringArray(source.dependsOn) : undefined,
+    },
+  ] as [string, RuntimePluginConfig];
+});
 
 /**
  * Resolve a plugin entry's associated ui surface (`plugins.<id>.ui` / legacy

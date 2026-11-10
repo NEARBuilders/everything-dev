@@ -45,9 +45,11 @@ export interface ServiceDescriptor {
   localPath?: string;
   port?: number;
   readinessPath: string;
-  /** absolute readiness probe override — rpc entries probe the remote's
-   * plugin manifest instead of federation bundle artifacts */
+  /** absolute readiness probe override — call-only entries probe the
+   * traffic endpoint's rpc ping instead of federation bundle artifacts */
   readinessUrl?: string;
+  /** readinessUrl verb — an rpc ping is POST */
+  readinessMethod?: "GET" | "POST";
   defaultPort: number;
   integrity?: string;
   proxy?: string;
@@ -240,6 +242,7 @@ export function buildServiceDescriptorMap(
       if (isFolderFormUi) pluginBasePort = folderUiPort + 1;
 
       if (!isAuthMirror) {
+        const callOnly = Boolean(pluginConfig.contractUrl);
         map.set(pluginKey, {
           key: pluginKey,
           source: pluginConfig.source,
@@ -253,20 +256,23 @@ export function buildServiceDescriptorMap(
           proxy: pluginConfig.proxy,
           variables: pluginConfig.variables,
           secrets: pluginConfig.secrets,
-          command: pluginConfig.mode === "rpc" ? undefined : "pnpm",
-          args: pluginConfig.mode === "rpc" ? undefined : ["run", "dev"],
+          command: callOnly ? undefined : "pnpm",
+          args: callOnly ? undefined : ["run", "dev"],
           env: isFolderFormUi ? { BOS_UI_PORT: String(folderUiPort) } : undefined,
           uiPort: isFolderFormUi ? folderUiPort : undefined,
           readyPatterns: PLUGIN_READY_PATTERNS,
           errorPatterns: PLUGIN_ERROR_PATTERNS,
           defaultPort: resolvedPort,
-          readinessPath: "/remoteEntry.js",
-          // rpc entries call a deployed host — reachability is its plugin
-          // manifest, not federation bundles.
-          readinessUrl:
-            pluginConfig.mode === "rpc"
-              ? `${pluginConfig.url.replace(/\/$/, "")}/plugin.manifest.json`
-              : undefined,
+          readinessPath: callOnly ? "/" : "/remoteEntry.js",
+          // call-only entries probe the TRAFFIC endpoint (the live app
+          // origin's rpc ping) — a manifest-200 from the artifact CDN says
+          // nothing about whether the API serves.
+          ...(callOnly
+            ? {
+                readinessUrl: `${pluginConfig.url.replace(/\/$/, "")}/api/rpc/ping`,
+                readinessMethod: "POST" as const,
+              }
+            : {}),
         });
       } else if (isFolderFormUi) {
         // Folder-form ui for the auth mirror: the `auth` app slot owns the

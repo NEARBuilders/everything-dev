@@ -67,13 +67,9 @@ function attachmentToEntry(
   return {
     ...(attachment.extends ? { extends: attachment.extends } : {}),
     ...(development ? { development } : {}),
-    // rpc-mode plugins author their production URL directly — there is no
-    // workspace for the deploy train to stage and stamp. Other slots keep
-    // production pipeline-owned (the stamp injects it post-descriptor).
-    ...("production" in attachment && attachment.production
-      ? { production: attachment.production }
-      : {}),
-    ...("mode" in attachment && attachment.mode ? { mode: attachment.mode } : {}),
+    // call-only attachments author proxy + contract; composed entries keep
+    // URL fields pipeline-owned (stamps inject them post-descriptor)
+    ...("contract" in attachment && attachment.contract ? { contract: attachment.contract } : {}),
     ...pick(attachment, [...ATTACHMENT_FIELDS]),
     ...(attachment.ui === false
       ? { ui: false }
@@ -352,13 +348,10 @@ function entryToAttachment(key: string, entry: Record<string, unknown>): Record<
   const development = entry.development as string | undefined;
   const path = stripLocal(development);
   if (path !== undefined) out.path = path;
-  // rpc-mode entries author mode + production directly; composed entries
-  // keep production pipeline-owned (stamps inject it post-descriptor) so the
-  // emitted authored file never freezes a parent's deploy state.
-  if (entry.mode === "rpc") {
-    out.mode = entry.mode;
-    if (typeof entry.production === "string") out.production = entry.production;
-  }
+  // call-only entries author proxy + contract directly; composed entries
+  // keep URL fields pipeline-owned (stamps inject them post-descriptor) so
+  // the emitted authored file never freezes a parent's deploy state.
+  if (typeof entry.contract === "string") out.contract = entry.contract;
   for (const field of ATTACHMENT_FIELDS) {
     if (field === "name") continue;
     if (entry[field] !== undefined) out[field] = entry[field];

@@ -599,9 +599,9 @@ export const initializePlugins = Effect.fn("initializePlugins")(
     }
     for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
       if (!plugin.url) continue;
-      // rpc attachments are call-only — the client wires in pluginsClient
-      // below; no federation registration, no usePlugin load.
-      if (plugin.mode === "rpc") continue;
+      // call-only attachments are wired as clients below — no federation
+      // registration, no usePlugin load.
+      if (plugin.contractUrl) continue;
       if (
         key === "auth" &&
         config.auth &&
@@ -709,25 +709,21 @@ export const initializePlugins = Effect.fn("initializePlugins")(
     let authClient: ((ctx?: unknown) => unknown) | null = null;
     let baseApi: HostPluginEntry | null = null;
 
-    // rpc-mode attachments wire their clients BEFORE the load loop: the DAG
+    // call-only attachments wire their clients BEFORE the load loop: the DAG
     // makes them implicit api dependencies, so the api plugin's phase-2
     // initialize receives working clients. They are never federation-loaded —
-    // no registry entry, no usePlugin, no routes composed from a router.
+    // no registry entry, no usePlugin, no routes composed from a router
+    // (traffic goes through the /api/rpc/{key} proxy the routes layer mounts
+    // off the attachment's proxy fact).
     for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
-      if (plugin.mode !== "rpc" || !plugin.url) continue;
-      if (plugin.proxy) {
-        yield* Effect.logWarning(
-          `[Plugins][${key}] declares both proxy and mode: "rpc" — proxy takes precedence, rpc ignored`,
-        );
-        continue;
-      }
+      if (!plugin.contractUrl || !plugin.url) continue;
       const rpc = createRpcPluginClient(key, plugin);
       loadedPlugins[key] = rpc;
       loadedPluginKeys.push(key);
       rpcPluginKeys.push(key);
       pluginsClient[key] = { client: rpc.createClient, router: undefined };
       yield* Effect.logInfo(
-        `[Plugins][${key}] rpc attachment → ${rpc.proxy.target}${rpc.proxy.apiKey ? " (x-api-key)" : ""}`,
+        `[Plugins][${key}] call-only attachment → ${rpc.proxy.target}${rpc.proxy.apiKey ? " (x-api-key)" : ""}`,
       );
     }
 

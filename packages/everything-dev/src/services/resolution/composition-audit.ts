@@ -42,15 +42,17 @@ const configRemotePathsOf = (config: unknown): string[] => {
   if (!config || typeof config !== "object") return [];
   const paths: string[] = [];
   walkRemotes(config as Record<string, unknown>, ({ remote, entry }) => {
-    // rpc entries are call-only — they compose no federation remote, so the
-    // "served by the extends chain but missing from the release composition"
-    // line is meaningless for them (their URL is authored, never pinned).
+    // call-only attachments (proxy + contract, no composed source) compose
+    // no federation remote, so the "served by the extends chain but missing
+    // from the release composition" line is meaningless for them (their
+    // types locator points at the provider's release; their traffic endpoint
+    // is authored proxy).
     if (
       remote.startsWith("plugins.") &&
       !remote.endsWith(".ui") &&
       typeof entry === "object" &&
       entry !== null &&
-      (entry as { mode?: unknown }).mode === "rpc"
+      (entry as { contract?: unknown }).contract !== undefined
     ) {
       return;
     }

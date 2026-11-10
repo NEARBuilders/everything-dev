@@ -420,6 +420,46 @@ export function getConfigBaseDir(configPath: string, baseDir: string): string {
   return dirname(isAbsolute(configPath) ? configPath : resolve(baseDir, configPath));
 }
 
+/**
+ * Resolve a call-only attachment's `contract` locator to the contract origin —
+ * the targeted entry's stamped production (the artifact origin whose
+ * `plugin.manifest.json` serves the sha256-verified contract types).
+ *
+ * Unlike `resolveComposableReference` this merges nothing: the locator is a
+ * pure type pointer. `#target` defaults to `app.api`; non-bos:// refs are
+ * refused (a live app origin belongs in `proxy`, not here).
+ */
+export async function resolveContractOrigin(
+  ref: string,
+  baseDir: string,
+  env: BosEnv,
+  defaultTargetPath = "app.api",
+): Promise<string> {
+  const parsed = parseExtendsTarget(ref);
+  if (!parsed.configPath.startsWith("bos://")) {
+    throw new ConfigExtendsError({
+      message: `contract locator "${ref}" must be a bos:// ref — the live app origin belongs in proxy`,
+    });
+  }
+  const targetPath = parsed.targetPath ?? defaultTargetPath;
+  const { resolveMergedConfigInput } = await import("./session");
+  const extendedConfig = await resolveMergedConfigInput(parsed.configPath, {
+    baseDir: getConfigBaseDir(parsed.configPath, baseDir),
+    env,
+  });
+  const entry = getTargetedEntry(extendedConfig, targetPath);
+  const production =
+    typeof entry.production === "string" && entry.production.length > 0
+      ? entry.production
+      : undefined;
+  if (!production) {
+    throw new ConfigExtendsError({
+      message: `contract locator "${ref}" (${targetPath}) resolves to no stamped production URL — deploy the provider app first`,
+    });
+  }
+  return production.replace(/\/$/, "");
+}
+
 function asComposableEntry(value: unknown): BosPluginRef {
   if (value === undefined) {
     return {};

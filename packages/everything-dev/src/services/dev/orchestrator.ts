@@ -94,8 +94,8 @@ export interface ProcessState {
 // Effect-native probe — no nested Effect.runPromise: fetchRaw's promise
 // bridge intermittently wedges when awaited from inside a running fiber
 // (the readiness fork), stalling the whole boot until the 90s deadline.
-const probeHttpOk = (url: string, timeoutMs = 400) =>
-  fetchWithRetryEff(url, { timeout: timeoutMs, retries: 0 }).pipe(
+const probeHttpOk = (url: string, timeoutMs = 400, method?: string) =>
+  fetchWithRetryEff(url, { timeout: timeoutMs, retries: 0, ...(method ? { method } : {}) }).pipe(
     Effect.map((response) => response.ok),
     Effect.orElseSucceed(() => false),
   );
@@ -742,7 +742,11 @@ const spawnRemoteProbe = (
           const status = yield* Ref.get(statusRef);
           if (status === "ready" || status === "error") return true;
 
-          const ok = yield* probeHttpOk(probeUrl, REMOTE_PROBE_TIMEOUT_MS);
+          const ok = yield* probeHttpOk(
+            probeUrl,
+            REMOTE_PROBE_TIMEOUT_MS,
+            descriptor.readinessMethod,
+          );
           if (ok) {
             yield* markReady;
             return true;
