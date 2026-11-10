@@ -11,7 +11,6 @@ import type {
 import {
   ApiRefSchema,
   AppDescriptorSchema,
-  AttachmentRefSchema,
   PluginAttachmentRefSchema,
   UiRefSchema,
 } from "./schema";

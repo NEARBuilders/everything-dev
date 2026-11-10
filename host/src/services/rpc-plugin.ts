@@ -60,17 +60,15 @@ export function createRpcPluginClient(
     );
   }
 
-  const headers: Record<string, string> | undefined = apiKey ? { "x-api-key": apiKey } : undefined;
-
   const client = createORPCClient(
     new RPCLink({
       origin: target,
       url: "/api/rpc",
-      fetch: (fetchUrl, init) =>
-        fetchImpl(fetchUrl, {
-          ...init,
-          headers: headers ? { ...init?.headers, ...headers } : init?.headers,
-        }),
+      fetch: (fetchUrl, init) => {
+        const merged = new Headers(init?.headers);
+        if (apiKey) merged.set("x-api-key", apiKey);
+        return fetchImpl(fetchUrl, { ...init, headers: merged });
+      },
     }),
   );
 
