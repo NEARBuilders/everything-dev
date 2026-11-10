@@ -1,6 +1,12 @@
 import { mergeBosConfigWithExtends } from "../services/resolution/merge";
 import type { BosConfigInput } from "../types";
-import type { AppDescriptor, AppRegistry, AttachmentRef, PipelineFields } from "./schema";
+import type {
+  AppDescriptor,
+  AppRegistry,
+  AttachmentRef,
+  PipelineFields,
+  PluginAttachmentRef,
+} from "./schema";
 import { AppDescriptorSchema } from "./schema";
 
 /**
@@ -42,6 +48,16 @@ export const ATTACHMENT_FIELDS = [
   "version",
 ] as const;
 
+/**
+ * Fields ONLY `plugins.<key>` attachments carry — the plugins-only extension
+ * over `ATTACHMENT_FIELDS`. Iterated symmetrically by both converters
+ * (`attachmentToEntry` / `entryToAttachment`) so the next plugins-only field
+ * is one schema line + one entry here; never iterated by `slot()`, which
+ * fills the strict host/ui/api slots (that is why this is a separate list
+ * from ATTACHMENT_FIELDS, not a member of it).
+ */
+export const PLUGIN_ATTACHMENT_FIELDS = ["contract"] as const;
+
 /** Fields the attachment slots carry beyond the shared attachment set. */
 export const SLOT_INPUT_FIELDS = ["development", "extends", "integrity"] as const;
 
@@ -54,12 +70,18 @@ function stripLocal(development: string | undefined): string | undefined {
   return development?.startsWith(LOCAL_PREFIX) ? development.slice(LOCAL_PREFIX.length) : undefined;
 }
 
-function attachmentToEntry(attachment: AttachmentRef): Record<string, unknown> {
+function attachmentToEntry(
+  attachment: AttachmentRef | PluginAttachmentRef,
+): Record<string, unknown> {
   const development = devRef(attachment);
   return {
     ...(attachment.extends ? { extends: attachment.extends } : {}),
     ...(development ? { development } : {}),
-    ...pick(attachment, [...ATTACHMENT_FIELDS]),
+    // call-only attachments author proxy + contract; composed entries keep
+    // URL fields pipeline-owned (stamps inject them post-descriptor). Auth
+    // slots never carry plugins-only fields (stripped at parse), so the
+    // symmetric pick is a no-op there.
+    ...pick(attachment as PluginAttachmentRef, [...ATTACHMENT_FIELDS, ...PLUGIN_ATTACHMENT_FIELDS]),
     ...(attachment.ui === false
       ? { ui: false }
       : attachment.ui
@@ -337,6 +359,13 @@ function entryToAttachment(key: string, entry: Record<string, unknown>): Record<
   const development = entry.development as string | undefined;
   const path = stripLocal(development);
   if (path !== undefined) out.path = path;
+  // call-only entries author proxy + contract directly; composed entries
+  // keep URL fields pipeline-owned (stamps inject them post-descriptor) so
+  // the emitted authored file never freezes a parent's deploy state. The
+  // plugins-only set iterates symmetrically with attachmentToEntry.
+  for (const field of PLUGIN_ATTACHMENT_FIELDS) {
+    if (entry[field] !== undefined) out[field] = entry[field];
+  }
   for (const field of ATTACHMENT_FIELDS) {
     if (field === "name") continue;
     if (entry[field] !== undefined) out[field] = entry[field];

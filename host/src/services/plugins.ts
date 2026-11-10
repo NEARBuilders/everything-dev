@@ -15,7 +15,12 @@ import {
   toHostSharedEntry,
 } from "every-plugin/shared-deps-spec";
 import type { BosEnv } from "everything-dev/config";
-import { buildDependencyDAG, getDependenciesForNode, getSingletonKey } from "everything-dev/dag";
+import {
+  buildDependencyDAG,
+  type DependencyDAG,
+  getDependenciesForNode,
+  getSingletonKey,
+} from "everything-dev/dag";
 import { createPluginRuntime } from "everything-dev/federation";
 import { IntegrityRegistry, verifyConfigAgainstChain } from "everything-dev/integrity";
 import type { RuntimeConfig, RuntimePluginConfig, SharedConfig } from "everything-dev/types";
@@ -27,6 +32,7 @@ import { toProtocolUrl } from "../utils/normalize";
 import { originMatches } from "../utils/origin-match";
 import { ConfigService, readCorsOrigins } from "./config";
 import { PluginError } from "./errors";
+import { createRpcPluginClient } from "./rpc-plugin";
 
 export class PluginBootstrapError extends Data.TaggedError("PluginBootstrapError")<{
   pluginKey: string;
@@ -99,6 +105,10 @@ export interface HostPluginEntry {
   initialized?: InitializedPluginResult;
   /** non-fatal config warnings (plugin-declared, or the default missing-secret policy) */
   warnings: PluginWarningInfo[];
+  /** call-only attachment (`proxy` + `contract`) — the routes layer forwards
+   * `/api/rpc/{key}/*` to this target; composed plugins leave it unset. The
+   * credential is redacted — unredact at the header-set site. */
+  proxy?: { target: string; apiKey?: Redacted.Redacted<string> };
 }
 
 /**
@@ -133,6 +143,8 @@ export interface PluginStatus {
   error: string | null;
   errorDetails: string | null;
   loadedPlugins: string[];
+  /** call-only attachments (`mode: "rpc"`) — proxied + client-held, never federation-loaded */
+  rpcPlugins: string[];
   /** structured per-plugin failures (empty when all plugins loaded) */
   failures: PluginFailureInfo[];
   /** structured per-plugin warnings — non-fatal config gaps (empty when none) */
@@ -296,13 +308,92 @@ const unavailableResult = (
   api: null,
   plugins: {},
   authClient: null,
-  status: { available: false, pluginName, error, errorDetails, loadedPlugins, failures, warnings },
+  status: {
+    available: false,
+    pluginName,
+    error,
+    errorDetails,
+    loadedPlugins,
+    rpcPlugins: [],
+    failures,
+    warnings,
+  },
 });
 
 interface RuntimePluginEntry {
   key: string;
   runtimeId: string;
   config: RuntimeConfig["api"] | RuntimePlugin;
+}
+
+/**
+ * Everything decided BEFORE any mechanism runs — the pure policy half of
+ * plugin initialization, and its test surface. `initializePlugins` consumes
+ * this plan; nothing here builds runtimes, reads the environment, or effects
+ * the world.
+ */
+export interface AttachmentPlan {
+  /** slot-level `app.api.proxy` — the host composes nothing and forwards
+   * /api/* verbatim */
+  proxyMode: boolean;
+  /** nothing federation-loadable and no auth slot — the host serves without
+   * plugins (the unavailable early-return predicate) */
+  idle: boolean;
+  /** federation entries in DAG order (auth, api, composed plugins) */
+  loadable: RuntimePluginEntry[];
+  /** call-only attachments in DAG order — clients wire before the load loop */
+  callOnly: Array<{ key: string; config: RuntimePlugin }>;
+  /** the dependency DAG the load loop consults (singleton keys, per-node deps) */
+  dag: DependencyDAG;
+}
+
+/**
+ * The policy: which configured entries federation-load (in DAG order), which
+ * are call-only attachments (client wiring, never loaded), and whether the
+ * host has nothing to load at all. The auth mirror contributes nothing here —
+ * the auth slot owns that backend.
+ */
+export function planAttachments(config: RuntimeConfig): AttachmentPlan {
+  const dag = buildDependencyDAG(config);
+  const entryMap = new Map<string, RuntimePluginEntry>();
+  const callOnly: Array<{ key: string; config: RuntimePlugin }> = [];
+  if (config.auth?.url) {
+    entryMap.set("auth", { key: "auth", runtimeId: config.auth.name, config: config.auth });
+  }
+  if (config.api?.url) {
+    entryMap.set("api", { key: "api", runtimeId: config.api.name, config: config.api });
+  }
+  for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
+    if (!plugin.url) continue;
+    // call-only attachments are wired as clients, not federation-loaded —
+    // the plan carries them separately so the load loop never sees them.
+    if (plugin.contractUrl) {
+      callOnly.push({ key, config: plugin });
+      continue;
+    }
+    if (
+      key === "auth" &&
+      config.auth &&
+      (plugin === config.auth ||
+        (plugin.localPath && plugin.localPath === config.auth.localPath) ||
+        (!plugin.localPath && plugin.source === "remote" && plugin.url === config.auth.url))
+    ) {
+      continue;
+    }
+    entryMap.set(key, { key, runtimeId: plugin.name, config: plugin });
+  }
+  const loadable = [...dag.sorted].filter((k) => entryMap.has(k)).map((k) => entryMap.get(k)!);
+  const callOnlyByKey = new Map(callOnly.map((entry) => [entry.key, entry]));
+  const callOnlyOrdered = [...dag.sorted]
+    .filter((k) => callOnlyByKey.has(k))
+    .map((k) => callOnlyByKey.get(k)!);
+  return {
+    proxyMode: Boolean(config.api.proxy),
+    idle: loadable.length === 0 && !config.auth,
+    loadable,
+    callOnly: callOnlyOrdered,
+    dag,
+  };
 }
 
 function unredactSecrets(
@@ -553,8 +644,21 @@ const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (para
 export const initializePlugins = Effect.fn("initializePlugins")(
   function* () {
     const config: RuntimeConfig = yield* ConfigService;
+    // The policy stage can throw (a dependency cycle in the authored config)
+    // — as a raw throw it would be a DEFECT, escaping the Effect.catch below
+    // and killing the boot. Typed here so whole-init failures stay failures:
+    // the host degrades instead of dying.
+    const plan = yield* Effect.try({
+      try: () => planAttachments(config),
+      catch: (cause) =>
+        new PluginError({
+          pluginName: config.api.name,
+          pluginUrl: config.api.url,
+          cause,
+        }),
+    });
 
-    if (config.api.proxy) {
+    if (plan.proxyMode) {
       yield* Effect.logInfo(`[Plugins] Proxy mode enabled, skipping plugin initialization`);
       yield* Effect.logInfo(`[Plugins] API requests will be proxied to: ${config.api.proxy}`);
       return {
@@ -569,43 +673,20 @@ export const initializePlugins = Effect.fn("initializePlugins")(
           error: null,
           errorDetails: null,
           loadedPlugins: [],
+          rpcPlugins: [],
           failures: [],
           warnings: [],
         },
       } satisfies PluginResult;
     }
 
-    const dag = buildDependencyDAG(config);
-
-    const entryMap = new Map<string, RuntimePluginEntry>();
-    if (config.auth?.url) {
-      entryMap.set("auth", { key: "auth", runtimeId: config.auth.name, config: config.auth });
-    }
-    if (config.api?.url) {
-      entryMap.set("api", { key: "api", runtimeId: config.api.name, config: config.api });
-    }
-    for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
-      if (!plugin.url) continue;
-      if (
-        key === "auth" &&
-        config.auth &&
-        (plugin === config.auth ||
-          (plugin.localPath && plugin.localPath === config.auth.localPath) ||
-          (!plugin.localPath && plugin.source === "remote" && plugin.url === config.auth.url))
-      ) {
-        continue;
-      }
-      entryMap.set(key, { key, runtimeId: plugin.name, config: plugin });
-    }
-
-    const loadableEntries = [...dag.sorted].filter((k) => entryMap.has(k));
-    if (loadableEntries.length === 0 && !config.auth) {
+    if (plan.idle) {
       yield* Effect.logInfo("[Plugins] No remote plugins configured, using host API only");
       return unavailableResult(config.api.name, null, null);
     }
 
     yield* Effect.logInfo(
-      `[Plugins] Loading ${loadableEntries.length} plugin(s) in DAG order: ${loadableEntries.join(" → ")}`,
+      `[Plugins] Loading ${plan.loadable.length} plugin(s) in DAG order: ${plan.loadable.map((entry) => entry.key).join(" → ")}`,
     );
 
     if (config.env === "production" && config.account) {
@@ -638,7 +719,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
 
     const { runtime, integrityRegistry } = yield* Effect.tryPromise({
       try: async () => {
-        const allEntries = [...entryMap.values()];
+        const allEntries = plan.loadable;
 
         const integrityRegistry = new IntegrityRegistry();
 
@@ -684,11 +765,41 @@ export const initializePlugins = Effect.fn("initializePlugins")(
     const warnings: PluginWarningInfo[] = [];
     const loadedPlugins: Record<string, HostPluginEntry> = {};
     const loadedPluginKeys: string[] = [];
+    const rpcPluginKeys: string[] = [];
     const pluginsClient: Record<string, unknown> = {};
     const singletonCache = new Map<string, HostPluginEntry>();
     let authPlugin: HostPluginEntry | null = null;
     let authClient: ((ctx?: unknown) => unknown) | null = null;
     let baseApi: HostPluginEntry | null = null;
+
+    // call-only attachments wire their clients BEFORE the load loop: the DAG
+    // makes them implicit api dependencies, so the api plugin's phase-2
+    // initialize receives working clients. They are never federation-loaded —
+    // no registry entry, no usePlugin, no routes composed from a router
+    // (traffic goes through the /api/rpc/{key} proxy the routes layer mounts
+    // off the attachment's proxy fact). Secrets resolve through the
+    // Config-backed seam, staying redacted until the outgoing header.
+    const callOnlyClients = yield* Effect.forEach(
+      plan.callOnly,
+      ({ key, config: plugin }) =>
+        Effect.gen(function* () {
+          const secrets = yield* secretsFromEnv(plugin.secrets ?? []);
+          const rpc = yield* createRpcPluginClient(key, plugin, {
+            resolveSecret: (name) => Effect.succeed(secrets[name]),
+          });
+          yield* Effect.logInfo(
+            `[Plugins][${key}] call-only attachment → ${rpc.proxy.target}${rpc.proxy.apiKey ? " (x-api-key)" : ""}`,
+          );
+          return rpc;
+        }),
+      { concurrency: 1 },
+    );
+    for (const rpc of callOnlyClients) {
+      loadedPlugins[rpc.key] = rpc;
+      loadedPluginKeys.push(rpc.key);
+      rpcPluginKeys.push(rpc.key);
+      pluginsClient[rpc.key] = { client: rpc.createClient, router: undefined };
+    }
 
     const recordPluginFailure = Effect.fn("recordPluginFailure")(function* (
       err: PluginBootstrapError,
@@ -710,9 +821,9 @@ export const initializePlugins = Effect.fn("initializePlugins")(
       return null;
     });
 
-    for (const key of loadableEntries) {
-      const entry = entryMap.get(key)!;
-      const node = dag.nodes.get(key)!;
+    for (const entry of plan.loadable) {
+      const key = entry.key;
+      const node = plan.dag.nodes.get(key)!;
 
       const sKey = getSingletonKey(node);
       const cached = singletonCache.get(sKey);
@@ -732,7 +843,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
         continue;
       }
 
-      const deps = getDependenciesForNode(node, dag.nodes);
+      const deps = getDependenciesForNode(node, plan.dag.nodes);
       const nodePluginsClient: Record<string, unknown> = {};
       for (const dep of deps) {
         if (pluginsClient[dep.key]) {
@@ -783,10 +894,14 @@ export const initializePlugins = Effect.fn("initializePlugins")(
     }
 
     const totalPlugins = Object.values(loadedPlugins).filter(Boolean).length;
-    yield* Effect.logInfo(`[Plugins] ${totalPlugins} plugin(s) loaded`);
+    yield* Effect.logInfo(
+      `[Plugins] ${totalPlugins} plugin(s) loaded${rpcPluginKeys.length > 0 ? ` (${rpcPluginKeys.length} rpc)` : ""}`,
+    );
 
     if (errors.length > 0) {
-      const failedKeys = loadableEntries.filter((key) => !loadedPlugins[key]);
+      const failedKeys = plan.loadable
+        .map((entry) => entry.key)
+        .filter((key) => !loadedPlugins[key]);
       yield* Effect.logWarning(
         `[Plugins] ⚠ ${errors.length} plugin(s) failed to load — available: ${loadedPluginKeys.join(", ") || "none"}; failed: ${failedKeys.join(", ") || "unknown"}`,
       );
@@ -809,6 +924,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
         error: errors.length > 0 ? errors.join("; ") : null,
         errorDetails: errors.length > 0 ? errors.join("\n") : null,
         loadedPlugins: loadedPluginKeys,
+        rpcPlugins: rpcPluginKeys,
         failures,
         warnings,
       },

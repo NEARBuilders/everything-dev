@@ -87,6 +87,39 @@ describe("descriptor constructors", () => {
     });
     expect(configInputToDescriptor(input).plugins?.nostr?.ui).toBe(false);
   });
+
+  it("keeps proxy + contract through the authored↔config round-trip (#848)", () => {
+    const app = App({
+      name: "consumer",
+      plugins: {
+        feedback: {
+          proxy: "https://feedback.nearbuilders.org",
+          contract: "bos://nearbuilding.near/feedback.nearbuilders.org#app.api",
+          secrets: ["FEEDBACK_API_KEY"],
+        },
+      },
+    });
+    const input = toConfigInput(app);
+    expect(input.plugins?.feedback).toEqual({
+      proxy: "https://feedback.nearbuilders.org",
+      contract: "bos://nearbuilding.near/feedback.nearbuilders.org#app.api",
+      secrets: ["FEEDBACK_API_KEY"],
+    });
+    const back = configInputToDescriptor(input).plugins?.feedback;
+    expect(back?.contract).toBe("bos://nearbuilding.near/feedback.nearbuilders.org#app.api");
+    expect(back?.proxy).toBe("https://feedback.nearbuilders.org");
+  });
+
+  it("contract is a plugins-only field — foreign slots strip it", () => {
+    const stripped = App({
+      name: "consumer",
+      auth: {
+        contract: "bos://nearbuilding.near/feedback.nearbuilders.org#app.api",
+        development: "http://localhost:4302",
+      } as never,
+    });
+    expect("contract" in (stripped.auth ?? {})).toBe(false);
+  });
 });
 
 describe("resolveApp", () => {

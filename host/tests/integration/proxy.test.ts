@@ -1,4 +1,4 @@
-import { Context as EffectContext } from "effect";
+import { Context as EffectContext, Redacted } from "effect";
 import { type Context, Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AuthVariables } from "../../src/lib/auth";
@@ -315,6 +315,7 @@ describe("API Proxy", () => {
           error: null,
           errorDetails: null,
           loadedPlugins: [],
+          rpcPlugins: [],
           failures: [],
           warnings: [],
         },
@@ -381,6 +382,7 @@ describe("API Proxy", () => {
           error: null,
           errorDetails: null,
           loadedPlugins: [],
+          rpcPlugins: [],
           failures: [],
           warnings: [],
         },
@@ -404,6 +406,322 @@ describe("API Proxy", () => {
         expect(await response.text()).toBe("auth ok");
       }
       expect(authHandler).toHaveBeenCalledTimes(3);
+    });
+
+    it("a failed api plugin keeps auth mounted and returns 503 on /api/*", async () => {
+      const app = new Hono<HonoEnv>();
+      const authHandler = vi.fn(async () => new Response("auth ok", { status: 200 }));
+
+      const config = {
+        hostUrl: "http://localhost:3000",
+        api: { name: "api", url: "http://localhost:3001", source: "local" as const },
+        ui: { name: "ui", url: "http://localhost:3003", source: "local" as const },
+      } as any;
+
+      const plugins: PluginResult = {
+        runtime: null,
+        auth: {
+          key: "auth",
+          name: "auth",
+          createClient: () => ({}),
+          router: {},
+          metadata: { remoteUrl: "local" },
+          initialized: {
+            effectContext: EffectContext.make(authServicesTag, {
+              handler: authHandler,
+              auth: { api: { getSession: vi.fn() } },
+              db: {} as any,
+            } as any),
+            plugin: { servicesTag: authServicesTag },
+          },
+        } as any,
+        api: null,
+        plugins: {},
+        authClient: null,
+        status: {
+          available: false,
+          pluginName: "api",
+          error: "Plugin api failed: unreachable",
+          errorDetails: null,
+          loadedPlugins: [],
+          rpcPlugins: [],
+          failures: [
+            {
+              pluginKey: "api",
+              pluginUrl: "http://localhost:3001",
+              kind: "load",
+              retryable: true,
+              message: "Plugin api failed: unreachable",
+            },
+          ],
+          warnings: [],
+        },
+      };
+
+      registerAuthHandler(app, plugins);
+
+      await setupApiRoutes(app, config, plugins, async (_c, next) => next(), {
+        status: "ready",
+        startTime: Date.now(),
+        milestones: [],
+        error: null,
+        ssrEnabled: false,
+      });
+
+      const authResponse = await app.fetch(new Request("http://localhost:3000/api/auth/session"));
+      expect(authResponse.status).toBe(200);
+      expect(await authResponse.text()).toBe("auth ok");
+
+      const rpcResponse = await app.fetch(
+        new Request("http://localhost:3000/api/rpc/ping", { method: "POST" }),
+      );
+      expect(rpcResponse.status).toBe(503);
+
+      const restResponse = await app.fetch(new Request("http://localhost:3000/api/ping"));
+      expect(restResponse.status).toBe(503);
+    });
+
+    it("a failed auth plugin unmounts /api/auth/* but the composed api still serves", async () => {
+      const app = new Hono<HonoEnv>();
+      const fetchMock = vi.fn(async () => createMockResponse("{}"));
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      try {
+        const config = {
+          hostUrl: "http://localhost:3000",
+          api: { name: "api", url: "http://localhost:3001", source: "local" as const },
+          ui: { name: "ui", url: "http://localhost:3003", source: "local" as const },
+        } as any;
+
+        const plugins: PluginResult = {
+          runtime: null,
+          auth: null,
+          api: {
+            key: "api",
+            name: "api",
+            createClient: () => ({}),
+            router: await makeMinimalApiRouter(),
+            metadata: { remoteUrl: "local" },
+          } as any,
+          plugins: {},
+          authClient: null,
+          status: {
+            available: true,
+            pluginName: "api",
+            error: null,
+            errorDetails: null,
+            loadedPlugins: [],
+            rpcPlugins: [],
+            failures: [
+              {
+                pluginKey: "auth",
+                pluginUrl: "http://localhost:3002",
+                kind: "load",
+                retryable: true,
+                message: "Plugin auth failed: unreachable",
+              },
+            ],
+            warnings: [],
+          },
+        };
+
+        registerAuthHandler(app, plugins);
+
+        await setupApiRoutes(app, config, plugins, async (_c, next) => next(), {
+          status: "ready",
+          startTime: Date.now(),
+          milestones: [],
+          error: null,
+          ssrEnabled: false,
+        });
+
+        const authResponse = await app.fetch(new Request("http://localhost:3000/api/auth/session"));
+        expect(authResponse.status).toBe(404);
+
+        const pingResponse = await app.fetch(
+          new Request("http://localhost:3000/api/rpc/ping", { method: "POST" }),
+        );
+        expect(pingResponse.status).toBe(200);
+        expect(await pingResponse.json()).toEqual({ json: { status: "ok" } });
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("a failed plugin key is unmounted; its prefix falls through without poisoning siblings", async () => {
+      const app = new Hono<HonoEnv>();
+      const fetchMock = vi.fn(async () => createMockResponse("{}"));
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      try {
+        const plugins = makePlugins(await makeMinimalApiRouter(), {
+          feedback: {
+            key: "feedback",
+            name: "feedback-plugin",
+            createClient: () => ({}),
+            router: undefined,
+            metadata: { remoteUrl: "https://feedback.example.com" },
+            proxy: { target: "https://feedback.example.com" },
+          },
+        });
+
+        await setupApiRoutes(app, makeConfig(), plugins, async (_c, next) => next(), loadingState);
+
+        const absent = await app.fetch(
+          new Request("http://localhost:3000/api/rpc/broken/getThing", { method: "POST" }),
+        );
+        expect(absent.status).toBe(404);
+
+        const sibling = await app.fetch(
+          new Request("http://localhost:3000/api/rpc/feedback/getThing", {
+            method: "POST",
+          }),
+        );
+        expect(sibling.status).toBe(200);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
+  const makeMinimalApiRouter = async () => {
+    await import("@orpc/openapi/extensions/route");
+    const { implement } = await import("@orpc/server");
+    const { oc } = await import("@orpc/contract");
+    const { z } = await import("zod");
+    const contract = oc.router({
+      ping: oc
+        .route({ method: "GET", path: "/ping" })
+        .output(z.object({ status: z.literal("ok") })),
+    });
+    return {
+      ping: implement(contract, {}).ping.handler(() => ({ status: "ok" })),
+    };
+  };
+
+  const makePlugins = (apiRouter: unknown, extraPlugins: Record<string, unknown>): PluginResult =>
+    ({
+      runtime: null,
+      auth: null,
+      api: {
+        key: "api",
+        name: "api",
+        createClient: () => ({}),
+        router: apiRouter,
+        metadata: { remoteUrl: "local" },
+      },
+      plugins: extraPlugins,
+      authClient: null,
+      status: {
+        available: Boolean(apiRouter),
+        pluginName: "api",
+        error: null,
+        errorDetails: null,
+        loadedPlugins: Object.keys(extraPlugins),
+        rpcPlugins: Object.keys(extraPlugins),
+        failures: [],
+        warnings: [],
+      },
+    }) as unknown as PluginResult;
+
+  const loadingState = {
+    status: "ready" as const,
+    startTime: Date.now(),
+    milestones: [],
+    error: null,
+    ssrEnabled: false,
+  };
+
+  const makeConfig = () =>
+    ({
+      hostUrl: "http://localhost:3000",
+      api: { name: "api", url: "http://localhost:3001", source: "local" as const },
+      ui: { name: "ui", url: "http://localhost:3003", source: "local" as const },
+    }) as any;
+
+  describe("setupApiRoutes rpc-mode plugin proxy (#848)", () => {
+    it("forwards /api/rpc/{key}/* to the attachment target with its credential", async () => {
+      const app = new Hono<HonoEnv>();
+      const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+        createMockResponse('{"json":{"slug":"my-project"}}', 200, {
+          "content-type": "application/json",
+        }),
+      );
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      try {
+        const plugins = makePlugins(await makeMinimalApiRouter(), {
+          feedback: {
+            key: "feedback",
+            name: "feedback-plugin",
+            createClient: () => ({}),
+            router: undefined,
+            metadata: { remoteUrl: "https://feedback.example.com" },
+            proxy: {
+              target: "https://feedback.example.com",
+              apiKey: Redacted.make("api_secret_123"),
+            },
+          },
+        });
+
+        await setupApiRoutes(app, makeConfig(), plugins, async (_c, next) => next(), loadingState);
+
+        const response = await app.fetch(
+          new Request("http://localhost:3000/api/rpc/feedback/getProjectBySlug?depth=1", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ json: { slug: "my-project" } }),
+          }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ json: { slug: "my-project" } });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const forwarded = fetchMock.mock.calls[0]?.[0] as unknown as Request;
+        expect(forwarded.url).toBe("https://feedback.example.com/api/rpc/getProjectBySlug?depth=1");
+        expect(forwarded.method).toBe("POST");
+        expect(forwarded.headers.get("x-api-key")).toBe("api_secret_123");
+        expect(forwarded.headers.has("host")).toBe(false);
+        expect(await forwarded.json()).toEqual({ json: { slug: "my-project" } });
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("still serves composed plugin routers when an rpc attachment is present", async () => {
+      const app = new Hono<HonoEnv>();
+      const fetchMock = vi.fn(async () => createMockResponse("{}"));
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      try {
+        const plugins = makePlugins(await makeMinimalApiRouter(), {
+          feedback: {
+            key: "feedback",
+            name: "feedback-plugin",
+            createClient: () => ({}),
+            router: undefined,
+            metadata: { remoteUrl: "https://feedback.example.com" },
+            proxy: { target: "https://feedback.example.com" },
+          },
+        });
+
+        await setupApiRoutes(app, makeConfig(), plugins, async (_c, next) => next(), loadingState);
+
+        const response = await app.fetch(
+          new Request("http://localhost:3000/api/rpc/ping", { method: "POST" }),
+        );
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ json: { status: "ok" } });
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 });

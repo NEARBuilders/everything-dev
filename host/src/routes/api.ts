@@ -5,7 +5,7 @@ import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { BatchHandlerPlugin, ResponseHeadersHandlerPlugin } from "@orpc/server/plugins";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
-import { Context as EffectContext } from "effect";
+import { Context as EffectContext, Redacted } from "effect";
 import { formatORPCError, PLUGIN_ERROR_STATUS_MAP } from "every-plugin/errors";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -30,38 +30,73 @@ import {
 
 type HonoEnv = { Variables: AuthVariables };
 
+/**
+ * One dispatch seam for plugin RPC prefixes: an RPCHandler adapter (composed
+ * plugins — local router) and a proxy adapter (rpc-mode attachments — forward
+ * to the remote target). Lookup is prefix-ordered, identical for both.
+ */
+type RpcRouteServe = (c: Context<HonoEnv>) => Promise<Response>;
+
 function registerPublicRpcRouter(
-  publicRpcRouters: Map<string, { handler: RPCHandler<any>; effectContext: unknown }>,
+  rpcRoutes: Map<string, RpcRouteServe>,
   prefix: string,
   router: unknown,
   effectContext: unknown,
 ) {
-  publicRpcRouters.set(prefix, {
-    handler: new RPCHandler(router as any, {
-      errorStatusMap: PLUGIN_ERROR_STATUS_MAP,
-      plugins: [new BatchHandlerPlugin()],
-      interceptors: [
-        onError((error: unknown) => {
-          const formatted = formatORPCError(error);
-          if (formatted) console.error(formatted);
-          throw error;
-        }),
-      ],
-    }),
-    effectContext,
+  const handler = new RPCHandler(router as any, {
+    errorStatusMap: PLUGIN_ERROR_STATUS_MAP,
+    plugins: [new BatchHandlerPlugin()],
+    interceptors: [
+      onError((error: unknown) => {
+        const formatted = formatORPCError(error);
+        if (formatted) console.error(formatted);
+        throw error;
+      }),
+    ],
+  });
+  rpcRoutes.set(prefix, (c) => handleOrpc(c, handler, prefix as `/${string}`, effectContext));
+}
+
+/**
+ * The proxy adapter for an rpc-mode attachment: forward `/api/rpc/{key}/*`
+ * to `{target}/api/rpc/*`, injecting the attachment's credential. The
+ * response passes through raw (no cookie rewriting — the remote is not the
+ * auth origin).
+ */
+function registerRpcProxyRoute(
+  rpcRoutes: Map<string, RpcRouteServe>,
+  prefix: string,
+  proxy: { target: string; apiKey?: Redacted.Redacted<string> },
+) {
+  rpcRoutes.set(prefix, async (c) => {
+    const url = new URL(c.req.url);
+    const targetUrl = `${proxy.target}/api/rpc${url.pathname.slice(prefix.length)}${url.search}`;
+    const headers = new Headers(c.req.raw.headers);
+    headers.delete("host");
+    headers.set("accept-encoding", "identity");
+    if (proxy.apiKey) headers.set("x-api-key", Redacted.value(proxy.apiKey));
+    const response = await fetch(
+      new Request(targetUrl, {
+        method: c.req.method,
+        headers,
+        body: c.req.raw.body,
+        duplex: "half",
+      } as RequestInit),
+    );
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.delete("content-encoding");
+    responseHeaders.delete("content-length");
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders,
+    });
   });
 }
 
-function getPublicRpcRoute(
-  publicRpcRouters: Map<string, { handler: RPCHandler<any>; effectContext: unknown }>,
-  pathname: string,
-) {
-  for (const [prefix, entry] of publicRpcRouters.entries()) {
-    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
-      return { prefix, handler: entry.handler, effectContext: entry.effectContext };
-    }
+function getRpcRoute(rpcRoutes: Map<string, RpcRouteServe>, pathname: string) {
+  for (const [prefix, serve] of rpcRoutes.entries()) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return serve;
   }
-
   return null;
 }
 
@@ -113,7 +148,7 @@ export async function setupApiRoutes(
 
   const isProxyMode = process.argv.includes("--proxy");
 
-  const publicRpcRouters = new Map<string, { handler: RPCHandler<any>; effectContext: unknown }>();
+  const rpcRoutes = new Map<string, RpcRouteServe>();
 
   const allEntries = [plugins.auth, plugins.api, ...Object.values(plugins.plugins)].filter(
     (entry): entry is NonNullable<typeof entry> => Boolean(entry),
@@ -131,7 +166,7 @@ export async function setupApiRoutes(
 
   if (plugins.auth?.router) {
     registerPublicRpcRouter(
-      publicRpcRouters,
+      rpcRoutes,
       "/api/rpc/auth",
       plugins.auth.router,
       plugins.auth.initialized?.effectContext,
@@ -139,8 +174,14 @@ export async function setupApiRoutes(
   }
 
   for (const [pluginKey, plugin] of Object.entries(plugins.plugins)) {
+    if (plugin.proxy) {
+      // rpc-mode attachment: no composed router to serve — forward instead.
+      registerRpcProxyRoute(rpcRoutes, `/api/rpc/${pluginKey}`, plugin.proxy);
+      continue;
+    }
+    if (!plugin.router) continue;
     registerPublicRpcRouter(
-      publicRpcRouters,
+      rpcRoutes,
       `/api/rpc/${pluginKey}`,
       plugin.router,
       plugin.initialized?.effectContext,
@@ -276,15 +317,8 @@ export async function setupApiRoutes(
     handleOrpc(c, rpcHandler, "/api/rpc", mergedEffectContext),
   );
   app.all("/api/rpc/*", (c: Context<HonoEnv>) => {
-    const publicRoute = getPublicRpcRoute(publicRpcRouters, c.req.path);
-    if (publicRoute) {
-      return handleOrpc(
-        c,
-        publicRoute.handler,
-        publicRoute.prefix as `/${string}`,
-        publicRoute.effectContext,
-      );
-    }
+    const route = getRpcRoute(rpcRoutes, c.req.path);
+    if (route) return route(c);
 
     return handleOrpc(c, rpcHandler, "/api/rpc", mergedEffectContext);
   });

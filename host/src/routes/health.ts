@@ -90,6 +90,7 @@ export function getHealthStatus(plugins: PluginResult, loadingState: HealthLoadi
       : { mounted: false, name: null },
     plugins: {
       loaded: plugins.status.loadedPlugins,
+      rpc: plugins.status.rpcPlugins,
       detail: getPluginDetail(plugins),
       ...(plugins.status.error ? { error: plugins.status.error } : {}),
       ...(plugins.status.errorDetails ? { errorDetails: plugins.status.errorDetails } : {}),

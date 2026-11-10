@@ -131,6 +131,9 @@ export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
   app: z.record(z.string(), z.unknown()).optional(),
   plugins: z.record(z.string(), z.unknown()).optional(),
   dependsOn: z.array(z.string()).optional(),
+  /** `bos://account/gateway[#target]` — call-only attachments locate their
+   * contract types here; see PluginAttachmentRefSchema. */
+  contract: z.string().optional(),
 });
 export type BosPluginRef = z.infer<typeof BosPluginRefSchema>;
 export type PluginEntryValue = string | BosPluginRef;
@@ -202,6 +205,9 @@ export const RuntimePluginConfigSchema = z.object({
   ui: PluginRuntimeUiSchema.optional(),
   routes: z.array(z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
+  /** Call-only attachment: traffic endpoint is `url` (authored `proxy`),
+   * types locator is `contractUrl` — the contract ref's stamped production. */
+  contractUrl: z.string().optional(),
 });
 export type RuntimePluginConfig = z.infer<typeof RuntimePluginConfigSchema>;
 
@@ -237,6 +243,8 @@ export const RuntimeDependencyNodeSchema = z.object({
   routes: z.array(z.string()).optional(),
   sourceOrigin: z.enum(["config", "manifest"]).optional(),
   singletonKey: z.string().optional(),
+  /** Call-only attachment (see RuntimePluginConfigSchema.contractUrl) */
+  contractUrl: z.string().optional(),
 });
 export type RuntimeDependencyNode = z.infer<typeof RuntimeDependencyNodeSchema>;
 

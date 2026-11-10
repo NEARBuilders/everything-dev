@@ -50,6 +50,24 @@ export const AttachmentRefSchema = DevelopmentRefSchema.extend({
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
 export type AttachmentInput = AttachmentRef;
 
+/**
+ * A `plugins.<key>` attachment — the shared attachment fields plus `contract`,
+ * completing the attachment-level `proxy` field: an entry that declares
+ * `proxy` (and no `path`/`extends`/URL fields) is **call-only** — it consumes
+ * a deployed app's API as a typed oRPC client over the host's
+ * `/api/rpc/{key}` proxy. Never federation-loaded, no routes composed, no
+ * background services, no UI source. `proxy` is the traffic endpoint (the
+ * live app origin; dev overrides through bos.dev.ts); `contract` is the
+ * types locator — a `bos://account/gateway[#target]` ref whose targeted
+ * entry's stamped production serves the sha256-verified contract types. The
+ * two live at different origins in production and must be authored
+ * separately.
+ */
+export const PluginAttachmentRefSchema = AttachmentRefSchema.extend({
+  contract: z.string().optional(),
+});
+export type PluginAttachmentRef = z.infer<typeof PluginAttachmentRefSchema>;
+
 /** The `app.api` slot. */
 export const ApiRefSchema = DevelopmentRefSchema.extend({
   proxy: z.string().optional(),
@@ -143,7 +161,7 @@ export const AppDescriptorSchema = z
     ui: UiRefSchema.optional(),
     /** attachment landing in the `app.auth` slot */
     auth: AttachmentRefSchema.optional(),
-    plugins: z.record(z.string(), AttachmentRefSchema).optional(),
+    plugins: z.record(z.string(), PluginAttachmentRefSchema).optional(),
   })
   .strict();
 export type AppDescriptor = z.infer<typeof AppDescriptorSchema>;
