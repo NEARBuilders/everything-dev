@@ -848,7 +848,16 @@ export const UpgradeAuditManifestSchema = z.object({
 });
 
 export const UpgradeResultSchema = z.object({
-  status: z.enum(["upgraded", "dry-run", "error", "already-upgraded", "gate-blocked", "audit"]),
+  status: z.enum([
+    "upgraded",
+    "dry-run",
+    "error",
+    "already-upgraded",
+    "gate-blocked",
+    "audit",
+    /** The interactive plan's explicit decline — nothing was written. */
+    "cancelled",
+  ]),
   packages: z.array(
     z.object({
       name: z.string(),

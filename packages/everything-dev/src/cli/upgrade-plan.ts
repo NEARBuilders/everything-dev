@@ -2,8 +2,8 @@ import process from "node:process";
 import * as p from "@clack/prompts";
 import type { UpgradeOptions } from "../contract";
 import { syncTemplate } from "../services/scaffold/sync";
+import { upgradeTemplate } from "../services/scaffold/upgrade";
 import { colors } from "../utils/theme";
-import { upgradeTemplate } from "./upgrade";
 
 /**
  * The interactive upgrade plan (`bos upgrade` on a TTY): show the version
@@ -19,10 +19,15 @@ export interface UpgradeInteractionDecision {
   cleanAfter?: boolean;
 }
 
+/**
+ * `null` — the user explicitly declined (cancel or "Write? no"): nothing was
+ * written, and the caller reports a cancelled result instead of exiting the
+ * runtime from inside an Effect generator.
+ */
 export async function planUpgradeInteraction(
   projectDir: string,
   input: UpgradeOptions,
-): Promise<UpgradeInteractionDecision> {
+): Promise<UpgradeInteractionDecision | null> {
   if (input.force || input.dryRun || input.check || input.noSync || input.migrationsOnly) {
     return {};
   }
@@ -65,8 +70,8 @@ export async function planUpgradeInteraction(
     required: false,
   });
   if (p.isCancel(selected)) {
-    p.cancel("Cancelled — nothing was written");
-    process.exit(0);
+    p.cancel("Upgrade cancelled — nothing was written");
+    return null;
   }
 
   const cleanAfter = await p.confirm({
@@ -74,14 +79,14 @@ export async function planUpgradeInteraction(
     initialValue: true,
   });
   if (p.isCancel(cleanAfter)) {
-    p.cancel("Cancelled — nothing was written");
-    process.exit(0);
+    p.cancel("Upgrade cancelled — nothing was written");
+    return null;
   }
 
   const go = await p.confirm({ message: "Write?", initialValue: true });
   if (p.isCancel(go) || !go) {
-    p.cancel("Cancelled — nothing was written");
-    process.exit(0);
+    p.cancel("Upgrade cancelled — nothing was written");
+    return null;
   }
 
   p.log.message(

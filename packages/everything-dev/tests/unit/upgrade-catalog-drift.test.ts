@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffCatalogEntries } from "../../src/cli/upgrade";
+import { diffCatalogEntries } from "../../src/services/scaffold/upgrade";
 
 const chainCatalog: Record<string, string> = {
   "everything-dev": "2.0.0-rc.15",

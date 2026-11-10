@@ -118,6 +118,11 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
       return;
     }
     console.log();
+    if (result.status === "cancelled") {
+      console.log(colors.dim(`${icons.ok} Upgrade cancelled — nothing was written`));
+      console.log();
+      return;
+    }
     if (result.status === "already-upgraded") {
       console.log(colors.green(`${icons.ok} Already upgraded · v2 — nothing to do`));
       for (const note of result.notes ?? []) console.log(`  ${colors.dim(note)}`);

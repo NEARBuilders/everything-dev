@@ -33,12 +33,12 @@ import {
   personalizeConfig,
   writeInitSnapshot,
 } from "../../src/cli/init";
-import { readSnapshot } from "../../src/cli/snapshot";
 import * as platformManifestModule from "../../src/services/platform/manifest";
 import * as initSourceModule from "../../src/services/resolution/init-source";
 import { loadInProcessDescriptor } from "../../src/services/resolution/load";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as scaffoldInitModule from "../../src/services/scaffold/init";
+import { readSnapshot } from "../../src/services/scaffold/snapshot";
 import { syncTemplate } from "../../src/services/scaffold/sync";
 import { loadParentConfigFixture, writeChildAppDescriptorFixture } from "../helpers/parent-config";
 
