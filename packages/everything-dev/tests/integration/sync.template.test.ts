@@ -253,6 +253,40 @@ describe("syncTemplate", () => {
     expect(existsSync(join(projectDir, ".bos", "sync-backup"))).toBe(false);
   });
 
+  it("conflicts when a hand-edit has no recorded baseline — never a silent template win (ADR 0047)", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"]);
+    tempDirs.push(projectDir);
+
+    // The regression this pins: a repo with no baseline anywhere — a fresh
+    // clone that never committed a lock (template.sync) or snapshot. The
+    // hand-edit's history is unknown, so the template must not win silently.
+    rmSync(join(projectDir, ".bos", "sync-snapshot.json"));
+    const childEdits = `{ "local": "hand-edit" }\n`;
+    writeFileSync(join(projectDir, "biome.json"), childEdits);
+
+    const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+
+    expect(result.status).toBe("conflicted");
+    expect(result.conflicted).toContain("biome.json");
+    expect(result.error).toContain("no recorded baseline");
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
+    expect(existsSync(join(projectDir, ".bos", "sync-backup"))).toBe(false);
+
+    // The remedy: one --force takes the template (backed up) and re-baselines
+    // everything — the next sync is clean.
+    const forced = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      force: true,
+    });
+    expect(forced.status).toBe("synced");
+    expect(existsSync(join(projectDir, ".bos", "sync-snapshot.json"))).toBe(true);
+
+    const again = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+    expect(again.status).toBe("synced");
+    expect(again.conflicted).toEqual([]);
+  });
+
   it("with force the template wins and the child fork is backed up", async () => {
     const projectDir = await scaffoldProject(["ui", "api"]);
     tempDirs.push(projectDir);

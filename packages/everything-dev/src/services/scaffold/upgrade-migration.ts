@@ -9,6 +9,7 @@ import { readNodeModulesVersion } from "../framework-version";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { runTypesGen } from "./init";
+import { absorbLegacySnapshot } from "./snapshot";
 import { syncTemplate } from "./sync";
 import {
   FRAMEWORK_PACKAGES,
@@ -133,6 +134,16 @@ export async function runMigrationPhase(
   const legacyCache = join(projectDir, ".bos", "platform-manifest.json");
   if (existsSync(legacyCache)) rmSync(legacyCache, { force: true });
 
+  // ADR 0047: the sync baseline's committed form is bos.lock.json's
+  // template.sync — absorb a legacy .bos/sync-snapshot.json wherever a lock
+  // exists, so the file stops regenerating (and stops being committed).
+  // Without a lock the legacy file stays: it is still the only baseline,
+  // now local-only. Runs on every migration phase — same-version upgrades
+  // included (ADR 0032 gates framework-owned files, not the baseline).
+  const snapshotAbsorbed = await timePhase(timings, "absorb sync snapshot", () =>
+    absorbLegacySnapshot(projectDir),
+  );
+
   // The catalog-preferring resolution would read the specifier back as the
   // installed version — exactly the blind spot this gate exists for. Read the
   // real node_modules install.
@@ -210,6 +221,7 @@ export async function runMigrationPhase(
   const migratedFiles = [
     ...(releaseStamped ? [releaseStamped] : []),
     ...(migratedRootPackageJson ? ["package.json"] : []),
+    ...(snapshotAbsorbed === "absorbed" ? ["bos.lock.json"] : []),
   ];
 
   const mainPkg = parentSource.catalog["everything-dev"];

@@ -221,3 +221,73 @@ describe("digestOfLockfile + writeLockfileSync — the train's producer seam (AD
     expect(parseLockfile(await readFile(target, "utf8"))).toEqual(lock);
   });
 });
+
+describe("the template sync baseline (ADR 0047)", () => {
+  const template = {
+    syncedAt: "2026-11-10T00:00:00.000Z",
+    files: { ".gitignore": "hash-a", "AGENTS.md": "hash-b" },
+  };
+
+  it("round-trips through parse/serialize with the pointer digest untouched", () => {
+    const lock = { ...lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config }), template };
+    const restored = parseLockfile(serializeLockfile(lock));
+    expect(restored.template).toEqual(template);
+    expect(lockfilePointerDigest(restored)).toBe(lock.pointerDigest);
+  });
+
+  it("is never produced by lockfileOf — no producer can stamp it by accident", () => {
+    expect("template" in lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config })).toBe(false);
+  });
+
+  it("writeLockfile carries the baseline forward — a producer rewrite never drops it", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "lockfile-template-"));
+    const seeded = { ...lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config }), template };
+    await writeLockfile(seeded, dir);
+    const recomputed = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    await writeLockfile(recomputed, dir);
+    const onDisk = parseLockfile(await readFile(path.join(dir, "bos.lock.json"), "utf8"));
+    expect(onDisk.template).toEqual(template);
+    expect(onDisk.pointerDigest).toBe(recomputed.pointerDigest);
+  });
+
+  it("writeLockfileSync carries it too — the train's persist leg keeps the baseline", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "lockfile-template-sync-"));
+    const seeded = { ...lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config }), template };
+    writeLockfileSync(seeded, dir);
+    writeLockfileSync(lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config }), dir);
+    expect(parseLockfile(await readFile(path.join(dir, "bos.lock.json"), "utf8")).template).toEqual(
+      template,
+    );
+  });
+
+  it("--check stays unchanged when the only difference is the carried annotation", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "lockfile-template-check-"));
+    // resolvedAt is pinned: lockfileOf stamps the wall clock per call, and
+    // this test compares serialized bytes across two derivations — a
+    // millisecond boundary between them would read as drift.
+    const seeded = {
+      ...lockfileOf({
+        account: ACCOUNT,
+        gateway: GATEWAY,
+        config,
+        resolvedAt: "2026-11-10T00:00:00.000Z",
+      }),
+      template,
+    };
+    await writeLockfile(seeded, dir);
+    const result = await writeLockfile(
+      lockfileOf({
+        account: ACCOUNT,
+        gateway: GATEWAY,
+        config,
+        resolvedAt: "2026-11-10T00:00:00.000Z",
+      }),
+      dir,
+      {
+        check: true,
+      },
+    );
+    expect(result.status).toBe("unchanged");
+    expect(result.drift).toEqual([]);
+  });
+});

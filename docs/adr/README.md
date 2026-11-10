@@ -49,6 +49,7 @@ Format: context → decision → consequences, one file per decision.
 | [0044](./0044-per-identity-pglite-data-dirs.md) | Per-identity PGlite data dirs — concurrent embedded instances corrupt | Accepted |
 | [0045](./0045-per-workspace-migration-journals.md) | Per-workspace migration journals — journal identity follows workspace identity | Accepted |
 | [0046](./0046-manifest-attribution.md) | Manifest attribution — the deploy train signs version manifests; the key record lives in the on-chain config | Accepted |
+| [0047](./0047-one-committed-artifact.md) | One committed artifact — `bos.lock.json` absorbs the sync baseline; everything under `.bos/` is local-only | Accepted |
 
 
 Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were
