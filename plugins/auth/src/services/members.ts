@@ -1,9 +1,9 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
-import { toDate, toOrganizationRecord } from "../serializers";
+import { toDate } from "../serializers";
 import type { PluginServices } from "../service-types";
 import {
   canReadMemberEmails,
@@ -18,12 +18,8 @@ import {
   MemberCreateNotPermitted,
   MemberEmailsExportForbidden,
   NoActiveOrganization,
-  OrgApprovalRequired,
-  OrganizationNotPending,
-  OrganizationRequesterMissing,
   OrgNotFound,
   OwnerRoleRequired,
-  RejectionReasonRequired,
 } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
@@ -73,12 +69,6 @@ export class MembersService extends Context.Service<
         organizationId?: string;
       },
     ) => Effect.Effect<InferOutput<"updateMemberRole">, AuthFailure>;
-    listPendingOrganizations: Effect.Effect<InferOutput<"listOrganizationRequests">, AuthFailure>;
-    reviewOrganization: (
-      input:
-        | { organizationId: string; decision: "approve" }
-        | { organizationId: string; decision: "reject"; reason: string },
-    ) => Effect.Effect<InferOutput<"reviewOrganization">, AuthFailure>;
   }
 >()("auth/MembersService") {}
 
@@ -232,12 +222,6 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
       if (!organization) {
         return yield* new OrgNotFound({ message: "Organization not found", organizationId });
       }
-      if (organization.status !== "active") {
-        return yield* new OrgApprovalRequired({
-          message: "Organization approval is required",
-          action: "add-member",
-        });
-      }
       const result = yield* attemptAuth(() =>
         auth.api.addMember({
           headers,
@@ -256,70 +240,6 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
         createdAt: toDate(result.createdAt),
       };
     }),
-
-    listPendingOrganizations: attemptDb(() =>
-      db.query.organization.findMany({
-        where: eq(schema.organization.status, "pending"),
-        orderBy: asc(schema.organization.createdAt),
-      }),
-    ).pipe(Effect.map((organizations) => organizations.map(toOrganizationRecord))),
-
-    reviewOrganization: (input) =>
-      attemptDb(() =>
-        db.transaction(async (tx) => {
-          const reason = input.decision === "reject" ? input.reason.trim() : "";
-          if (
-            input.decision !== "approve" &&
-            (input.decision !== "reject" || !reason || reason.length > 2000)
-          ) {
-            throw new RejectionReasonRequired({
-              message: "A rejection reason is required (up to 2000 characters)",
-            });
-          }
-          const [reviewed] = await tx
-            .update(schema.organization)
-            .set({
-              status: input.decision === "approve" ? "active" : "rejected",
-              rejectionReason: input.decision === "reject" ? reason : null,
-            })
-            .where(
-              and(
-                eq(schema.organization.id, input.organizationId),
-                eq(schema.organization.status, "pending"),
-              ),
-            )
-            .returning();
-          if (!reviewed)
-            throw new OrganizationNotPending({
-              message: "Organization is no longer pending or does not exist",
-            });
-          if (input.decision === "approve") {
-            if (!reviewed.requestedBy)
-              throw new OrganizationRequesterMissing({
-                message: "Organization requester is missing",
-              });
-            const members = await tx
-              .update(schema.member)
-              .set({ role: "owner" })
-              .where(
-                and(
-                  eq(schema.member.organizationId, reviewed.id),
-                  eq(schema.member.userId, reviewed.requestedBy),
-                ),
-              )
-              .returning();
-            if (!members.length)
-              await tx.insert(schema.member).values({
-                id: crypto.randomUUID(),
-                organizationId: reviewed.id,
-                userId: reviewed.requestedBy,
-                role: "owner",
-                createdAt: new Date(),
-              });
-          }
-          return reviewed;
-        }),
-      ).pipe(Effect.map(toOrganizationRecord)),
 
     removeMember: (headers, input) =>
       attemptAuth(() =>

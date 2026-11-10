@@ -243,43 +243,16 @@ function OrganizationsList() {
                     </Link>
                     <div className="flex flex-wrap gap-1.5">
                       {myRole && <Badge variant="secondary">{roleLabel(myRole)}</Badge>}
-                      {org.status === "pending" && (
-                        <Badge variant="warning" data-testid="orgs-pending">
-                          Pending approval
-                        </Badge>
-                      )}
-                      {org.status === "rejected" && (
-                        <Badge variant="destructive" data-testid="orgs-rejected">
-                          Rejected
-                        </Badge>
-                      )}
                       {isActive && <Badge variant="success">Active</Badge>}
                       {isPersonal && <Badge variant="outline">Personal</Badge>}
                     </div>
-                    {org.status === "rejected" && (
-                      <p
-                        className="text-sm text-muted-foreground"
-                        data-testid="orgs-rejection-reason"
-                      >
-                        {org.rejectionReason}
-                      </p>
-                    )}
                     <div className="mt-auto flex items-center justify-between gap-3">
                       <span className="text-sm text-muted-foreground">
                         {members
                           ? `${members.length} member${members.length === 1 ? "" : "s"}`
-                          : " "}
+                          : " "}
                       </span>
-                      {org.status !== "active" ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          nativeButton={false}
-                          render={<Link to="/orgs/$slug" params={{ slug: org.slug }} />}
-                        >
-                          View request
-                        </Button>
-                      ) : isActive ? (
+                      {isActive ? (
                         <Button
                           variant="ghost"
                           size="sm"

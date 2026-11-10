@@ -16,7 +16,6 @@ import { createInvitationHandlers } from "./handlers/invitations";
 import { createMemberHandlers } from "./handlers/members";
 import { createNearHandlers } from "./handlers/near";
 import { createOnboardingHandlers } from "./handlers/onboarding";
-import { createOrganizationRequestHandlers } from "./handlers/organization-requests";
 import { createOrganizationHandlers } from "./handlers/organizations";
 import { createPasskeyHandlers } from "./handlers/passkeys";
 import { createSessionHandlers } from "./handlers/session";
@@ -98,7 +97,6 @@ export default createPlugin.withPlugins<PluginsClient>()({
       ...createSessionHandlers(builder),
       ...createPasskeyHandlers(builder, requireAuth),
       ...createOrganizationHandlers(builder, requireAuth),
-      ...createOrganizationRequestHandlers(builder, requireAuth),
       ...createMemberHandlers(builder, requireAuth),
       ...createInvitationHandlers(builder, requireAuth),
       ...createApiKeyHandlers(builder, requireAuth),

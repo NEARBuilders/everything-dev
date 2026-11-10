@@ -636,7 +636,8 @@ builder.myRoute.use(requireAuth).handler(async ({ input, context }) => {
 ```
 
 Available middlewares: `requireAuth`, `requireAuthOrApiKey`, `requireRole`,
-`requireAdmin`, `requireOrganization`, `requireOrgRole`, `requireApiKey`.
+`requireAdmin`, `requireOrganization`, `requireOrgRole`, `requireApiKey`
+(none of them gate on organization status — approval is application policy, not auth).
 Pass an optional Zod schema for org metadata: `createAuthMiddleware(builder, { orgMetaSchema })`.
 
 ### API Client Usage

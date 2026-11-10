@@ -25,8 +25,6 @@ export const organizationInfoSchema = z.object({
   logo: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   status: z.enum(["active", "pending", "rejected"]).default("active"),
-  requestedBy: z.string().nullable().optional(),
-  rejectionReason: z.string().nullable().optional(),
 });
 
 export const teamContextSchema = z.object({

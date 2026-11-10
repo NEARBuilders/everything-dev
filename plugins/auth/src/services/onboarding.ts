@@ -24,7 +24,6 @@ import {
   EventTeamCreateFailed,
   MembershipEnded,
   OrgFull,
-  OrgRequiresApproval,
   PlatformAdminRequired,
   RedeemOrgMissing,
 } from "./domain-errors";
@@ -450,11 +449,6 @@ export const buildOnboardingService = ({
         }),
       );
       const organizationName = organization?.name ?? "";
-      if (organization?.status !== "active") {
-        return yield* new OrgRequiresApproval({
-          message: "Organization requires platform-admin approval",
-        });
-      }
 
       if (codeRow.revokedAt) {
         return yield* new CodeRevoked({ message: "This onboarding code was revoked" });

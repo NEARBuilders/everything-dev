@@ -176,7 +176,7 @@ describe("personal organization", () => {
       expect(session?.activeTeamId).toBeNull();
     });
 
-    it("falls back to the personal org when the remembered org is no longer active", async () => {
+    it("falls back to the personal org when the remembered org no longer has a membership", async () => {
       const user = await createTestUser(services.services);
       const org = await createTestOrg(services.services, user.userId);
       const handlers = createTestHandlers(services.services);
@@ -185,10 +185,7 @@ describe("personal organization", () => {
         input: { organizationId: org.id },
         context: { reqHeaders: user.reqHeaders },
       });
-      await services.services.db
-        .update(schema.organization)
-        .set({ status: "pending" })
-        .where(eq(schema.organization.id, org.id));
+      await services.services.db.delete(schema.member).where(eq(schema.member.id, org.memberId));
 
       const relogin = await services.services.auth.api.signInEmail({
         body: { email: user.email, password: "Test1234!" },

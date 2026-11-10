@@ -5,7 +5,6 @@ import {
   getSessionBetterAuth,
   newAnonymousSession,
   postBetterAuth,
-  postRpc,
 } from "../../lib/http-seed.mjs";
 import { computeRegressionEnv } from "../../lib/regression-env.mjs";
 import { collectErrors } from "../helpers/page-ready";
@@ -88,10 +87,6 @@ test.describe("onboard rescan", () => {
 
     const organizerJar = await newAnonymousSession(regressionEnv, "Onboard Organizer");
     const org = await createOrganization(regressionEnv, organizerJar, `onboard-rescan-${unique}`);
-    await postRpc(regressionEnv, "auth/reviewOrganization", {
-      organizationId: org.id,
-      decision: "approve",
-    });
     const code = await createOnboardingCode(organizerJar, org, unique);
 
     const joinerJar = await newAnonymousSession(regressionEnv, "Rescan Tester");

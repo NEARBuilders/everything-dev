@@ -8,7 +8,7 @@ import { computeRegressionEnv } from "./regression-env.mjs";
  * The stack database is in-process pglite, so fixture helpers can no longer
  * write rows directly — every seed action goes through the public API surface:
  * `sign-in/anonymous` mints sessions, Better Auth organization routes create
- * the orgs, and two admin routes (`reviewOrganization`, `adminSetRole`) act
+ * (born-active) the orgs, and the `adminSetRole` admin route acts
  * with the boot-time bootstrap admin API key (AUTH_BOOTSTRAP_ADMIN_API_KEY).
  *
  * The artifacts match the direct-DB era byte-for-byte: `cookies.json`,
@@ -186,17 +186,13 @@ export async function seedRegressionFixtures({ log = () => {} } = {}) {
 
   const adminOrgAName = `regression-admin-org-a-${unique}`;
   const adminOrgBName = `regression-admin-org-b-${unique}`;
-  const adminOrgA = await createOrganization(env, adminJar, adminOrgAName);
-  const adminOrgB = await createOrganization(env, adminJar, adminOrgBName);
+  await createOrganization(env, adminJar, adminOrgAName);
+  await createOrganization(env, adminJar, adminOrgBName);
 
   const orgAName = `regression-org-a-${unique}`;
   const orgBName = `regression-org-b-${unique}`;
   const memberOrgA = await createOrganization(env, memberJar, orgAName);
   const memberOrgB = await createOrganization(env, memberJar, orgBName);
-
-  for (const orgId of [adminOrgA.id, adminOrgB.id, memberOrgA.id, memberOrgB.id]) {
-    await postRpc(env, "auth/reviewOrganization", { organizationId: orgId, decision: "approve" });
-  }
 
   await postBetterAuth(env.baseUrl, "organization/set-active", {
     jar: memberJar,

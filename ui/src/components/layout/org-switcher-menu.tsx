@@ -45,14 +45,11 @@ export function OrgSwitcherMenuContent({
           <DropdownMenuItem
             key={org.id}
             onClick={() => handleSwitch(org.id)}
-            disabled={switchOrg.isPending || org.status !== "active"}
+            disabled={switchOrg.isPending}
             data-testid={`org-switcher-item-${org.id}`}
           >
             {itemVariant === "iconTile" && <OrgMark name={org.name} size="sm" />}
             <span className="min-w-0 flex-1 truncate">{org.name}</span>
-            {org.status !== "active" && (
-              <span className="text-xs text-muted-foreground">{org.status}</span>
-            )}
             {org.id === activeOrgId && <CheckIcon className="text-muted-foreground" />}
           </DropdownMenuItem>
         ))}
