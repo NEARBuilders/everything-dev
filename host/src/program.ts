@@ -12,7 +12,7 @@ import {
   Option,
 } from "effect";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
-import { remoteDigests } from "everything-dev/fingerprint";
+import { pointerDigest, remoteDigests } from "everything-dev/digest";
 import { type Context, Hono } from "hono";
 import type { AuthVariables } from "./lib/auth";
 import { getCspStrict, SecurityMiddleware } from "./middleware/security";
@@ -26,7 +26,7 @@ import { HostServerError } from "./services/errors";
 import { FederationLifecycle } from "./services/federation.server";
 import { closeMcpServer } from "./services/mcp";
 import { PluginsService } from "./services/plugins";
-import { deploymentFingerprint, RuntimeSnapshot } from "./services/runtime-snapshot";
+import { deploymentDigest, RuntimeSnapshot } from "./services/runtime-snapshot";
 import { SnapshotCoordinator } from "./services/snapshot-coordinator";
 import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
 import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
@@ -169,7 +169,8 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           const watch = yield* Effect.serviceOption(SnapshotWatch);
           const lastOutcome = Option.isSome(watch) ? watch.value.lastOutcome : undefined;
           return {
-            fingerprint: state.config.deploymentFingerprint ?? state.fingerprint,
+            deploymentDigest: state.config.deploymentDigest ?? state.deploymentDigest,
+            pointerDigest: state.pointer ? pointerDigest(state.pointer as never) : undefined,
             remotes: state.pointer ? remoteDigests(state.pointer as never) : {},
             ...(state.restartRequired?.length
               ? {
@@ -344,7 +345,7 @@ export const runServer = (input: ServerInput): ServerHandle => {
       process.env[key] = value;
     }
   }
-  input.config.deploymentFingerprint = deploymentFingerprint(input.config);
+  input.config.deploymentDigest = deploymentDigest(input.config);
   const ConfigLive = Layer.succeed(ConfigService, input.config);
   const AppLive = Layer.provideMerge(PluginsService.Live, ConfigLive);
   const SnapshotLive = RuntimeSnapshot.layer(

@@ -193,8 +193,32 @@ The whole of a console rollback, FastKV-first: re-publish the previous verified 
 _Avoid_: redeploy (the instance half alone), image rollback (implies the image is the unit)
 
 **Reconciler**:
-The platform-side watcher that converges platform-hosted instances to each namespace's latest published fingerprint — making publish the deploy action. Idempotent; failures surface as drift.
+The platform-side watcher that converges platform-hosted instances to each namespace's latest published pointer digest — making publish the deploy action. Idempotent; failures surface as drift.
 _Avoid_: relay, agent, deploy trigger
+
+**Digest identity**:
+The two composition-plane hashes (ADR 0046 ticket 04), both derived in `everything-dev/digest` so the planes can't drift: **pointer digest** (what is pinned — a hash over every remote's pin coordinates; the lockfile's identity per ADR 0042, the watch's change-detection hash, what deployment records name) and **deployment digest** (what is served — the pointer inputs plus resolved entry coordinates per slot; the client soft-refresh signal and the host's adopt comparison). Relation: pointer stable + entries stable ⇒ deployment stable; the converse is deliberately not a guarantee — adopt treats an unchanged deployment digest as skip (a heuristic), and the watch tracks the pointer independently. Species, never compared across: content digests (the engine's `Digest` SRI brand, version id/dirId), the compose digest (SSR/client parity), the lockfile digest (serialized content), the compose variant cache key (dev mtimes — a cache key, not an identity).
+_Avoid_: fingerprint (retired word — pre-cutover lockfiles/snapshots/records carry `fingerprint` fields and are regenerated on next `bos lock` / first adopt; the old `everything-dev/fingerprint` subpath is removed), hash (never says what is hashed)
+
+**Verification spine**:
+The chain tx → config → release record → slot manifest → version dir → file sequence of attestations from the on-chain write to the served byte (ADR 0046). Each layer edge is independently checked — the registry write is NEAR-signed, the config's pins carry manifest SRIs, the release record is immutable, the manifest pins the entry and maps every file's SRI, the version dir is content-addressed, files hash to their SRIs — and every consumer re-verifies the prefix it loads through: the Verifier engine is the primitive, the chain walker walks all depths, and the smoke/adopt legs refuse a broken prefix instead of serving past it.
+_Avoid_: trust chain (implies transitive trust — nothing is inherited; each hop is checked on its own), integrity chain (integrity is one property the spine carries; it also carries provenance and attribution)
+
+**Attestation**:
+One identity-bytes-digest claim at a layer edge of the spine — these bytes, at this layer, hash to this digest, per this identity. The walker reports each leg separately; an attestation fails loud and named, never degrades to a warning.
+_Avoid_: signature (reserved for the cryptographic kind — the manifest attribution, ADR 0046)
+
+**`Verified<T>`**:
+A branded artifact that has passed the Verifier engine — bytes whose digest matched the pin at fetch time, a parsed document whose SRI verified. Consumers take `Verified<T>` and unverified bytes don't flow: the type is the gate, `mark` is the only door, and every production fetch path goes through the engine.
+_Avoid_: checked value, SRI'd value (informal — the brand is the term)
+
+**Attribution**:
+The cryptographic "published by the runtime's identity" property signatures add on top of integrity (ADR 0046): the deploy train signs each slot's version manifest with the existing publish identity, and the verifying key record publishes inside the on-chain config — so the record inherits chain authenticity and rotation is a config publish, never a silent key swap.
+_Avoid_: authentication of bytes (overloaded — sessions authenticate, bytes are attributed), trust (the property exists so you don't need it)
+
+**Drift**:
+The served/live state diverging from a published pin — the umbrella term whose byte-level form is **rot** (a served object no longer hashes to its pin) and whose release-level form is **staleness** (the served generation behind the published pointer). The pointer watch converges it; the smoke gate, the adopt comparison, and `bos verify` detect it.
+_Avoid_: skew (reserve for generation mixing inside one load — the compose digest parity check)
 
 **Fleet**:
 The set of runtime instances the platform hosts on its own managed substrate — the root pair, own-instance children, and sandbox leases.

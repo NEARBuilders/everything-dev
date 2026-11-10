@@ -69,7 +69,7 @@ export const contract = oc.router({
         path: "/hosting/reconciler/status",
         summary: "Reconciler status",
         description:
-          "Per-namespace reconciliation state for the platform-side watcher: last-seen and converged fingerprints, boot assumptions, drift reasons, and instance URLs. Disabled (empty watch list) reports no namespaces.",
+          "Per-namespace reconciliation state for the platform-side watcher: last-seen and converged digests, boot assumptions, drift reasons, and instance URLs. Disabled (empty watch list) reports no namespaces.",
         tags: ["Hosting"],
       })
       .input(z.object({}))

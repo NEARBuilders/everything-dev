@@ -6,14 +6,15 @@ const loadRemoteMock = vi.fn();
 const createInstanceMock = vi.fn(() => ({
   loadRemote: loadRemoteMock,
 }));
-const verifySriForUrlMock = vi.fn();
+const fetchVerifiedMock = vi.fn();
 
 vi.mock("@module-federation/enhanced/runtime", () => ({
   createInstance: createInstanceMock,
 }));
 
-vi.mock("everything-dev/integrity", () => ({
-  verifySriForUrl: verifySriForUrlMock,
+vi.mock("everything-dev/verify", () => ({
+  asDigest: (sri: string) => sri,
+  fetchVerified: fetchVerifiedMock,
 }));
 
 const { FederationLifecycle, loadRouterModule } = await import(
@@ -65,7 +66,7 @@ describe("loadRouterModule failure paths", () => {
     await runtime.runPromise(FederationLifecycle);
     disposeLifecycle = () => runtime.dispose();
     vi.clearAllMocks();
-    verifySriForUrlMock.mockResolvedValue(undefined);
+    fetchVerifiedMock.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -109,7 +110,7 @@ describe("loadRouterModule failure paths", () => {
   describe("SRI verification fails", () => {
     it("raises FederationError wrapping the integrity error", async () => {
       const integrityError = new Error("SRI hash mismatch: expected sha384-abc, got sha384-xyz");
-      verifySriForUrlMock.mockRejectedValue(integrityError);
+      fetchVerifiedMock.mockRejectedValue(integrityError);
 
       const result = await Effect.runPromiseExit(loadRouterModule(createRemoteConfig()));
 

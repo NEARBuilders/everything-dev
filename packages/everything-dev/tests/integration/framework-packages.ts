@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { execa } from "execa";
 import { globSync } from "glob";
 import { readWorkspaceCatalog } from "../../src/services/workspace/catalog";
+import { ensureFreshDeps } from "../../src/services/workspace/workspace";
 
 type FrameworkTarballs = {
   "better-near-auth": string;
@@ -22,9 +23,17 @@ export function getFrameworkTarballs(repoRoot: string): Promise<FrameworkTarball
 async function buildFrameworkTarballs(repoRoot: string): Promise<FrameworkTarballs> {
   const tarballDir = mkdtempSync(join(tmpdir(), "everything-dev-framework-packages-"));
 
-  for (const packageName of ["better-near-auth", "every-plugin", "everything-dev"] as const) {
-    await execa("pnpm", ["--dir", `packages/${packageName}`, "run", "build"], { cwd: repoRoot });
-  }
+  // The train's prerequisite path, not three raw workspace builds: raw
+  // `tsdown` runs clean their dist, so concurrent workers packing tarballs
+  // race each other's cleans — one worker's everything-dev dts guard read a
+  // better-near-auth dist another worker was mid-rebuild on (the init.full
+  // flake). ensureFreshDeps skips fresh members, builds stale ones in the
+  // layered order dts emit needs, and fails loud.
+  await ensureFreshDeps(repoRoot, [
+    join(repoRoot, "packages/better-near-auth"),
+    join(repoRoot, "packages/every-plugin"),
+    join(repoRoot, "packages/everything-dev"),
+  ]);
 
   const rootCatalog = readWorkspaceCatalog(repoRoot);
 

@@ -126,14 +126,14 @@
       "import": "./dist/services/lockfile/schema.mjs",
       "require": "./dist/services/lockfile/schema.cjs"
     },
-    "./fingerprint": {
+    "./digest": {
       "development": {
-        "types": "./src/services/registry/fingerprint.ts",
-        "import": "./src/services/registry/fingerprint.ts"
+        "types": "./src/services/registry/digest.ts",
+        "import": "./src/services/registry/digest.ts"
       },
-      "types": "./dist/services/registry/fingerprint.d.mts",
-      "import": "./dist/services/registry/fingerprint.mjs",
-      "require": "./dist/services/registry/fingerprint.cjs"
+      "types": "./dist/services/registry/digest.d.mts",
+      "import": "./dist/services/registry/digest.mjs",
+      "require": "./dist/services/registry/digest.cjs"
     },
     "./version-manifest-resolve": {
       "development": {
@@ -414,6 +414,15 @@
       "types": "./dist/ui/version-check.d.mts",
       "import": "./dist/ui/version-check.mjs",
       "require": "./dist/ui/version-check.cjs"
+    },
+    "./verify": {
+      "development": {
+        "types": "./src/services/verify/index.ts",
+        "import": "./src/services/verify/index.ts"
+      },
+      "types": "./dist/services/verify/index.d.mts",
+      "import": "./dist/services/verify/index.mjs",
+      "require": "./dist/services/verify/index.cjs"
     }
   },
   "files": [

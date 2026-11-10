@@ -541,7 +541,7 @@ interface GeneratedRuntimeMap {
   routes: ComposedRuntimeMap["routes"];
   shadowed: ComposedRuntimeMap["shadowed"];
   lockfile?: {
-    fingerprint: string;
+    pointerDigest: string;
     release: string | null;
     resolvedAt: string;
     /** Sources whose serving digest differs from the frozen one — the
@@ -595,7 +595,7 @@ function lockfileProvenance(
     );
   }
   return {
-    fingerprint: lockfile.fingerprint,
+    pointerDigest: lockfile.pointerDigest,
     release: lockfile.release,
     resolvedAt: lockfile.resolvedAt,
     drift,

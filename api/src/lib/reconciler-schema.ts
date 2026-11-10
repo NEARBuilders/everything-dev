@@ -8,8 +8,8 @@ export const ReconcilerStatusSchema = z.object({
       account: z.string(),
       gateway: z.string(),
       instance: z.string(),
-      lastSeenFingerprint: z.string().optional(),
-      convergedFingerprint: z.string().optional(),
+      lastSeenDigest: z.string().optional(),
+      convergedDigest: z.string().optional(),
       bootAssumed: z.boolean(),
       drift: z
         .object({

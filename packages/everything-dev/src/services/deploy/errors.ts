@@ -37,7 +37,7 @@ export interface PublishTrainOk {
   skipped?: string[];
   publishConfig?: BosConfigInput;
   deployResults?: WorkspaceDeployResult[];
-  fingerprint?: string;
+  pointerDigest?: string;
   remoteDigests?: Record<string, string>;
   /** The release classifier's decision (#571/#573) — threads to the image
    * leg so version tags move on the release deploy only. */

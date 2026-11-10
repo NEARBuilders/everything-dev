@@ -14,7 +14,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { type BosConfig, BosConfigSchema } from "../../types";
-import { pointerFingerprint } from "../registry/fingerprint";
+import { pointerDigest } from "../registry/digest";
 import { parseRuntimeRef } from "../registry/keys";
 import { walkRemotes } from "../remotes";
 
@@ -32,7 +32,7 @@ export type RemoteDigest = z.infer<typeof RemoteDigestSchema>;
 
 export const BootSnapshotSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     kind: z.literal("everything-dev/boot-snapshot"),
     runtimeRef: z.string().regex(/^bos:\/\/[^/]+\/[^/]+$/),
     /** The manifest tag `{version, digest}` that authorized the generation —
@@ -41,10 +41,10 @@ export const BootSnapshotSchema = z
      * record chain (ADR 0040). */
     manifestTag: z.object({ version: z.string().min(1), digest: z.string().min(1) }).nullable(),
     /** Hash over every remote coordinate of the stored config
-     * (`pointerFingerprint`). The loader recomputes it from `config` and
+     * (`pointerDigest`). The loader recomputes it from `config` and
      * refuses a mismatch — the file's own integrity check, independent of the
      * registry. */
-    fingerprint: z.string().regex(/^[0-9a-f]{16}$/),
+    pointerDigest: z.string().regex(/^[0-9a-f]{16}$/),
     /** The resolved published config the generation served. The loader parses
      * it (`BosConfigSchema`) and re-derives the runtime config
      * deterministically — env-derived fields are never persisted. */
@@ -105,11 +105,11 @@ export function bootSnapshotOf(input: {
   writtenAt?: string;
 }): BootSnapshot {
   return BootSnapshotSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "everything-dev/boot-snapshot",
     runtimeRef: `bos://${input.account}/${input.gateway}`,
     manifestTag: input.manifestTag ?? null,
-    fingerprint: pointerFingerprint(input.config),
+    pointerDigest: pointerDigest(input.config),
     config: input.config,
     remotes: pinnedRemotesOf(input.config),
     deployRecordKey: input.deployRecordKey ?? null,
@@ -118,11 +118,11 @@ export function bootSnapshotOf(input: {
   });
 }
 
-/** The load-side integrity check: recompute the fingerprint from the stored
- * config and compare. A mismatch means the file was hand-edited or written by
- * a different fingerprint implementation — refuse, loud. */
-export function snapshotFingerprintMatches(snapshot: BootSnapshot): boolean {
-  return pointerFingerprint(snapshot.config) === snapshot.fingerprint;
+/** The load-side integrity check: recompute the pointer digest from the
+ * stored config and compare. A mismatch means the file was hand-edited or
+ * written by a different digest implementation — refuse, loud. */
+export function snapshotDigestMatches(snapshot: BootSnapshot): boolean {
+  return pointerDigest(snapshot.config) === snapshot.pointerDigest;
 }
 
 export class BootSnapshotIntegrityError extends Error {
@@ -132,13 +132,13 @@ export class BootSnapshotIntegrityError extends Error {
   }
 }
 
-/** Verified load: refuses a snapshot whose recomputed fingerprint mismatches
+/** Verified load: refuses a snapshot whose recomputed pointer digest mismatches
  * — the degraded boot rung serves this file, so it must be the exact
  * composition the coordinator verified when it wrote it. */
 export function verifiedBootSnapshot(snapshot: BootSnapshot): BootSnapshot {
-  if (!snapshotFingerprintMatches(snapshot)) {
+  if (!snapshotDigestMatches(snapshot)) {
     throw new BootSnapshotIntegrityError(
-      `boot snapshot fingerprint mismatch: stored ${snapshot.fingerprint}, recomputed ${pointerFingerprint(snapshot.config)} — the file was hand-edited or written by a foreign writer; refusing to serve it`,
+      `boot snapshot digest mismatch: stored ${snapshot.pointerDigest}, recomputed ${pointerDigest(snapshot.config)} — the file was hand-edited or written by a foreign writer; refusing to serve it`,
     );
   }
   return snapshot;

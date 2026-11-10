@@ -78,6 +78,35 @@ export async function submitRegistryWriteCustody(opts: CustodySubmitOptions): Pr
   }
 }
 
+/** Manifest attribution for custody deploys (ADR 0046 ticket 05): the
+ * coordinator's TEE-held wallet key signs the canonical manifest payload —
+ * the same key that signs the registry write, so no new key material exists.
+ * The response's public key is the verifying key; the train cross-checks it
+ * against the config's `publish.verification.publicKey`. */
+export async function signManifestPayloadCustody(
+  custodyWallet: CustodyWalletRecord,
+  payload: string,
+  recipient: string,
+): Promise<{ publicKey: string; value: string }> {
+  const client = custodyClient(custodyWallet);
+  try {
+    const result = await client.signMessage({
+      message: payload,
+      recipient,
+      format: "raw",
+    });
+    const value = result.signature_base64 ?? result.signature;
+    if (!value || !result.public_key) {
+      throw new Error(
+        "The custody wallet signed without returning a signature/public key pair — cannot attribute the manifest",
+      );
+    }
+    return { publicKey: result.public_key, value };
+  } catch (error) {
+    throw custodyPublishError(error, custodyWallet);
+  }
+}
+
 function custodyPublishError(error: unknown, custodyWallet: CustodyWalletRecord): unknown {
   if (!(error instanceof OutlayerError)) return error;
   const code: string = error.code;

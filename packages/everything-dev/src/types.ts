@@ -46,19 +46,6 @@ export type SharedDepConfig = SharedConfig;
 export const SharedDepConfigSchema = SharedConfigSchema;
 export const SharedDepMapSchema = z.record(z.string(), SharedConfigSchema);
 
-export const FederationEntrySchema = z.object({
-  name: z.string(),
-  url: z.string(),
-  entry: z.string(),
-  /** the content-hashed container entry URL (derived from the version
-   * manifest when the slot pins one) — consumers load this instead of
-   * appending the legacy fixed name */
-  entryUrl: z.string().optional(),
-  source: SourceModeSchema,
-  integrity: z.string().optional(),
-});
-export type FederationEntry = z.infer<typeof FederationEntrySchema>;
-
 /**
  * Remote digest (atomic-deploys): an explicit pointer to the remote's
  * immutable per-deploy WorkspaceVersionManifest — `manifest` is the versioned
@@ -73,6 +60,27 @@ export const RemoteDigestSchema = z.object({
   integrity: z.string().min(1),
 });
 export type RemoteDigest = z.infer<typeof RemoteDigestSchema>;
+
+export const FederationEntrySchema = z.object({
+  name: z.string(),
+  url: z.string(),
+  entry: z.string(),
+  /** the content-hashed container entry URL (derived from the version
+   * manifest when the slot pins one) — consumers load this instead of
+   * appending the legacy fixed name */
+  entryUrl: z.string().optional(),
+  source: SourceModeSchema,
+  integrity: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests — the
+   * integrity-in-pipeline registry's keying source (#642 revival, ADR 0046
+   * ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
+  /** The slot's pin coordinates (what is pinned) — stamped at resolution so
+   * the serving-generation digest derives from pointer inputs + resolved
+   * coordinates (ADR 0046 ticket 04). */
+  digest: RemoteDigestSchema.optional(),
+});
+export type FederationEntry = z.infer<typeof FederationEntrySchema>;
 
 export const PluginUiConfigSchema = z.object({
   // Optional (#800): the release-scoped stamper canonicalizes inherited
@@ -136,6 +144,10 @@ const PluginRuntimeUiSchema = z.object({
   url: z.string(),
   entry: z.string(),
   source: SourceModeSchema,
+  /** The slot's pin coordinates (what is pinned) — stamped at resolution so
+   * the serving-generation digest derives from pointer inputs + resolved
+   * coordinates (ADR 0046 ticket 04). */
+  digest: RemoteDigestSchema.optional(),
   /** browser-facing base; when set the client config serves this instead of
    * `url` (server-side loading keeps `url`) */
   publicUrl: z.string().optional(),
@@ -180,6 +192,14 @@ export const RuntimePluginConfigSchema = z.object({
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
   entryUrl: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests (hashed
+   * entry, ssr entry, files-map entries) — the integrity-in-pipeline
+   * registry's keying source (#642 revival, ADR 0046 ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
+  /** The slot's pin coordinates (what is pinned) — stamped at resolution so
+   * the serving-generation digest derives from pointer inputs + resolved
+   * coordinates (ADR 0046 ticket 04). */
+  digest: RemoteDigestSchema.optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
   ui: PluginRuntimeUiSchema.optional(),
@@ -209,6 +229,14 @@ export const RuntimeDependencyNodeSchema = z.object({
   variables: JsonObjectSchema.optional(),
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests — the
+   * integrity-in-pipeline registry's keying source (#642 revival, ADR 0046
+   * ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
+  /** The slot's pin coordinates (what is pinned) — stamped at resolution so
+   * the serving-generation digest derives from pointer inputs + resolved
+   * coordinates (ADR 0046 ticket 04). */
+  digest: RemoteDigestSchema.optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
   ui: PluginRuntimeUiSchema.optional(),
@@ -307,6 +335,13 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     publish: z
       .object({
         auth: z.enum(["session", "key", "custody"]).optional(),
+        /** Manifest attribution key record (ADR 0046 ticket 05) — mirrors
+         * PublishConfigSchema.verification; the chain walker reads it from
+         * the config it walks (authored or published — publish survives
+         * canonicalization because children inherit it). */
+        verification: z
+          .union([z.object({ publicKey: z.string().min(1) }), z.literal("off")])
+          .optional(),
       })
       .optional(),
     /** The authored release (ADR 0034): the exact framework version this app targets. */
@@ -401,6 +436,16 @@ export const PublishConfigSchema = z.object({
   auth: PublishAuthSchema.optional(),
   /** Publish per-workspace source archives beside the dists (#406). */
   sourcePublish: z.boolean().optional(),
+  /**
+   * Manifest attribution (ADR 0046 ticket 05): the verifying public key the
+   * deploy train signs version manifests with and the chain walker demands
+   * signatures against — `{ publicKey: "ed25519:<base58>" }`, or `"off"` to
+   * disable explicitly. Absent means off (the rollout default): unsigned
+   * manifests verify as today. The key record publishes inside the on-chain
+   * config, so it inherits chain authenticity and rotation is a config
+   * publish.
+   */
+  verification: z.union([z.object({ publicKey: z.string().min(1) }), z.literal("off")]).optional(),
 });
 export type PublishConfig = z.infer<typeof PublishConfigSchema>;
 
@@ -442,9 +487,9 @@ export const RuntimeConfigSchema = z.object({
   account: z.string(),
   domain: z.string().optional(),
   networkId: z.enum(["mainnet", "testnet"]),
-  /** the deploy fingerprint of the snapshot this config came from
+  /** the serving-generation digest of the snapshot this config came from
    * (atomic-deploys 10) — rides the client config for the soft-refresh signal */
-  deploymentFingerprint: z.string().optional(),
+  deploymentDigest: z.string().optional(),
   title: z.string().optional(),
   description: z.string().optional(),
   repository: z.string().optional(),
@@ -505,8 +550,8 @@ export const ClientRuntimeConfigSchema = z.object({
   env: z.enum(["development", "production", "staging"]),
   account: z.string(),
   networkId: z.enum(["mainnet", "testnet"]),
-  /** the deploy fingerprint this document was rendered from (soft refresh) */
-  deploymentFingerprint: z.string().optional(),
+  /** the serving-generation digest this document was rendered from (soft refresh) */
+  deploymentDigest: z.string().optional(),
   hostUrl: z.string().optional(),
   assetsUrl: z.string(),
   apiBase: z.string(),

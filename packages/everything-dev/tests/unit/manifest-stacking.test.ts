@@ -6,6 +6,8 @@ import { buildDependencyDAG } from "../../src/services/registry/dag";
 // version-manifest resolution — every remote pins a manifest, and
 // resolution is stubbed
 vi.mock("../../src/services/deploy/version-manifest", () => ({
+  // ticket 03 stamps the resolved artifact map onto every slot
+  resolvedIntegrityMap: () => ({}),
   resolveRemoteVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
     entryIntegrity: "sha384-entry",

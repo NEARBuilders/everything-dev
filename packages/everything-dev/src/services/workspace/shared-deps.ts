@@ -56,7 +56,7 @@ export interface ResolvedSharedDep {
 
 export interface ResolvedSharedDeps {
   deps: Record<string, ResolvedSharedDep>;
-  fingerprintSha256: string;
+  generatedDigest: string;
 }
 
 export interface SharedDepsSyncResult {
@@ -132,7 +132,7 @@ function writeFileIfChanged(filePath: string, nextContent: string): boolean {
   return true;
 }
 
-function fingerprintResolved(deps: Record<string, ResolvedSharedDep>): string {
+function generatedDigestOf(deps: Record<string, ResolvedSharedDep>): string {
   return sha256(JSON.stringify(stableDepsObject(deps)));
 }
 
@@ -313,7 +313,7 @@ export async function syncResolvedSharedDeps(opts: {
   const stableResolvedDeps = stableDepsObject(resolvedDeps);
   const resolved: ResolvedSharedDeps = {
     deps: stableResolvedDeps,
-    fingerprintSha256: fingerprintResolved(stableResolvedDeps),
+    generatedDigest: generatedDigestOf(stableResolvedDeps),
   };
 
   const nextGenerated = {
@@ -321,17 +321,17 @@ export async function syncResolvedSharedDeps(opts: {
     kind: "everything-dev/shared-deps",
     generatedAt: new Date().toISOString(),
     deps: stableResolvedDeps,
-    fingerprintSha256: resolved.fingerprintSha256,
+    generatedDigest: resolved.generatedDigest,
     inputs: {
       mode,
       hostMode: opts.hostMode,
     },
   };
 
-  let prevFingerprint: string | null = null;
+  let prevGeneratedDigest: string | null = null;
   try {
     const prev = JSON.parse(readFileSync(generatedPath, "utf-8"));
-    prevFingerprint = prev?.fingerprintSha256 ?? null;
+    prevGeneratedDigest = prev?.generatedDigest ?? null;
   } catch {
     // ignore
   }
@@ -339,7 +339,7 @@ export async function syncResolvedSharedDeps(opts: {
   mkdirSync(dirname(generatedPath), { recursive: true });
   writeFileIfChanged(generatedPath, `${JSON.stringify(nextGenerated, null, 2)}\n`);
 
-  const generatedChanged = prevFingerprint !== nextGenerated.fingerprintSha256;
+  const generatedChanged = prevGeneratedDigest !== nextGenerated.generatedDigest;
 
   return {
     mode,

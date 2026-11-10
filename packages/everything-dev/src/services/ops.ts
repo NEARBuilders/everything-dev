@@ -7,8 +7,8 @@ import { probePortBindable } from "../infra/ports";
 import { readDevLatestLog, resolveDevLatestFile } from "./dev/logs";
 import { killProcessGroupEscalating, reapGroup } from "./processes/kill";
 import { isPidAlive, readRegistry, unregisterPid } from "./processes/registry";
+import { pointerDigest } from "./registry/digest";
 import { fetchBosConfigFromFastKv } from "./registry/fastkv";
-import { pointerFingerprint } from "./registry/fingerprint";
 import type { ResolutionSession } from "./resolution/session";
 import { getStatus } from "./status";
 import { computeDeployedVersionStatus, type DeployedVersionStatus } from "./version/status";
@@ -179,38 +179,38 @@ async function deployedVersionStatus(
   const config = session?.config;
   if (!config?.account || !config.domain) return undefined;
   const { account, domain } = config;
-  let publishedFingerprint: string | undefined;
+  let publishedDigest: string | undefined;
   try {
     const published = await fetchBosConfigFromFastKv<Record<string, unknown>>(
       `bos://${account}/${domain}`,
     );
-    publishedFingerprint = pointerFingerprint(published as never);
+    publishedDigest = pointerDigest(published as never);
   } catch {
     return undefined;
   }
 
   const hostUrl = session?.runtime?.host?.url;
   if (!hostUrl) {
-    return computeDeployedVersionStatus({ publishedFingerprint, servedFingerprint: null });
+    return computeDeployedVersionStatus({ publishedDigest, servedDigest: null });
   }
   try {
     const response = await fetch(new URL("/.well-known/version", hostUrl));
     if (!response.ok) {
       return computeDeployedVersionStatus({
-        publishedFingerprint,
-        servedFingerprint: null,
+        publishedDigest,
+        servedDigest: null,
         servedError: `version endpoint returned ${response.status}`,
       });
     }
-    const body = (await response.json()) as { fingerprint?: string };
+    const body = (await response.json()) as { pointerDigest?: string };
     return computeDeployedVersionStatus({
-      publishedFingerprint,
-      servedFingerprint: body.fingerprint ?? null,
+      publishedDigest,
+      servedDigest: body.pointerDigest ?? null,
     });
   } catch (error) {
     return computeDeployedVersionStatus({
-      publishedFingerprint,
-      servedFingerprint: null,
+      publishedDigest,
+      servedDigest: null,
       servedError: error instanceof Error ? error.message : String(error),
     });
   }

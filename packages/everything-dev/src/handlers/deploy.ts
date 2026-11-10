@@ -490,7 +490,7 @@ async function deployBody(
   const configPublished = {
     registryUrl: result.registryUrl,
     txHash: result.txHash,
-    fingerprint: result.fingerprint,
+    pointerDigest: result.pointerDigest,
     remoteDigests: result.remoteDigests,
     built: result.built,
     skipped: result.skipped,

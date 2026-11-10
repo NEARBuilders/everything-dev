@@ -195,7 +195,7 @@ export const PluginPublishResultSchema = z.object({
     .optional()
     .describe("Block height (or timestamp) of the snapshot from the listing"),
 
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   error: z.string().optional(),
 });
 
@@ -339,7 +339,7 @@ export const PublishResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   built: z.array(z.string()).optional(),
@@ -357,7 +357,7 @@ export const LockOptionsSchema = z.object({
 export const LockResultSchema = z.object({
   status: z.enum(["written", "unchanged", "drift", "error"]),
   path: z.string(),
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   drift: z.array(z.string()).optional(),
   error: z.string().optional(),
   code: z.number().optional(),
@@ -454,7 +454,7 @@ export const DeployResultSchema = z.object({
   status: z.enum(["deployed", "published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   history: z.array(DeployManifestListEntrySchema).optional(),
   built: z.array(z.string()).optional(),
@@ -867,8 +867,8 @@ export const UpgradeResultSchema = z.object({
 });
 
 export const DeployedVersionStatusSchema = z.object({
-  publishedFingerprint: z.string(),
-  servedFingerprint: z.string().optional(),
+  publishedDigest: z.string(),
+  servedDigest: z.string().optional(),
   inSync: z.boolean(),
   error: z.string().optional(),
 });
@@ -1130,11 +1130,26 @@ export const VerifyRemoteResultSchema = z.object({
   manifest: z.string(),
   manifestOk: z.boolean(),
   manifestReason: z.string().optional(),
+  /** attribution leg (ADR 0046 ticket 05) — present only when the walked
+   * config demands attribution (`publish.verification`) */
+  signature: z
+    .object({
+      ok: z.boolean(),
+      reason: z.string().optional(),
+    })
+    .optional(),
   /** the immutable version directory the pin resolves into (absent on legacy pins) */
   dir: z.string().optional(),
   legacy: z.boolean(),
   filesChecked: z.number(),
   mismatches: z.array(VerifyFileMismatchSchema),
+});
+
+export const VerifyChainEntryResultSchema = z.object({
+  remote: z.string(),
+  url: z.string(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
 });
 
 export const VerifyFreshnessSchema = z.object({
@@ -1147,6 +1162,12 @@ export const VerifyFreshnessSchema = z.object({
 export const VerifyOptionsSchema = z.object({
   json: z.boolean().default(false).describe("Print the report as JSON"),
   registry: z.string().optional().describe("Registry base URL override"),
+  depth: z
+    .enum(["pointer", "entries", "files"])
+    .default("files")
+    .describe(
+      "How deep the chain walk goes: pointer = the pinned manifest documents; entries = + the pinned remoteEntry/ssr bytes; files = + every file in each manifest's files map (the full sweep)",
+    ),
 });
 
 export const VerifyResultSchema = z.object({
@@ -1154,6 +1175,7 @@ export const VerifyResultSchema = z.object({
    * parent's release (advisory — never blocks); ok = verified */
   status: z.enum(["ok", "drift", "fail"]),
   remotes: z.array(VerifyRemoteResultSchema),
+  entries: z.array(VerifyChainEntryResultSchema).optional(),
   freshness: VerifyFreshnessSchema.optional(),
   error: z.string().optional(),
 });

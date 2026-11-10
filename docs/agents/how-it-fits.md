@@ -28,6 +28,31 @@ runs your local workspaces in-process next to it. `bos.dev.ts` alters the dev
 resolution only; `_resolved` in `.bos/bos.resolved-config.json` records what the
 resolution produced (regenerate: `pnpm run types:gen`).
 
+## The verification spine
+
+That chain carries its own proof. From the on-chain write to the served byte,
+every hop is an attestation — independently checked, nothing trusted
+transitively ([ADR 0046](../adr/0046-manifest-attribution.md),
+[`GLOSSARY.md`](../../GLOSSARY.md) — "verification spine"):
+
+```mermaid
+flowchart LR
+  T["NEAR tx<br/>(the registry write<br/>is chain-signed)"] -->|"pins + key record<br/>on-chain"| C["Config<br/>bos://&lt;account&gt;/&lt;gateway&gt;"]
+  C -->|"names the immutable<br/>release record"| R["versions/&lt;release&gt;.json"]
+  C -->|"each slot pins<br/>manifest + SRI"| M["Slot manifest<br/>versions/&lt;hash&gt;.json<br/>(signed — attributed)"]
+  M -->|"content-addressed dir"| D["Version dir<br/>versions/&lt;dirId&gt;/"]
+  M -->|"every file's SRI"| F["Files<br/>(entry · chunks · ssr)"]
+```
+
+`bos verify` walks this spine at three depths (`pointer` / `entries` / `files`)
+and reports each leg by name: SRI mismatches, schema failures, and — when the
+config demands attribution — manifest signatures verified against the key
+record the config publishes. The same walker is the adopt transaction's gate
+and the smoke gate's in-image leg, so a broken prefix refuses the boot rather
+than serving past it. The one primitive underneath is the Verifier engine
+(`everything-dev/verify`): every production fetch goes through it, and its
+`Verified<T>` brand is how unverified bytes are kept out of the types.
+
 ## Composition: mounts, core-wins, shadows
 
 ```mermaid

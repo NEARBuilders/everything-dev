@@ -1042,7 +1042,7 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
       bosConfigChanged: false,
       catalogChanged: false,
       generatedChanged: false,
-      resolved: { deps: {}, fingerprintSha256: "" },
+      resolved: { deps: {}, generatedDigest: "" },
     } as never);
     vi.spyOn(initModule, "runPnpmInstallForUpgrade").mockResolvedValue();
     vi.spyOn(initModule, "runTypesGen").mockResolvedValue();

@@ -4,6 +4,7 @@ import type { RuntimeConfig } from "../../src/services/config";
 
 const buildRuntimeConfigMock = vi.fn();
 const verifySriForUrlMock = vi.fn();
+const fetchVerifiedMock = vi.fn();
 const fetchBosConfigMock = vi.fn();
 
 vi.mock("everything-dev/config", async (importOriginal) => {
@@ -14,8 +15,15 @@ vi.mock("everything-dev/config", async (importOriginal) => {
   };
 });
 
-vi.mock("everything-dev/integrity", () => ({
-  verifySriForUrl: verifySriForUrlMock,
+vi.mock("everything-dev/integrity", async () => {
+  const actual = await vi.importActual<typeof import("everything-dev/integrity")>(
+    "everything-dev/integrity",
+  );
+  return { ...actual, verifySriForUrl: verifySriForUrlMock };
+});
+vi.mock("everything-dev/verify", () => ({
+  asDigest: (sri: string) => sri,
+  fetchVerified: fetchVerifiedMock,
 }));
 
 const { clearTenantRuntimeCaches, resolveRequestRuntime } = await import(
@@ -165,7 +173,7 @@ describe("resolveRequestRuntime", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearTenantRuntimeCaches();
-    verifySriForUrlMock.mockResolvedValue(undefined);
+    fetchVerifiedMock.mockResolvedValue(new Uint8Array(0));
     remoteConfigs = {};
   });
 
@@ -356,11 +364,10 @@ describe("resolveRequestRuntime", () => {
     expect(result.config.ui.url).toBe("https://cdn.example.com/alice-ui");
     expect(result.ssrAllowed).toBe(true);
     expect(result.config.ui.ssrUrl).toBe("https://cdn.example.com/alice-ui-ssr");
-    expect(verifySriForUrlMock).toHaveBeenCalledWith(
-      "https://cdn.example.com/alice-ui",
-      "sha384-alice",
-      undefined,
-    );
+    expect(fetchVerifiedMock).toHaveBeenCalledWith({
+      url: "https://cdn.example.com/alice-ui/remoteEntry.js",
+      expected: "sha384-alice",
+    });
   });
 
   it("disables SSR when the binding does not allow it", async () => {
@@ -628,11 +635,10 @@ describe("resolveRequestRuntime", () => {
 
     expect(result.config.plugins?.apps.ui?.url).toBe("https://plugins.example.com/alice-apps-ui");
     expect(result.config.plugins?.ignored).toBeUndefined();
-    expect(verifySriForUrlMock).toHaveBeenCalledWith(
-      "https://plugins.example.com/alice-apps-ui",
-      "sha384-apps-alice",
-      undefined,
-    );
+    expect(fetchVerifiedMock).toHaveBeenCalledWith({
+      url: "https://plugins.example.com/alice-apps-ui/remoteEntry.js",
+      expected: "sha384-apps-alice",
+    });
   });
 
   it.each([
@@ -651,7 +657,7 @@ describe("resolveRequestRuntime", () => {
         account: "alice.linktree.near",
         ui: {
           ...baseConfig.ui,
-          url: "https://cdn.example.com/alice-ui",
+          url: "https://cdn.example.com/alice-ui/remoteEntry.js",
           entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
           integrity: "sha384-alice",
           ssrUrl: "https://cdn.example.com/alice-ui-ssr",
@@ -670,7 +676,7 @@ describe("resolveRequestRuntime", () => {
       });
 
       const refresh = createDeferred<void>();
-      verifySriForUrlMock.mockImplementationOnce(() => refresh.promise);
+      fetchVerifiedMock.mockImplementationOnce(() => refresh.promise);
       vi.advanceTimersByTime(5 * 60_000 + 1);
 
       await expect(
@@ -684,7 +690,7 @@ describe("resolveRequestRuntime", () => {
           io,
         }),
       ).resolves.toMatchObject({ tenantAccountId: "alice.linktree.near" });
-      expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
+      expect(fetchVerifiedMock).toHaveBeenCalledTimes(2);
 
       await expect(
         resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/asset-2.js"), {
@@ -697,7 +703,7 @@ describe("resolveRequestRuntime", () => {
           io,
         }),
       ).resolves.toMatchObject({ tenantAccountId: "alice.linktree.near" });
-      expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
+      expect(fetchVerifiedMock).toHaveBeenCalledTimes(2);
 
       if (outcome === "success") {
         refresh.resolve();
@@ -705,7 +711,7 @@ describe("resolveRequestRuntime", () => {
       } else {
         refresh.reject(new Error("integrity mismatch"));
         await vi.advanceTimersByTimeAsync(0);
-        verifySriForUrlMock.mockRejectedValueOnce(new Error("integrity mismatch"));
+        fetchVerifiedMock.mockRejectedValueOnce(new Error("integrity mismatch"));
         await expect(
           resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/asset-3.js"), {
             verification: "stale-while-revalidate",
@@ -717,7 +723,7 @@ describe("resolveRequestRuntime", () => {
             io,
           }),
         ).rejects.toThrow("Integrity check failed");
-        expect(verifySriForUrlMock).toHaveBeenCalledTimes(3);
+        expect(fetchVerifiedMock).toHaveBeenCalledTimes(3);
         await expect(
           resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/asset-4.js"), {
             verification: "stale-while-revalidate",
@@ -729,7 +735,7 @@ describe("resolveRequestRuntime", () => {
             io,
           }),
         ).resolves.toMatchObject({ tenantAccountId: "alice.linktree.near" });
-        expect(verifySriForUrlMock).toHaveBeenCalledTimes(4);
+        expect(fetchVerifiedMock).toHaveBeenCalledTimes(4);
       }
     } finally {
       vi.useRealTimers();
@@ -749,7 +755,7 @@ describe("resolveRequestRuntime", () => {
         account: "alice.linktree.near",
         ui: {
           ...baseConfig.ui,
-          url: "https://cdn.example.com/alice-ui",
+          url: "https://cdn.example.com/alice-ui/remoteEntry.js",
           entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
           integrity: "sha384-alice",
           ssrUrl: "https://cdn.example.com/alice-ui-ssr",
@@ -768,7 +774,7 @@ describe("resolveRequestRuntime", () => {
       });
 
       const refresh = createDeferred<void>();
-      verifySriForUrlMock.mockImplementationOnce(() => refresh.promise);
+      fetchVerifiedMock.mockImplementationOnce(() => refresh.promise);
       vi.advanceTimersByTime(5 * 60_000 + 1);
 
       let settled = false;
@@ -877,6 +883,6 @@ describe("resolveRequestRuntime", () => {
     );
 
     expect(result.config.ui.url).toBe(baseConfig.ui.url);
-    expect(verifySriForUrlMock).not.toHaveBeenCalled();
+    expect(fetchVerifiedMock).not.toHaveBeenCalled();
   });
 });
