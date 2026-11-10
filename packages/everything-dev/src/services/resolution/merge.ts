@@ -13,6 +13,7 @@ export const BOS_CONFIG_ORDER = [
   "publish",
   "release",
   "ci",
+  "seed",
   "app",
   "plugins",
   "rolledBackFrom",
@@ -258,5 +259,20 @@ export function stripLocalDevelopmentTargets<T extends object>(config: T): T {
     }
     out.plugins = nextPlugins;
   }
+  return out as T;
+}
+
+/**
+ * Publish canonicalization (#865): the seed block never publishes. Steps are
+ * workspace-relative script paths meaningful only in the repo that declares
+ * them, and the owner identity is a dev-auth provisioning concern — a child
+ * inheriting either through `extends` would run (or fail on) scripts it does
+ * not have. Production seeding reads the authored config locally via
+ * `bos seed`; the runtime never consumes this block.
+ */
+export function stripSeedConfig<T extends object>(config: T): T {
+  if (!("seed" in config)) return config;
+  const out = { ...config } as Record<string, unknown>;
+  delete out.seed;
   return out as T;
 }

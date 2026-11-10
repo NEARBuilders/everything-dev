@@ -120,6 +120,7 @@ export function toConfigInput(descriptor: AppDescriptor): BosConfigInput {
       "ci",
       "cdn",
       "publish",
+      "seed",
     ]),
   };
 
@@ -299,6 +300,7 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
     "ci",
     "cdn",
     "publish",
+    "seed",
   ] as const) {
     if (source[field] !== undefined) descriptor[field] = source[field];
   }

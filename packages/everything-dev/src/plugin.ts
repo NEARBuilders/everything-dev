@@ -24,6 +24,7 @@ import { registerOps } from "./handlers/ops";
 import { registerPlugins } from "./handlers/plugins";
 import { registerProcesses } from "./handlers/processes";
 import { registerSecrets } from "./handlers/secrets";
+import { registerSeed } from "./handlers/seed";
 import { registerSmoke } from "./handlers/smoke";
 import { registerTypesGen } from "./handlers/types-gen";
 import { registerUpgrade } from "./handlers/upgrade";
@@ -154,6 +155,7 @@ export default createPlugin({
     ...registerUpgrade(builder),
     ...registerTypesGen(builder),
     ...registerVerify(builder),
+    ...registerSeed(builder),
     ...registerDb(builder),
     ...registerOps(builder),
   }),

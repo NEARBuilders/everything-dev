@@ -19,6 +19,7 @@ import { lifecycleRenderers } from "./commands/lifecycle";
 import { lockRenderers } from "./commands/lock";
 import { publishRenderers, rollbackPreCall } from "./commands/publish";
 import { scaffoldRenderers } from "./commands/scaffold";
+import { seedPreCall, seedRenderers } from "./commands/seed";
 import { resolveFrameworkPackage } from "./framework-version";
 import { printCommandHelp, printHelp } from "./help";
 import { parseCommandInput } from "./parse";
@@ -34,6 +35,7 @@ const customRunners: Record<string, (ctx: CommandContext) => Promise<void>> = {
 
 const preCalls: Record<string, (ctx: CommandContext) => Promise<void>> = {
   rollback: rollbackPreCall,
+  seed: seedPreCall,
 };
 
 const renderers = {
@@ -44,6 +46,7 @@ const renderers = {
   ...lockRenderers,
   ...publishRenderers,
   ...scaffoldRenderers,
+  ...seedRenderers,
   ...secretsRenderers,
 };
 

@@ -384,6 +384,8 @@ For full per-request host/plugin/auth/api swapping, see `docs/plans/` for design
 3. Check `.bos/logs/` for process logs if issues occur
 4. Use `bos kill` to clean up processes when done
 
+**Seeding:** declare a `seed` block (`version`, `auth.ownerAdmin`, idempotent `steps`) in `bos.app.ts` — `bos dev` seeds automatically before services spawn (marker-gated, version-bump re-runs); production is explicit only: `bos seed --env production` (postgres URLs, env-provided owner credentials, confirmation). Docs: `docs/seed-phase.md`.
+
 ### Debugging Issues
 
 **API not responding:**

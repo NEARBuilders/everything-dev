@@ -384,6 +384,43 @@ export const CleanResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const SeedOptionsSchema = z.object({
+  configDir: z.string().optional().describe("Config directory (defaults to cwd)"),
+  env: z
+    .enum(["development", "production"])
+    .default("development")
+    .describe(
+      "Target environment — production requires postgres:// database URLs and env-provided owner credentials",
+    ),
+  force: z
+    .boolean()
+    .default(false)
+    .describe("Re-run the owner bootstrap and steps even when the seed marker version matches"),
+  yes: z.boolean().default(false).describe("Skip the production confirmation prompt"),
+});
+
+export const SeedStepOutcomeSchema = z.object({
+  step: z.string(),
+  status: z.enum(["ran", "failed"]),
+  error: z.string().optional(),
+});
+
+export const SeedOwnerOutcomeSchema = z.object({
+  mode: z.enum(["near", "email"]),
+  provisioned: z.boolean(),
+  accountId: z.string(),
+});
+
+export const SeedResultSchema = z.object({
+  status: z.enum(["seeded", "already-seeded", "skipped", "error"]),
+  env: z.enum(["development", "production"]),
+  version: z.number().optional(),
+  workspaces: z.array(z.string()).optional(),
+  owner: SeedOwnerOutcomeSchema.nullable().optional(),
+  steps: z.array(SeedStepOutcomeSchema).optional(),
+  error: z.string().optional(),
+});
+
 export const DeployOptionsSchema = z.object({
   statusList: z.boolean().default(false),
   env: z
@@ -1307,6 +1344,7 @@ export const commandOptionSchemas = {
   publish: PublishOptionsSchema,
   lock: LockOptionsSchema,
   clean: CleanOptionsSchema,
+  seed: SeedOptionsSchema,
   rollback: RollbackOptionsSchema,
   promote: PromoteOptionsSchema,
   deploy: DeployOptionsSchema,
@@ -1374,6 +1412,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/clean" })
     .input(CleanOptionsSchema)
     .output(CleanResultSchema),
+  seed: oc
+    .route({ method: "POST", path: "/seed" })
+    .input(SeedOptionsSchema)
+    .output(SeedResultSchema),
   rollback: oc
     .route({ method: "POST", path: "/rollback" })
     .input(RollbackOptionsSchema)
@@ -1492,6 +1534,8 @@ export type PublishResult = z.infer<typeof PublishResultSchema>;
 export type LockOptions = z.infer<typeof LockOptionsSchema>;
 export type LockResult = z.infer<typeof LockResultSchema>;
 export type CleanResult = z.infer<typeof CleanResultSchema>;
+export type SeedOptions = z.infer<typeof SeedOptionsSchema>;
+export type SeedResult = z.infer<typeof SeedResultSchema>;
 export type RollbackResult = z.infer<typeof RollbackResultSchema>;
 export type PromoteOptions = z.infer<typeof PromoteOptionsSchema>;
 export type PromoteResult = z.infer<typeof PromoteResultSchema>;
@@ -1629,6 +1673,12 @@ export const cliCommandMeta = {
     summary:
       "Remove regenerable .bos state (logs, staging, caches) — never db, session, ports, deploy-state (--dry-run previews)",
     interactive: false,
+  },
+  seed: {
+    commandPath: ["seed"],
+    summary:
+      "Run the declared seed (auth owner admin first, then steps) — dev by default; production requires postgres:// URLs, env-provided owner credentials, and confirmation",
+    interactive: true,
   },
   rollback: {
     commandPath: ["rollback"],
