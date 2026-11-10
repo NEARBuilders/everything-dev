@@ -172,6 +172,7 @@ export async function runMigrationPhase(
         dryRun: false,
         noInstall: true,
         force: options.force,
+        ...(options.overwrite ? { overwrite: options.overwrite } : {}),
         // the upgrade already resolved the release — one resolution for the
         // whole train; sync never re-derives (and never reads the authored
         // release it exists to move)

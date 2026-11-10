@@ -150,12 +150,17 @@ function cleanLogs(target: CleanTarget, dryRun: boolean): CleanEntryResult {
   };
 }
 
-export function executeClean(configDir: string, opts: { dryRun?: boolean } = {}): CleanReport {
+export function executeClean(
+  configDir: string,
+  opts: { dryRun?: boolean; skip?: string[] } = {},
+): CleanReport {
   const dryRun = opts.dryRun ?? false;
+  const skip = new Set(opts.skip ?? []);
   const entries: CleanEntryResult[] = [];
   let freedBytes = 0;
 
   for (const target of planClean(configDir)) {
+    if (skip.has(target.id)) continue;
     if (target.guarded) {
       entries.push({
         id: target.id,

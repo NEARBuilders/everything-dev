@@ -51,6 +51,13 @@ export interface TemplateSyncOptions {
    * the three-way comparison cannot resolve aborts the whole run — nothing is
    * written, not even the clean updates. */
   force?: boolean;
+  /** The approved write set (the interactive upgrade's file selection). When
+   * present it is the exhaustive filter over updated/added/conflicted:
+   * nothing outside it is written, a conflicted file outside it is preserved
+   * (never an abort), and its baseline keeps the OLD hash — so the skip stays
+   * sticky while the template is unchanged and conflicts again (re-asking the
+   * user) when the template moves. */
+  overwrite?: string[];
   noInstall?: boolean;
   /** The release the caller already resolved — the upgrade train injects its
    * single resolution so sync never re-derives (and never reads the authored
@@ -774,10 +781,21 @@ export async function syncTemplate(
     if (withHost) overrides.push("host");
     if (withPlugins) overrides.push("plugins");
 
+    // The approved write set (interactive upgrade): when present, files
+    // outside it are preserved — recorded as skipped, never an abort.
+    const selection = options.overwrite ? new Set(options.overwrite) : undefined;
+    if (selection) {
+      const diverged = [...updated, ...added, ...conflicted];
+      const preserved = diverged.filter((destPath) => !selection.has(destPath));
+      skipped.push(...preserved);
+    }
+
     // Conflicts never silently clobber: without --force a conflicted file
     // aborts the whole run before any write — the clean updates and additions
-    // wait for a resolution, so a snapshot never half-advances.
-    if (conflicted.length > 0 && !options.force && !options.dryRun) {
+    // wait for a resolution, so a snapshot never half-advances. An approved
+    // write set resolves conflicts per-file instead (selected ⇒ written with
+    // a backup; preserved ⇒ kept local).
+    if (conflicted.length > 0 && !options.force && !options.dryRun && !options.overwrite) {
       const unbaselined = conflicted.filter((destPath) => !snapshotFiles[destPath]);
       const baselineNote =
         unbaselined.length > 0
@@ -813,7 +831,9 @@ export async function syncTemplate(
       };
     }
 
-    const filesToWrite = [...updated, ...added, ...conflicted];
+    const filesToWrite = options.overwrite
+      ? [...updated, ...added, ...conflicted].filter((destPath) => selection?.has(destPath))
+      : [...updated, ...added, ...conflicted];
 
     let backupDir: string | undefined;
     if (filesToWrite.length > 0) {
@@ -842,10 +862,19 @@ export async function syncTemplate(
     }
 
     const newSnapshotFiles: Record<string, string> = {};
+    const divergedFromTemplate = new Set([...updated, ...conflicted]);
     for (const destPath of destToSource.keys()) {
       const hash = computeLocalHash(projectDir, destPath);
       if (hash) {
-        newSnapshotFiles[destPath] = hash;
+        // A preserved file keeps its OLD baseline: the local bytes were
+        // deliberately kept over the template, so while the template is
+        // unchanged the next sync preserves again — and when the template
+        // moves, the three-way comparison conflicts (re-asking) instead of
+        // the skip silently going stale.
+        newSnapshotFiles[destPath] =
+          selection && divergedFromTemplate.has(destPath) && !selection.has(destPath)
+            ? (snapshotFiles[destPath] ?? hash)
+            : hash;
       }
     }
 
