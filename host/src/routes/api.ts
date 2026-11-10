@@ -5,7 +5,7 @@ import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { BatchHandlerPlugin, ResponseHeadersHandlerPlugin } from "@orpc/server/plugins";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
-import { Context as EffectContext } from "effect";
+import { Context as EffectContext, Redacted } from "effect";
 import { formatORPCError, PLUGIN_ERROR_STATUS_MAP } from "every-plugin/errors";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -66,7 +66,7 @@ function registerPublicRpcRouter(
 function registerRpcProxyRoute(
   rpcRoutes: Map<string, RpcRouteServe>,
   prefix: string,
-  proxy: { target: string; apiKey?: string },
+  proxy: { target: string; apiKey?: Redacted.Redacted<string> },
 ) {
   rpcRoutes.set(prefix, async (c) => {
     const url = new URL(c.req.url);
@@ -74,7 +74,7 @@ function registerRpcProxyRoute(
     const headers = new Headers(c.req.raw.headers);
     headers.delete("host");
     headers.set("accept-encoding", "identity");
-    if (proxy.apiKey) headers.set("x-api-key", proxy.apiKey);
+    if (proxy.apiKey) headers.set("x-api-key", Redacted.value(proxy.apiKey));
     const response = await fetch(
       new Request(targetUrl, {
         method: c.req.method,
