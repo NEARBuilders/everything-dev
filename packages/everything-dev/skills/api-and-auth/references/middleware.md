@@ -11,6 +11,12 @@
 | `requireOrgRole("owner")` | all of above + `organization.member` non-null with `id`, `role` |
 | `requireApiKey` | `apiKey: ApiKeyContext` |
 
+No middleware inspects the organization's `status` — approval is application
+policy, not auth infrastructure. The auth plugin creates organizations as
+`active` and never sets a non-active status. Apps that want an approval
+workflow implement it themselves: org metadata for state, their own
+middleware, and their own admin surface.
+
 ## Org Metadata Validation
 
 Pass an optional Zod schema to `createAuthMiddleware` for runtime validation:

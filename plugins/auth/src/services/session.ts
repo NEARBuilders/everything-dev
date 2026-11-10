@@ -336,7 +336,7 @@ export const buildSessionService = ({
           }),
         );
 
-        if (org?.status === "active") {
+        if (org) {
           organizationContext = {
             activeOrganizationId: resolvedOrganizationId,
             organization: {
@@ -344,7 +344,7 @@ export const buildSessionService = ({
               name: org.name,
               slug: org.slug,
               logo: org.logo,
-              status: "active" as const,
+              status: org.status,
               metadata: tryJsonParse<Record<string, unknown>>(org.metadata),
             },
             member: null,
@@ -363,7 +363,7 @@ export const buildSessionService = ({
         );
 
         for (const m of memberships) {
-          if (m.organization?.status === "active") {
+          if (m.organization) {
             organizations.push({
               id: m.organization.id,
               role: m.role,
@@ -378,7 +378,7 @@ export const buildSessionService = ({
         if (activeOrgId) {
           const activeMembership = memberships.find((m) => m.organization?.id === activeOrgId);
 
-          if (activeMembership?.organization?.status === "active") {
+          if (activeMembership?.organization) {
             const org = activeMembership.organization;
             const teams = yield* attemptDb(() => listMemberTeams(db, user.id, org.id, registry));
             const sessionTeamId = getActiveTeamId(session?.session);
@@ -389,7 +389,7 @@ export const buildSessionService = ({
                 name: org.name,
                 slug: org.slug,
                 logo: org.logo,
-                status: "active" as const,
+                status: org.status,
                 metadata: tryJsonParse<Record<string, unknown>>(org.metadata),
               },
               member: {

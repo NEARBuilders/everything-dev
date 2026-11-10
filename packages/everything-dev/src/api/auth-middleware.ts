@@ -150,7 +150,6 @@ export function createAuthMiddleware<
         });
       }
       const org = context.organization;
-      assertOrganizationApproval(org.organization);
       return next({
         context: {
           userId: context.userId,
@@ -192,7 +191,6 @@ export function createAuthMiddleware<
         });
       }
       const org = context.organization;
-      assertOrganizationApproval(org.organization);
       return next({
         context: {
           userId: context.userId,
@@ -269,16 +267,6 @@ export function createAuthMiddleware<
     requireApiKey,
     requirePermission,
   };
-}
-
-function assertOrganizationApproval(
-  organization: NonNullable<AuthContextShape["organization"]>["organization"],
-) {
-  if (organization?.status && organization.status !== "active") {
-    throw new ORPCError("FORBIDDEN", {
-      message: "Organization requires platform-admin approval",
-    });
-  }
 }
 
 function parseOrgMetadata<TSchema extends z.ZodType | undefined>(

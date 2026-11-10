@@ -82,8 +82,8 @@ retired entirely (dev and test).**
   client can reach it. The direct-DB test helpers (`auth-test-instance`,
   `migrate-test-db`, the Go approve step) are replaced by HTTP seeding
   (`tests/regression/lib/http-seed.mjs`): anonymous sign-in mints sessions,
-  Better Auth routes create orgs, and admin actions run through the existing
-  `reviewOrganization` / `adminSetRole` routes using a boot-time bootstrap
+  Better Auth routes create (born-active) orgs, and the admin action runs
+  through the existing `adminSetRole` route using a boot-time bootstrap
   admin API key (`AUTH_BOOTSTRAP_ADMIN_API_KEY`, dev/test-only — the auth
   plugin ensures a platform admin + API key from that secret; never set in
   production). Cookie artifacts (`cookies.json`, `admin-cookies.json`,

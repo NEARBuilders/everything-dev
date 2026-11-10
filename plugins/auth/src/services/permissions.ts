@@ -1,15 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
-import { attemptAuth, attemptDb } from "../attempts";
+import { attemptAuth } from "../attempts";
 import * as schema from "../db/schema";
 import type { PluginServices } from "../service-types";
 import { createHeaders, memberRoleOf, parseTeamAreas } from "../utils";
-import {
-  type AuthFailure,
-  NoOrganizationSelected,
-  NotOrganizer,
-  OrgRequiresApproval,
-} from "./domain-errors";
+import { type AuthFailure, NoOrganizationSelected, NotOrganizer } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -45,16 +40,6 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         return yield* new NoOrganizationSelected({ message: "No organization selected" });
       }
       const headers = createHeaders(context.reqHeaders);
-      const organization = yield* attemptDb(() =>
-        db.query.organization.findFirst({
-          where: eq(schema.organization.id, organizationId),
-        }),
-      );
-      if (organization?.status !== "active") {
-        return yield* new OrgRequiresApproval({
-          message: "Organization requires platform-admin approval",
-        });
-      }
       const result = yield* attemptAuth(() =>
         auth.api.getActiveMemberRole({
           headers,

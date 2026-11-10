@@ -18,7 +18,6 @@ import { createInvitationHandlers } from "../src/handlers/invitations";
 import { createMemberHandlers } from "../src/handlers/members";
 import { createNearHandlers } from "../src/handlers/near";
 import { createOnboardingHandlers } from "../src/handlers/onboarding";
-import { createOrganizationRequestHandlers } from "../src/handlers/organization-requests";
 import { createOrganizationHandlers } from "../src/handlers/organizations";
 import { createPasskeyHandlers } from "../src/handlers/passkeys";
 import { createSessionHandlers } from "../src/handlers/session";
@@ -220,10 +219,6 @@ export async function createTestOrg(
   };
 
   const memberId = result.members[0]?.id ?? "";
-  await services.db
-    .update(schema.organization)
-    .set({ status: "active" })
-    .where(eq(schema.organization.id, result.id));
 
   return { id: result.id, name: result.name, slug: result.slug, memberId };
 }
@@ -300,7 +295,6 @@ export function createTestHandlers(services: PluginServices) {
     session: wrap(createSessionHandlers(builder)),
     organizations: wrap(createOrganizationHandlers(builder, requireAuth)),
     passkeys: wrap(createPasskeyHandlers(builder, requireAuth)),
-    organizationRequests: wrap(createOrganizationRequestHandlers(builder, requireAuth)),
     members: wrap(createMemberHandlers(builder, requireAuth)),
     invitations: wrap(createInvitationHandlers(builder, requireAuth)),
     apiKeys: wrap(createApiKeyHandlers(builder, requireAuth)),

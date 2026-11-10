@@ -149,16 +149,13 @@ export async function activateDefaultOrganizationForSession(
   const preferredOrgId = preferences?.lastActiveOrganizationId ?? null;
 
   if (preferredOrgId) {
-    const organization = await database.query.organization.findFirst({
-      where: eq(schema.organization.id, preferredOrgId),
-    });
     const membership = await database.query.member.findFirst({
       where: and(
         eq(schema.member.userId, session.userId),
         eq(schema.member.organizationId, preferredOrgId),
       ),
     });
-    if (organization?.status === "active" && membership) {
+    if (membership) {
       const restoredTeamId = await restorePreferredTeam(
         database,
         session.userId,
@@ -177,7 +174,7 @@ export async function activateDefaultOrganizationForSession(
   }
 
   const personalOrg = await findPersonalOrganization(database, session.userId);
-  if (!personalOrg || personalOrg.status !== "active") {
+  if (!personalOrg) {
     return;
   }
   await database

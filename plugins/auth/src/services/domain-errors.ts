@@ -19,16 +19,6 @@ export class OrgNotFound extends Schema.TaggedError<OrgNotFound>()("OrgNotFound"
   organizationId: Schema.optional(Schema.String),
 }) {}
 
-export class OrgApprovalRequired extends Schema.TaggedError<OrgApprovalRequired>()(
-  "OrgApprovalRequired",
-  { message: Schema.String, action: Schema.String },
-) {}
-
-export class OrgRequiresApproval extends Schema.TaggedError<OrgRequiresApproval>()(
-  "OrgRequiresApproval",
-  { message: Schema.String },
-) {}
-
 export class NoActiveOrganization extends Schema.TaggedError<NoActiveOrganization>()(
   "NoActiveOrganization",
   { message: Schema.String },
@@ -51,21 +41,6 @@ export class OwnerRoleRequired extends Schema.TaggedError<OwnerRoleRequired>()(
 
 export class MemberEmailsExportForbidden extends Schema.TaggedError<MemberEmailsExportForbidden>()(
   "MemberEmailsExportForbidden",
-  { message: Schema.String },
-) {}
-
-export class RejectionReasonRequired extends Schema.TaggedError<RejectionReasonRequired>()(
-  "RejectionReasonRequired",
-  { message: Schema.String },
-) {}
-
-export class OrganizationNotPending extends Schema.TaggedError<OrganizationNotPending>()(
-  "OrganizationNotPending",
-  { message: Schema.String },
-) {}
-
-export class OrganizationRequesterMissing extends Schema.TaggedError<OrganizationRequesterMissing>()(
-  "OrganizationRequesterMissing",
   { message: Schema.String },
 ) {}
 
@@ -179,16 +154,11 @@ const FAILURE_TAGS = new Set([
   "AuthApiError",
   "DbError",
   "OrgNotFound",
-  "OrgApprovalRequired",
-  "OrgRequiresApproval",
   "NoActiveOrganization",
   "NoOrganizationSelected",
   "MemberCreateNotPermitted",
   "OwnerRoleRequired",
   "MemberEmailsExportForbidden",
-  "RejectionReasonRequired",
-  "OrganizationNotPending",
-  "OrganizationRequesterMissing",
   "TeamNotFound",
   "TeamUpdateFailed",
   "NotOrgMember",
@@ -223,16 +193,11 @@ export type AuthFailure =
   | AuthApiError
   | DbError
   | OrgNotFound
-  | OrgApprovalRequired
-  | OrgRequiresApproval
   | NoActiveOrganization
   | NoOrganizationSelected
   | MemberCreateNotPermitted
   | OwnerRoleRequired
   | MemberEmailsExportForbidden
-  | RejectionReasonRequired
-  | OrganizationNotPending
-  | OrganizationRequesterMissing
   | TeamNotFound
   | TeamUpdateFailed
   | NotOrgMember
@@ -275,13 +240,6 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
           ...(error.organizationId ? { resourceId: error.organizationId } : {}),
         },
       });
-    case "OrgApprovalRequired":
-      return new ORPCError("FORBIDDEN", {
-        message: error.message,
-        data: { action: error.action },
-      });
-    case "OrgRequiresApproval":
-      return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
     case "NoActiveOrganization":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
     case "NoOrganizationSelected":
@@ -298,12 +256,6 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       });
     case "MemberEmailsExportForbidden":
       return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
-    case "RejectionReasonRequired":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
-    case "OrganizationNotPending":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
-    case "OrganizationRequesterMissing":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
     case "TeamNotFound":
       return new ORPCError("NOT_FOUND", {
         message: error.message,

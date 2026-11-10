@@ -12,16 +12,12 @@ export function toOrganizationInfo(organization: {
   logo?: string | null;
   metadata?: unknown;
   status?: string;
-  requestedBy?: string | null;
-  rejectionReason?: string | null;
 }): {
   id: string;
   name: string;
   slug: string;
   logo: string | null;
   status: "active" | "pending" | "rejected";
-  requestedBy: string | null;
-  rejectionReason: string | null;
   metadata: Record<string, unknown> | null;
 } {
   const status =
@@ -34,8 +30,6 @@ export function toOrganizationInfo(organization: {
     slug: organization.slug,
     logo: organization.logo ?? null,
     status,
-    requestedBy: organization.requestedBy ?? null,
-    rejectionReason: organization.rejectionReason ?? null,
     metadata:
       typeof organization.metadata === "string"
         ? (tryJsonParse<Record<string, unknown>>(organization.metadata) ?? null)
