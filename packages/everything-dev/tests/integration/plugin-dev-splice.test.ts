@@ -82,11 +82,17 @@ export default config;
     return dir;
   }
 
-  async function seedReconciledSnapshot(devPath: string): Promise<void> {
+  async function seedReconciledSnapshot(): Promise<void> {
+    // The snapshot records what the scaffold delivered — the destination's
+    // on-disk bytes (init's convention), for every framework-owned file the
+    // fixture carries. A real reconciled repo baselines all of them; a
+    // missing entry means "no history" and sync refuses to guess.
     await scaffoldSnapshotModule.writeSnapshot(projectDir!, {
-      parentRef: "bos://dev.everything.near/everything.dev",
       files: {
-        [DEV_DEST]: computeSnapshotHash(readFileSync(devPath, "utf-8")),
+        [DEV_DEST]: computeSnapshotHash(readFileSync(join(projectDir!, DEV_DEST), "utf-8")),
+        "api/package.json": computeSnapshotHash(
+          readFileSync(join(projectDir!, "api", "package.json"), "utf-8"),
+        ),
       },
     });
   }
@@ -102,7 +108,7 @@ export default config;
 
     // Pretend the last sync reconciled exactly this content: the snapshot
     // records the hash of the child-edited file.
-    await seedReconciledSnapshot(join(dir, DEV_DEST));
+    await seedReconciledSnapshot();
 
     const result = await syncTemplate(dir, { dryRun: false, noInstall: true });
 
@@ -129,7 +135,7 @@ export default config;
       '    variables: { domain: "child.app" },',
     );
     const dir = createSyncProject(childCopy);
-    await seedReconciledSnapshot(join(dir, DEV_DEST));
+    await seedReconciledSnapshot();
 
     const result = await syncTemplate(dir, { dryRun: false, noInstall: true });
 
@@ -155,7 +161,7 @@ export default config;
       .replace("    variables: {},", '    variables: { domain: "legacy.app" },');
     expect(legacy).not.toContain("// child-owned-start");
     const dir = createSyncProject(legacy);
-    await seedReconciledSnapshot(join(dir, DEV_DEST));
+    await seedReconciledSnapshot();
 
     const result = await syncTemplate(dir, { dryRun: false, noInstall: true });
 
@@ -174,7 +180,7 @@ export default config;
 
   it("a hand-edited ci-child.yml is untouched by sync (blessed child-owned workflow)", async () => {
     const dir = createSyncProject(readFileSync(TEMPLATE_PATH, "utf-8"));
-    await seedReconciledSnapshot(join(dir, DEV_DEST));
+    await seedReconciledSnapshot();
 
     const childCiPath = join(dir, ".github", "workflows", "ci-child.yml");
     mkdirSync(join(dir, ".github", "workflows"), { recursive: true });

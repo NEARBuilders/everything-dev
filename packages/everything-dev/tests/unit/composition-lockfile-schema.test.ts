@@ -262,10 +262,26 @@ describe("the template sync baseline (ADR 0047)", () => {
 
   it("--check stays unchanged when the only difference is the carried annotation", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "lockfile-template-check-"));
-    const seeded = { ...lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config }), template };
+    // resolvedAt is pinned: lockfileOf stamps the wall clock per call, and
+    // this test compares serialized bytes across two derivations — a
+    // millisecond boundary between them would read as drift.
+    const seeded = {
+      ...lockfileOf({
+        account: ACCOUNT,
+        gateway: GATEWAY,
+        config,
+        resolvedAt: "2026-11-10T00:00:00.000Z",
+      }),
+      template,
+    };
     await writeLockfile(seeded, dir);
     const result = await writeLockfile(
-      lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config }),
+      lockfileOf({
+        account: ACCOUNT,
+        gateway: GATEWAY,
+        config,
+        resolvedAt: "2026-11-10T00:00:00.000Z",
+      }),
       dir,
       {
         check: true,
