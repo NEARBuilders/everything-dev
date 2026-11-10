@@ -4,11 +4,17 @@ import type {
   AppDescriptor,
   AppInput,
   AttachmentInput,
-  AttachmentRef,
+  PluginAttachmentRef,
   UiInput,
   UiRef,
 } from "./schema";
-import { ApiRefSchema, AppDescriptorSchema, AttachmentRefSchema, UiRefSchema } from "./schema";
+import {
+  ApiRefSchema,
+  AppDescriptorSchema,
+  AttachmentRefSchema,
+  PluginAttachmentRefSchema,
+  UiRefSchema,
+} from "./schema";
 
 /**
  * The authored App — returns a pure, Zod-validated, serializable descriptor.
@@ -39,12 +45,12 @@ export function UI(input: UiInput): UiRef {
 export function Plugin<K extends string>(
   name: K,
 ): {
-  path: (dir: string, extra?: Omit<AttachmentInput, "path">) => AttachmentRef;
-  extends: (ref: string, extra?: Omit<AttachmentInput, "extends">) => AttachmentRef;
+  path: (dir: string, extra?: Omit<AttachmentInput, "path">) => PluginAttachmentRef;
+  extends: (ref: string, extra?: Omit<AttachmentInput, "extends">) => PluginAttachmentRef;
 } {
   return {
-    path: (dir, extra) => AttachmentRefSchema.parse({ name, ...extra, path: dir }),
-    extends: (ref, extra) => AttachmentRefSchema.parse({ name, ...extra, extends: ref }),
+    path: (dir, extra) => PluginAttachmentRefSchema.parse({ name, ...extra, path: dir }),
+    extends: (ref, extra) => PluginAttachmentRefSchema.parse({ name, ...extra, extends: ref }),
   };
 }
 export { applyDevOverlay } from "./resolve";

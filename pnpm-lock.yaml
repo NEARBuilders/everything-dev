@@ -597,6 +597,9 @@ importers:
       '@module-federation/runtime-tools':
         specifier: 'catalog:'
         version: 2.9.2
+      '@orpc/client':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.45
       '@orpc/contract':
         specifier: 'catalog:'
         version: 2.0.0-beta.45

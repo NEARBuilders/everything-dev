@@ -1,6 +1,12 @@
 import { mergeBosConfigWithExtends } from "../services/resolution/merge";
 import type { BosConfigInput } from "../types";
-import type { AppDescriptor, AppRegistry, AttachmentRef, PipelineFields } from "./schema";
+import type {
+  AppDescriptor,
+  AppRegistry,
+  AttachmentRef,
+  PipelineFields,
+  PluginAttachmentRef,
+} from "./schema";
 import { AppDescriptorSchema } from "./schema";
 
 /**
@@ -54,11 +60,20 @@ function stripLocal(development: string | undefined): string | undefined {
   return development?.startsWith(LOCAL_PREFIX) ? development.slice(LOCAL_PREFIX.length) : undefined;
 }
 
-function attachmentToEntry(attachment: AttachmentRef): Record<string, unknown> {
+function attachmentToEntry(
+  attachment: AttachmentRef | PluginAttachmentRef,
+): Record<string, unknown> {
   const development = devRef(attachment);
   return {
     ...(attachment.extends ? { extends: attachment.extends } : {}),
     ...(development ? { development } : {}),
+    // rpc-mode plugins author their production URL directly — there is no
+    // workspace for the deploy train to stage and stamp. Other slots keep
+    // production pipeline-owned (the stamp injects it post-descriptor).
+    ...("production" in attachment && attachment.production
+      ? { production: attachment.production }
+      : {}),
+    ...("mode" in attachment && attachment.mode ? { mode: attachment.mode } : {}),
     ...pick(attachment, [...ATTACHMENT_FIELDS]),
     ...(attachment.ui === false
       ? { ui: false }
@@ -337,6 +352,13 @@ function entryToAttachment(key: string, entry: Record<string, unknown>): Record<
   const development = entry.development as string | undefined;
   const path = stripLocal(development);
   if (path !== undefined) out.path = path;
+  // rpc-mode entries author mode + production directly; composed entries
+  // keep production pipeline-owned (stamps inject it post-descriptor) so the
+  // emitted authored file never freezes a parent's deploy state.
+  if (entry.mode === "rpc") {
+    out.mode = entry.mode;
+    if (typeof entry.production === "string") out.production = entry.production;
+  }
   for (const field of ATTACHMENT_FIELDS) {
     if (field === "name") continue;
     if (entry[field] !== undefined) out[field] = entry[field];

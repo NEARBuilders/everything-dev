@@ -732,7 +732,9 @@ const spawnRemoteProbe = (
     const baseUrl = descriptor.url.replace(/\/$/, "");
     const manifestUrl = `${baseUrl}/mf-manifest.json`;
     const entryUrl = `${baseUrl}${descriptor.readinessPath}`;
-    const probeUrl = descriptor.readinessPath === "/health" ? `${baseUrl}/health` : manifestUrl;
+    const probeUrl =
+      descriptor.readinessUrl ??
+      (descriptor.readinessPath === "/health" ? `${baseUrl}/health` : manifestUrl);
 
     yield* Effect.forkScoped(
       Effect.gen(function* () {

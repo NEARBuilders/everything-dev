@@ -97,6 +97,7 @@ export function normalizeToNodes(config: RuntimeConfig): Map<string, RuntimeDepe
       ui: plugin.ui,
       routes: plugin.routes,
       dependsOn: plugin.dependsOn,
+      mode: plugin.mode,
       sourceOrigin: "config",
       singletonKey: `plugin:${key}:${plugin.url}`,
     });

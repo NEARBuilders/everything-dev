@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+Rpc-mode plugin entries (#848): a `plugins.<key>` attachment can now declare `mode: "rpc"` to consume a deployed app's API as a typed oRPC client — `plugins.feedback.getProjectBySlug({ slug })` from any plugin's `createRouter`/Effect services — without federation-loading the remote bundle, composing its routes, or handing it secrets or a database. Explicit URLs only (`development`/`production`; `local:` is refused), the entry's declared `secrets` ride as `x-api-key` server-side, and an authored `proxy` still takes precedence. The host proxies `/api/rpc/{key}/*` to the remote target through the same dispatch seam as composed plugins, so UI code cannot tell rpc-mode attachments apart from composed ones; typegen fetches the sha256-verified contract from the target's `plugin.manifest.json` through the existing remote-plugin path. Resolution skips the composed-plugin pin requirements (no bundle, no digest), the dev orchestrator probes the remote's plugin manifest instead of `mf-manifest.json`, and health surfaces the attachments as `plugins.rpc`.

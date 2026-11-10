@@ -50,6 +50,21 @@ export const AttachmentRefSchema = DevelopmentRefSchema.extend({
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
 export type AttachmentInput = AttachmentRef;
 
+/**
+ * A `plugins.<key>` attachment — the shared attachment fields plus `mode`.
+ * `mode: "rpc"` consumes the deployed plugin's API as a typed RPC client over
+ * the host's `/api/rpc/{key}` proxy: never federation-loaded, no routes
+ * composed, no background services. Explicit URLs only — `local:` is refused
+ * (the remote app's workspace is its own repo's concern) — and `production`
+ * is authored directly because an rpc entry has no workspace for the deploy
+ * train to stage and stamp. An authored `proxy` takes precedence over rpc.
+ */
+export const PluginAttachmentRefSchema = AttachmentRefSchema.extend({
+  mode: z.literal("rpc").optional(),
+  production: z.string().optional(),
+});
+export type PluginAttachmentRef = z.infer<typeof PluginAttachmentRefSchema>;
+
 /** The `app.api` slot. */
 export const ApiRefSchema = DevelopmentRefSchema.extend({
   proxy: z.string().optional(),
@@ -143,7 +158,7 @@ export const AppDescriptorSchema = z
     ui: UiRefSchema.optional(),
     /** attachment landing in the `app.auth` slot */
     auth: AttachmentRefSchema.optional(),
-    plugins: z.record(z.string(), AttachmentRefSchema).optional(),
+    plugins: z.record(z.string(), PluginAttachmentRefSchema).optional(),
   })
   .strict();
 export type AppDescriptor = z.infer<typeof AppDescriptorSchema>;

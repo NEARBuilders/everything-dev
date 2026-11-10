@@ -207,3 +207,17 @@ _Avoid_: KMS (implies an external service), .env (the vault's whole point is not
 **KEK** (key-encryption key):
 The per-runtime AES key that seals a runtime's secrets — HKDF'd from the platform root secret (`BETTER_AUTH_SECRET`) with a runtime-scoped salt. Its source is a swappable sub-seam: the custody-TEE swap (ticket 13) changes where the KEK comes from without touching the schema, CLI, or config declarations.
 _Avoid_: root key (that's the platform secret the KEK derives from), master key
+
+## Rpc-mode plugin entries
+
+**Rpc-mode plugin entry**:
+A `plugins.<key>` attachment with `mode: "rpc"` — consumes a deployed app's API as a typed oRPC client without federation-loading its bundle, mounting its routes, or running its services. Explicit URLs only (`local:` refused, an authored `production` because there is no workspace for the deploy train to stamp); an authored `proxy` takes precedence and wins.
+_Avoid_: remote plugin (that's a composed federation remote), proxy-only (proxy is the unrelated field)
+
+**Rpc attachment client**:
+The host's oRPC client over `{target}/api/rpc` for one rpc-mode entry, with the entry's declared secret riding as `x-api-key` — the secret never leaves the server. Typed at the consumer (generated `plugins-types.gen.ts`); plain proxy at runtime.
+_Avoid_: rpc client generically, api client (the browser-side host client)
+
+**Rpc proxy route**:
+The host's pass-through at `/api/rpc/{key}/*` forwarding to `{target}/api/rpc/*` with the same credential — how UI code reaches an rpc-mode plugin exactly like a composed one, through the one dispatch seam shared with composed-plugin routers.
+_Avoid_: reverse proxy (uncharged term), route mount (that's composing a local router)

@@ -446,6 +446,10 @@ async function deriveVersionManifestFields(
       pluginConfig = config.app.auth;
     }
     if (!pluginConfig || typeof pluginConfig === "string") continue;
+    // rpc entries are call-only — no workspace is staged, so there is no
+    // version-manifest digest to pin and none is required (the derive's
+    // "remote must pin outside development" gate is composed-plugin policy).
+    if (plugin.mode === "rpc") continue;
     await derive(`plugins.${key}`, pluginConfig, plugin, (r) => {
       plugin.entryUrl = r.entryUrl;
       plugin.integrity = r.entryIntegrity;
@@ -613,6 +617,19 @@ function buildRuntimePluginConfig(
 
   const routes = source.routes;
 
+  if (source.mode === "rpc") {
+    if (runtimeTarget.localPath || development?.startsWith(LOCAL_PREFIX)) {
+      throw new ConfigExtendsError({
+        message: `Plugin "${pluginId}" declares mode: "rpc" with a local target — rpc entries call a deployed host over HTTP; point "development"/"production" at explicit URLs.`,
+      });
+    }
+    if (!runtimeTarget.url) {
+      throw new ConfigExtendsError({
+        message: `Plugin "${pluginId}" declares mode: "rpc" but resolves to no URL — set "development" and/or "production".`,
+      });
+    }
+  }
+
   return {
     name: apiName,
     url: runtimeTarget.url,
@@ -632,6 +649,7 @@ function buildRuntimePluginConfig(
     ui,
     routes,
     dependsOn: source.dependsOn ? normalizeStringArray(source.dependsOn) : undefined,
+    mode: source.mode === "rpc" ? "rpc" : undefined,
   };
 }
 

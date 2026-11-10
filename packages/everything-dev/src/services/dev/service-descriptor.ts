@@ -45,6 +45,9 @@ export interface ServiceDescriptor {
   localPath?: string;
   port?: number;
   readinessPath: string;
+  /** absolute readiness probe override — rpc entries probe the remote's
+   * plugin manifest instead of federation bundle artifacts */
+  readinessUrl?: string;
   defaultPort: number;
   integrity?: string;
   proxy?: string;
@@ -250,14 +253,20 @@ export function buildServiceDescriptorMap(
           proxy: pluginConfig.proxy,
           variables: pluginConfig.variables,
           secrets: pluginConfig.secrets,
-          command: "pnpm",
-          args: ["run", "dev"],
+          command: pluginConfig.mode === "rpc" ? undefined : "pnpm",
+          args: pluginConfig.mode === "rpc" ? undefined : ["run", "dev"],
           env: isFolderFormUi ? { BOS_UI_PORT: String(folderUiPort) } : undefined,
           uiPort: isFolderFormUi ? folderUiPort : undefined,
           readyPatterns: PLUGIN_READY_PATTERNS,
           errorPatterns: PLUGIN_ERROR_PATTERNS,
           defaultPort: resolvedPort,
           readinessPath: "/remoteEntry.js",
+          // rpc entries call a deployed host — reachability is its plugin
+          // manifest, not federation bundles.
+          readinessUrl:
+            pluginConfig.mode === "rpc"
+              ? `${pluginConfig.url.replace(/\/$/, "")}/plugin.manifest.json`
+              : undefined,
         });
       } else if (isFolderFormUi) {
         // Folder-form ui for the auth mirror: the `auth` app slot owns the

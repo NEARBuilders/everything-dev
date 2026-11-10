@@ -87,6 +87,44 @@ describe("descriptor constructors", () => {
     });
     expect(configInputToDescriptor(input).plugins?.nostr?.ui).toBe(false);
   });
+
+  it("keeps mode: rpc and its secrets through the authored↔config round-trip (#848)", () => {
+    const app = App({
+      name: "consumer",
+      plugins: {
+        feedback: {
+          mode: "rpc",
+          development: "http://localhost:4301",
+          production: "https://feedback.example.com",
+          secrets: ["FEEDBACK_API_KEY"],
+        },
+      },
+    });
+    const input = toConfigInput(app);
+    expect(input.plugins?.feedback).toEqual({
+      mode: "rpc",
+      development: "http://localhost:4301",
+      production: "https://feedback.example.com",
+      secrets: ["FEEDBACK_API_KEY"],
+    });
+    expect(configInputToDescriptor(input).plugins?.feedback?.mode).toBe("rpc");
+  });
+
+  it("mode is a plugins-only field — invalid values reject, foreign slots strip", () => {
+    expect(() =>
+      App({
+        name: "consumer",
+        plugins: {
+          feedback: { mode: "proxy" as never, development: "http://localhost:4301" },
+        },
+      }),
+    ).toThrow();
+    const stripped = App({
+      name: "consumer",
+      auth: { mode: "rpc", development: "http://localhost:4302" } as never,
+    });
+    expect("mode" in (stripped.auth ?? {})).toBe(false);
+  });
 });
 
 describe("resolveApp", () => {

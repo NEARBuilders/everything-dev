@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   writeFileSync as fsWriteFileSync,
@@ -8,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 let testDir: string;
 
@@ -336,5 +337,134 @@ import type { InferOutput } from "../../../auth/src/contract.d.ts";
       "utf-8",
     );
     expect(uiAuthTypes).toContain(".bos/generated/auth/auth-export.d.ts");
+  });
+});
+
+describe("syncApiContractBridge — rpc-mode plugin entries (#848)", () => {
+  const CONTRACT_SOURCE =
+    "export type ContractType = { getProjectBySlug(input: { slug: string }): { slug: string } };";
+  const FEEDBACK_URL = "https://feedback.example.com";
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  function serveFeedbackContract({
+    manifestSha,
+    bodySha,
+  }: {
+    manifestSha?: string;
+    bodySha?: string;
+  } = {}) {
+    const actualSha = createHash("sha256").update(CONTRACT_SOURCE).digest("hex");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === `${FEEDBACK_URL}/plugin.manifest.json`) {
+        return new Response(
+          JSON.stringify({
+            schemaVersion: 1,
+            kind: "every-plugin/manifest",
+            plugin: { name: "feedback-plugin", version: "1.0.0" },
+            runtime: { remoteEntry: "/remoteEntry.js" },
+            contract: {
+              kind: "orpc",
+              types: {
+                path: "./contract.d.ts",
+                exportName: "contract",
+                typeName: "ContractType",
+                ...(manifestSha !== undefined ? { sha256: manifestSha } : { sha256: actualSha }),
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${FEEDBACK_URL}/contract.d.ts`) {
+        return new Response(
+          bodySha !== undefined ? "export type ContractType = tampered;" : CONTRACT_SOURCE,
+          {
+            status: 200,
+            headers: { "content-type": "text/plain" },
+          },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+  }
+
+  function rpcRuntimeConfig() {
+    return {
+      api: { name: "api", url: "", entry: "/mf-manifest.json", source: "local" as const },
+      plugins: {
+        feedback: {
+          name: "feedback-plugin",
+          url: FEEDBACK_URL,
+          entry: `${FEEDBACK_URL}/mf-manifest.json`,
+          source: "remote" as const,
+          mode: "rpc" as const,
+        },
+      },
+    } as any;
+  }
+
+  it("fetches the sha256-verified contract from the rpc target and includes the key in generated types", async () => {
+    const { syncApiContractBridge } = await import("../../src/services/codegen/api-contract");
+    serveFeedbackContract();
+    testDir = mkdtempSync(join(tmpdir(), "api-contract-rpc-test-"));
+    writeFile(
+      join(testDir, "api", "src", "contract.ts"),
+      "export type ContractType = { ping: string };",
+    );
+    mkdirSync(join(testDir, "api", "src", "lib"), { recursive: true });
+    mkdirSync(join(testDir, "ui", "src", "lib"), { recursive: true });
+
+    const bridge = await syncApiContractBridge({
+      configDir: testDir,
+      runtimeConfig: rpcRuntimeConfig(),
+      apiBaseUrl: "",
+    });
+
+    const feedbackStatus = bridge.status.find((s) => s.key === "feedback");
+    expect(feedbackStatus?.source).toBe("remote");
+    expect(feedbackStatus?.url).toBe(FEEDBACK_URL);
+    expect(feedbackStatus?.error).toBeUndefined();
+
+    const contractPath = join(testDir, ".bos", "generated", "plugins", "feedback", "contract.d.ts");
+    expect(readFileSync(contractPath, "utf-8")).toBe(CONTRACT_SOURCE);
+
+    const apiTypes = readFileSync(join(testDir, "ui", "src", "lib", "api-types.gen.ts"), "utf-8");
+    expect(apiTypes).toContain("feedbackContract");
+    expect(apiTypes).toContain("feedback:");
+
+    const pluginsTypes = readFileSync(
+      join(testDir, "api", "src", "lib", "plugins-types.gen.ts"),
+      "utf-8",
+    );
+    expect(pluginsTypes).toContain("feedback: PluginClientEntry<feedbackContract>");
+  });
+
+  it("fails the plugin loudly when the fetched contract fails checksum verification", async () => {
+    const { syncApiContractBridge } = await import("../../src/services/codegen/api-contract");
+    serveFeedbackContract({ bodySha: "deadbeef" });
+    testDir = mkdtempSync(join(tmpdir(), "api-contract-rpc-bad-test-"));
+    writeFile(
+      join(testDir, "api", "src", "contract.ts"),
+      "export type ContractType = { ping: string };",
+    );
+
+    const bridge = await syncApiContractBridge({
+      configDir: testDir,
+      runtimeConfig: rpcRuntimeConfig(),
+      apiBaseUrl: "",
+    });
+
+    const feedbackStatus = bridge.status.find((s) => s.key === "feedback");
+    expect(feedbackStatus?.source).toBe("failed");
+    expect(feedbackStatus?.error).toContain("checksum");
+    expect(
+      readFileSync(join(testDir, "ui", "src", "lib", "api-types.gen.ts"), "utf-8"),
+    ).not.toContain("feedback:");
   });
 });

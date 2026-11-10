@@ -28,6 +28,7 @@ import { toProtocolUrl } from "../utils/normalize";
 import { originMatches } from "../utils/origin-match";
 import { ConfigService, readCorsOrigins } from "./config";
 import { PluginError } from "./errors";
+import { createRpcPluginClient } from "./rpc-plugin";
 
 export class PluginBootstrapError extends Data.TaggedError("PluginBootstrapError")<{
   pluginKey: string;
@@ -100,6 +101,9 @@ export interface HostPluginEntry {
   initialized?: InitializedPluginResult;
   /** non-fatal config warnings (plugin-declared, or the default missing-secret policy) */
   warnings: PluginWarningInfo[];
+  /** rpc-mode attachment (`mode: "rpc"`) — the routes layer forwards
+   * `/api/rpc/{key}/*` to this target; composed plugins leave it unset */
+  proxy?: { target: string; apiKey?: string };
 }
 
 /**
@@ -134,6 +138,8 @@ export interface PluginStatus {
   error: string | null;
   errorDetails: string | null;
   loadedPlugins: string[];
+  /** call-only attachments (`mode: "rpc"`) — proxied + client-held, never federation-loaded */
+  rpcPlugins: string[];
   /** structured per-plugin failures (empty when all plugins loaded) */
   failures: PluginFailureInfo[];
   /** structured per-plugin warnings — non-fatal config gaps (empty when none) */
@@ -297,7 +303,16 @@ const unavailableResult = (
   api: null,
   plugins: {},
   authClient: null,
-  status: { available: false, pluginName, error, errorDetails, loadedPlugins, failures, warnings },
+  status: {
+    available: false,
+    pluginName,
+    error,
+    errorDetails,
+    loadedPlugins,
+    rpcPlugins: [],
+    failures,
+    warnings,
+  },
 });
 
 interface RuntimePluginEntry {
@@ -566,6 +581,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
           error: null,
           errorDetails: null,
           loadedPlugins: [],
+          rpcPlugins: [],
           failures: [],
           warnings: [],
         },
@@ -583,6 +599,9 @@ export const initializePlugins = Effect.fn("initializePlugins")(
     }
     for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
       if (!plugin.url) continue;
+      // rpc attachments are call-only — the client wires in pluginsClient
+      // below; no federation registration, no usePlugin load.
+      if (plugin.mode === "rpc") continue;
       if (
         key === "auth" &&
         config.auth &&
@@ -683,11 +702,34 @@ export const initializePlugins = Effect.fn("initializePlugins")(
     const warnings: PluginWarningInfo[] = [];
     const loadedPlugins: Record<string, HostPluginEntry> = {};
     const loadedPluginKeys: string[] = [];
+    const rpcPluginKeys: string[] = [];
     const pluginsClient: Record<string, unknown> = {};
     const singletonCache = new Map<string, HostPluginEntry>();
     let authPlugin: HostPluginEntry | null = null;
     let authClient: ((ctx?: unknown) => unknown) | null = null;
     let baseApi: HostPluginEntry | null = null;
+
+    // rpc-mode attachments wire their clients BEFORE the load loop: the DAG
+    // makes them implicit api dependencies, so the api plugin's phase-2
+    // initialize receives working clients. They are never federation-loaded —
+    // no registry entry, no usePlugin, no routes composed from a router.
+    for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
+      if (plugin.mode !== "rpc" || !plugin.url) continue;
+      if (plugin.proxy) {
+        yield* Effect.logWarning(
+          `[Plugins][${key}] declares both proxy and mode: "rpc" — proxy takes precedence, rpc ignored`,
+        );
+        continue;
+      }
+      const rpc = createRpcPluginClient(key, plugin);
+      loadedPlugins[key] = rpc;
+      loadedPluginKeys.push(key);
+      rpcPluginKeys.push(key);
+      pluginsClient[key] = { client: rpc.createClient, router: undefined };
+      yield* Effect.logInfo(
+        `[Plugins][${key}] rpc attachment → ${rpc.proxy.target}${rpc.proxy.apiKey ? " (x-api-key)" : ""}`,
+      );
+    }
 
     const recordPluginFailure = Effect.fn("recordPluginFailure")(function* (
       err: PluginBootstrapError,
@@ -782,7 +824,9 @@ export const initializePlugins = Effect.fn("initializePlugins")(
     }
 
     const totalPlugins = Object.values(loadedPlugins).filter(Boolean).length;
-    yield* Effect.logInfo(`[Plugins] ${totalPlugins} plugin(s) loaded`);
+    yield* Effect.logInfo(
+      `[Plugins] ${totalPlugins} plugin(s) loaded${rpcPluginKeys.length > 0 ? ` (${rpcPluginKeys.length} rpc)` : ""}`,
+    );
 
     if (errors.length > 0) {
       const failedKeys = loadableEntries.filter((key) => !loadedPlugins[key]);
@@ -808,6 +852,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
         error: errors.length > 0 ? errors.join("; ") : null,
         errorDetails: errors.length > 0 ? errors.join("\n") : null,
         loadedPlugins: loadedPluginKeys,
+        rpcPlugins: rpcPluginKeys,
         failures,
         warnings,
       },

@@ -382,6 +382,7 @@ function describeBackend(
         digest?: { manifest?: string };
         integrity?: string;
         dependsOn?: string[];
+        mode?: "rpc";
       }
     | undefined,
 ): BackendRecord | null {
@@ -418,6 +419,7 @@ function describeBackend(
       ...(digest ? { digest } : {}),
       ...(remote.integrity ? { integrity: remote.integrity } : {}),
       ...(dependsOn ? { dependsOn } : {}),
+      ...(remote.mode === "rpc" ? { mode: "rpc" as const } : {}),
     };
   }
   return null;
@@ -459,6 +461,8 @@ export interface BackendRecord {
   contractSha256?: string;
   /** Where the remote manifest asset was fetched from. */
   pluginManifestUrl?: string;
+  /** call-only attachment (`mode: "rpc"`) — no federation bundle is composed */
+  mode?: "rpc";
   note?: string;
 }
 
