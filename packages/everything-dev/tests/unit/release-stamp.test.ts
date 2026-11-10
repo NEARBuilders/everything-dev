@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stampRelease } from "../../src/cli/upgrade";
+import { stampRelease } from "../../src/services/scaffold/upgrade";
 
 const childSource = `import { App } from "everything-dev/descriptor";
 

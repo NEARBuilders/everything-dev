@@ -21,7 +21,6 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { upgradeTemplate } from "../../src/cli/upgrade";
 import {
   resolveReleaseManifestForDeploy,
   runCompositionGate,
@@ -54,6 +53,7 @@ import * as initSourceModule from "../../src/services/resolution/init-source";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as initModule from "../../src/services/scaffold/init";
 import * as syncModule from "../../src/services/scaffold/sync";
+import { upgradeTemplate } from "../../src/services/scaffold/upgrade";
 import { applyRelease } from "../../src/services/scaffold/upgrade-migration";
 import { installDriftError } from "../../src/services/scaffold/upgrade-packages";
 import {

@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findCommandDescriptor } from "../../src/cli/catalog";
 import { parseCommandInput } from "../../src/cli/parse";
-import { upgradeTemplate } from "../../src/cli/upgrade";
 import * as platformManifestModule from "../../src/services/platform/manifest";
 import * as resolutionModule from "../../src/services/registry/resolution";
 import * as initSourceModule from "../../src/services/resolution/init-source";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as initModule from "../../src/services/scaffold/init";
 import * as syncModule from "../../src/services/scaffold/sync";
+import { upgradeTemplate } from "../../src/services/scaffold/upgrade";
 import * as sharedDepsModule from "../../src/services/workspace/shared-deps";
 
 const tempDirs: string[] = [];
