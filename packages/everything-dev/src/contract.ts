@@ -363,6 +363,27 @@ export const LockResultSchema = z.object({
   code: z.number().optional(),
 });
 
+export const CleanOptionsSchema = z.object({
+  configDir: z.string().optional().describe("Config directory to clean (defaults to cwd)"),
+  dryRun: z.boolean().default(false).describe("Report what would be removed without deleting"),
+});
+
+export const CleanEntrySchema = z.object({
+  id: z.string(),
+  path: z.string(),
+  bytes: z.number(),
+  action: z.enum(["removed", "would-remove", "kept", "absent"]),
+  reason: z.string().optional(),
+});
+
+export const CleanResultSchema = z.object({
+  status: z.enum(["ok", "error"]),
+  dryRun: z.boolean(),
+  entries: z.array(CleanEntrySchema),
+  freedBytes: z.number(),
+  error: z.string().optional(),
+});
+
 export const DeployOptionsSchema = z.object({
   statusList: z.boolean().default(false),
   env: z
@@ -1266,6 +1287,7 @@ export const commandOptionSchemas = {
   pluginPublish: PluginPublishOptionsSchema,
   publish: PublishOptionsSchema,
   lock: LockOptionsSchema,
+  clean: CleanOptionsSchema,
   rollback: RollbackOptionsSchema,
   promote: PromoteOptionsSchema,
   deploy: DeployOptionsSchema,
@@ -1329,6 +1351,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/lock" })
     .input(LockOptionsSchema)
     .output(LockResultSchema),
+  clean: oc
+    .route({ method: "POST", path: "/clean" })
+    .input(CleanOptionsSchema)
+    .output(CleanResultSchema),
   rollback: oc
     .route({ method: "POST", path: "/rollback" })
     .input(RollbackOptionsSchema)
@@ -1446,6 +1472,7 @@ export type PublishOptions = z.infer<typeof PublishOptionsSchema>;
 export type PublishResult = z.infer<typeof PublishResultSchema>;
 export type LockOptions = z.infer<typeof LockOptionsSchema>;
 export type LockResult = z.infer<typeof LockResultSchema>;
+export type CleanResult = z.infer<typeof CleanResultSchema>;
 export type RollbackResult = z.infer<typeof RollbackResultSchema>;
 export type PromoteOptions = z.infer<typeof PromoteOptionsSchema>;
 export type PromoteResult = z.infer<typeof PromoteResultSchema>;
@@ -1576,6 +1603,12 @@ export const cliCommandMeta = {
     commandPath: ["lock"],
     summary:
       "Freeze the resolved composition into bos.lock.json (--check verifies drift for CI — exit 1)",
+    interactive: false,
+  },
+  clean: {
+    commandPath: ["clean"],
+    summary:
+      "Remove regenerable .bos state (logs, staging, caches) — never db, session, ports, deploy-state (--dry-run previews)",
     interactive: false,
   },
   rollback: {
