@@ -1,5 +1,82 @@
 # everything-dev
 
+## 2.0.0-rc.44
+
+### Patch Changes
+
+- 07765ba: auth: admin member management no longer depends on the admin's own organization membership (#876 follow-up)
+
+  `adminAddMember` forwarded the caller's headers into Better Auth's `addMember`, which checks the
+  caller's **organization** permissions — so a platform admin who was not a member of the target
+  organization (the whole point of an admin route) got FORBIDDEN. The mutation is now a direct write,
+  like every other mutation in `AdminOrganizationsService`: it enforces the organization membership
+  limit through the plugin's membership policy and refuses duplicate memberships. The integration
+  suite now covers adding a member to an organization the admin does not belong to — the case the
+  previous tests masked by creating every fixture organization owned by the admin.
+
+  Two smaller consistency fixes ride along:
+
+  - `adminUpdateMemberRole` refuses to demote an organization's **only owner** to a non-owner role,
+    matching `adminRemoveMember`'s existing last-owner guard.
+  - `getOrganizationForAdmin` guards with the standard `requireAdmin` middleware instead of a
+    hand-rolled role check, matching the admin routes' pattern.
+
+  `crossSubDomainCookies` (#668) also gained config-time warnings for the two ways a shared cookie
+  domain fails silently at the browser: a `domain` that does not cover the app's own `baseUrl` host
+  (browsers drop the cookie outright, breaking sign-in) and localhost/loopback base URLs (browsers
+  refuse `Domain` attributes there). The auth plugin README now documents the full multi-app recipe —
+  shared cookie domain + shared `BETTER_AUTH_SECRET` + shared `postgres://` `AUTH_DATABASE_URL` —
+  mirroring the ADR 0027 decomposition.
+
+- a19b559: Auth plugin surfaces cross-subdomain cookie configuration (#668). New authored variable under `auth.variables`: `crossSubDomainCookies: { enabled, domain }`, mapped to Better Auth's `advanced.crossSubDomainCookies`. When enabled, session cookies carry `Domain=<domain>` so a multi-app family on sibling subdomains (`app.example.com`, `activity.example.com`) shares one session — by config alone, no local auth code. `domain` must be a dot-prefixed registrable domain (`.example.com`) when enabled; without it Better Auth falls back to the base URL's root domain. Absent or disabled config leaves cookies host-scoped (behavior unchanged). Sharing a cookie domain requires every app on it to run the same `BETTER_AUTH_SECRET` — the sealed cookie is decrypted with it — plus sibling `trustedOrigins` entries.
+- ed70afd: auth: stop creating duplicate personal organizations when metadata or slug drifts off the canonical form (#877)
+
+  `findPersonalOrganization` matched only the byte-exact pair `slug = userId AND metadata = '{"isPersonal":true}'`,
+  while the lenient `isPersonalOrganization()` predicate accepted either signal. An organization whose metadata
+  was non-canonical JSON (pretty-printed, extra keys) or whose slug had been renamed was invisible to the finder,
+  so the `user.create` hook silently created a second personal organization on the next signup/session — observed
+  in production as users with multiple personal orgs plus dangling `user.last_active_organization_id` /
+  `session.active_organization_id` pointers.
+
+  The finder now resolves the personal organization with the lenient signals:
+
+  - `slug = userId` (unchanged), or
+  - metadata containing a top-level `"isPersonal": true` flag **and** the user holds a membership in that organization.
+
+  Matches are deterministic (`created_at asc, id asc`, limit 1), so historical duplicates converge on the oldest row
+  instead of generating new ones. `ensurePersonalOrganization` still writes the canonical metadata string on create;
+  nothing about creation changes.
+
+  Two deliberate hardenings beyond the literal issue proposal:
+
+  - The metadata signal is matched with a text pattern, not `metadata::jsonb->>'isPersonal'`. The column is
+    `text` and better-auth stores raw strings when callers pass non-object metadata, so a bare cast would throw
+    on malformed rows — inside the `user.create` hook, that breaks every signup on the deployment.
+  - The metadata branch is bound to the user through a membership check. An unbounded `metadata isPersonal OR slug`
+    predicate would let any user's lookup match any other user's personal-flagged organization.
+
+  The orphan sweep keeps its strict canonical-only deletion query on purpose: widening it to the lenient signals
+  would delete non-canonical organizations that may hold user data.
+
+- 9da8ed9: Boot the pinned host, not the parent's newest bytes (#874): the orchestrator
+  resolves the host slot's `digest` and registers the manifest from the pin's
+  immutable coordinates — a root publish can no longer move the host bytes a
+  pinned child boots. `mf check` probes the same pin. When a pinned host's
+  shared singletons still cannot resolve in the image, the boot fails with the
+  skew named — image version, pin, and `bos upgrade && bos deploy` — instead of
+  a bare package error.
+- 350beba: Revert the regression harness's file-backed pglite substitution: the dev stack
+  opens the auth database from two processes (the auth service and the auth-plugin
+  instance composed into the api/host), and a per-secret shared data dir turned
+  that topology into ADR 0044's silent-corruption case — the suite died on
+  system-catalog reads past EOF (`pg_attribute`, "unexpected data beyond EOF").
+  The harness is restored to in-memory pglite, whose per-process databases made
+  the dual-open harmless. App fixtures for regression specs still seed over HTTP;
+  a file-backed mode needs a single-writer story first (seed through the running
+  stack, not pre-spawn against shared files).
+- Updated dependencies [59cfe70]
+  - every-plugin@3.0.0-rc.18
+
 ## 2.0.0-rc.43
 
 ### Minor Changes
