@@ -303,7 +303,7 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
             : Effect.void,
         ),
         Effect.catchIf(
-          (error): error is OrchestratorError => runtimeConfig.env === "development",
+          (_error): _error is OrchestratorError => runtimeConfig.env === "development",
           () => Effect.succeed(null),
         ),
       );
