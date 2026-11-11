@@ -1,5 +1,143 @@
 # everything-dev
 
+## 2.0.0-rc.43
+
+### Minor Changes
+
+- 31b655d: `bos clean` — the local-only rule's exit valve (ADR 0047, #844)
+
+  One command that removes regenerable `.bos` state and refuses the artifacts that are truth or identity:
+
+  - **Removes**: `logs/` (except files touched within the last hour — a live session is appending), `bundles/` (regression container staging), `regression/` (seeds + image staging), `generated/`, `bundle-cache/`, `snapshot/`, `sync-backup/`, `import-backup/`, `compose-retired/`, `manifest.json` (release-manifest cache), `bos.resolved-config.json`, `build-cache.json`.
+  - **Never touches**: `db/` (PGlite data), `session.json` (credentials — that's `bos logout`), `infra-state.json` (machine port prefs), `deploy-state.json` (cleaning the skip-unchanged accelerator would silently cost full re-uploads). The guarded set is reported as `kept` with its reason.
+  - `--dry-run` reports per-category bytes without deleting; `--config-dir` targets another checkout.
+  - Route `POST /clean` in the CLI contract; the partition (`planClean`/`executeClean` in `services/clean.ts`) is the unit-tested contract surface.
+
+- a1ea884: Handler-seam cleanup around the #844 sweep
+
+  - `bos upgrade --json` / the result contract gains a `cancelled` status: declining the interactive plan (`Write? no`, or ctrl-c) reports a cancelled result through the normal pipeline instead of calling `process.exit` from inside an Effect generator. Exit code stays 0; the renderer prints "Upgrade cancelled — nothing was written".
+  - The dead `cli/snapshot.ts` and `cli/upgrade.ts` re-export shims are deleted — importers (handler, the upgrade plan, five tests) resolve `services/scaffold/{snapshot,upgrade}` directly.
+  - The `typesGen` handler moves out of `handlers/upgrade.ts` (~705 → ~515 lines) into its own `handlers/types-gen.ts` — pure move, registered identically in the plugin router.
+
+- 210c88a: One committed artifact — the lock absorbs the sync baseline (ADR 0047, #844)
+
+  - `bos.lock.json` gains an optional `template.sync` section (`{ syncedAt, files }`): the template sync baseline, absorbed from `.bos/sync-snapshot.json`. The annotation is carried forward by every writer (`bos lock`, the deploy train's persist leg), never produced by `lockfileOf`, and never enters the pointer or lockfile digest.
+  - `bos sync`/`bos upgrade` now conflict when a locally-modified template file has no recorded baseline — the previous fallback classified it `updated` and let the template win silently. The error names the remedies: `bos lock` + commit, or one `--force` (backed up).
+  - `bos upgrade`'s migration phase absorbs a legacy `.bos/sync-snapshot.json` into the lock and deletes the file (reported under migrated files). Lock-less repos keep the legacy file, now local-only.
+  - The template `.gitignore` drops the `.bos` negations — `.bos/` is local-only runtime state; the single committed artifact is `bos.lock.json`.
+
+- 2fb981b: Regression harness runs on wiped file-backed pglite dirs — seed-phase integration
+
+  `.env.test`'s in-memory pglite marker now substitutes per-workspace pglite dirs
+  under `.bos/regression/db` (absolute paths; start-stack wipes the root per run),
+  because an in-memory database cannot be seeded — nothing exists before its
+  service process creates it, so the pre-spawn seed phase (#866) had nothing to
+  address. A wiped dir keeps in-memory's isolation while opening the pre-spawn
+  window: **apps that declare a `seed` block get it applied on every regression
+  boot automatically**, which is also the migration path off direct-DB seed
+  helpers and the postgres service containers they force. Explicit database URLs
+  (postgres or custom pglite dirs) still pass through untouched, and dev-root
+  URLs stay refused.
+
+- 560c2fd: auth: remove organization approval — it's application business logic, not auth (#857)
+
+  Organizations are now created **active**; the auth plugin never sets or enforces a
+  pending/rejected status, and no middleware gates on organization status.
+  Self-service activation flows (create organization → create onboarding code →
+  redeem, invite, join) now succeed end-to-end for a fresh user with no
+  platform-admin step.
+
+  **Breaking — removed surfaces:**
+
+  - `listOrganizationRequests` / `reviewOrganization` auth routes (the platform-admin
+    review queue) and the organization-approval gates in every default middleware,
+    the session context, and the invitation/onboarding flows.
+  - `requestedBy` / `rejectionReason` fields on the organization contract output.
+    The `status` field stays (pass-through data). The DB columns (`requested_by`,
+    `rejection_reason`) remain in place, unused, so no migration is required.
+
+  **Migration for deployed consumers:** existing `pending`/`rejected` organizations
+  become fully operable the moment this ships (the session context stops filtering
+  them and no middleware asserts status). If approval was a product requirement for
+  your app, implement it app-side before exposing org-scoped writes — org status in
+  metadata, your own middleware, your own admin surface. To retire stale rows, flip
+  `status` to `active` in an app-managed migration (the columns are app-owned data
+  now).
+
+- 14f5e0c: Call-only plugin entries (#848): a `plugins.<key>` attachment can now consume a deployed app's API as a typed oRPC client — `plugins.feedback.getProjectBySlug({ slug })` from any plugin's `createRouter`/Effect services — without federation-loading the remote bundle, composing its routes, or handing it secrets or a database. The entry is a regular plugin entry with two locators: `proxy` (the traffic endpoint — the live app origin whose `/api/rpc` serves; the attachment-level proxy field gains its runtime) and `contract` (a pure `bos://account/gateway[#target]` types locator whose targeted entry's stamped production — the artifact CDN — serves the sha256-verified contract types). The two origins differ in production, which is why one URL cannot play both roles. Detection is structural (proxy present, no `extends`/`path`/URL fields — declaring both fails loud), so there is no discriminator field. The host forwards `/api/rpc/{key}/*` to the proxy endpoint through the same dispatch seam as composed plugins with `x-api-key` server-side; typegen fetches types from the contract origin; readiness probes the endpoint's rpc ping (manifest-200/rpc-401 was false confidence); health surfaces the attachments as `plugins.rpc`; the runtime map marks them call-only.
+- 71f65d2: Ship `useScrollToHash` from the `everything-dev/ui` surface: a ref-setter hook that scrolls to a section once it mounts while the current location hash matches its id, closing the gap where hash links like `/dashboard/node#payouts` never scroll because the router's hash scroll runs once on navigation, before the target section renders from a client query (#820). Pass the bare hash id (no `#`); the hook scrolls once per hash visit, ignores other hashes, and re-scrolls when the hash returns after leaving — child apps carrying local copies of this helper can import the framework one and delete their own.
+- 982a2fa: Seed phase: automatic seeding on dev boot with a seeded marker, auth-owner admin bootstrap first (#865)
+
+  Consumer apps hand-roll seed scripts and run them by hand; a fresh checkout boots empty and
+  nothing tells the developer the environment is unseeded. Seeding is now a platform capability —
+  declared in config, checked automatically, run when needed:
+
+  - **Authored `seed` block** — `seed: { version, auth: { ownerAdmin }, steps }` in `bos.app.ts`
+    (or the dev overlay). Steps are workspace-relative idempotent scripts (upserts by contract),
+    the general surface for app data. The descriptor/resolved schemas, conversion pick lists,
+    canonical key ordering, and the scaffold emitter all carry the block; publish canonicalization
+    strips it (workspace-relative steps never reach FastKV).
+  - **`bos dev` seeds before serving** — when the marker (one `bos_seed_state` row in the api
+    database) doesn't match `seed.version`, the boot runs the phase pre-spawn: it migrates every
+    local workspace from disk first (fresh checkouts have no tables until the services'
+    migrate-on-boot fires — and services hold their PGlite data dirs open for their lifetime, so
+    nothing can run after them, ADR 0044), then provisions, then runs steps in order, first failure
+    aborting the boot loudly. Second boot does nothing; a version bump re-runs.
+  - **Owner-admin bootstrap first** — `seed.auth.ownerAdmin` (`true` derives the NEAR account from
+    the top-level `account`, or name one explicitly) writes the SIWN row shape (`user` role `admin`
+    - `near_account` + `account`) into the auth database, so the configured owner signs in with
+      platform-admin rights immediately — `/near/verify` resolves the pre-provisioned `near_account`
+      and issues a session for the admin user instead of minting a duplicate.
+  - **Production: explicit only** — `bos seed --env production` requires `postgres://` URLs,
+    env-provided owner credentials (`SEED_OWNER_ADMIN_NEAR_ACCOUNT` / `SEED_OWNER_ADMIN_EMAIL`,
+    never config defaults), and a confirmation prompt; non-interactive stdin must pass `--yes`
+    explicitly rather than hanging on a prompt. The deploy train never seeds.
+  - **DevEx guards** — the phase refuses to run while a dev stack is live for the project (the
+    shared pid registry is checked when pglite URLs are in play — a cross-process seed would
+    block on the PGlite file lock indefinitely, ADR 0044); a seeded boot pays only the marker
+    read (migrations run only when the phase will actually seed); `SEED_STEP_TIMEOUT_MS` bounds
+    each step (SIGTERM → SIGKILL, default off).
+  - Route `POST /seed` in the CLI contract; the runner (`services/seed/runner.ts`) and the marker
+    semantics are the unit-tested contract surface (`tests/unit/seed-phase.test.ts`,
+    `tests/unit/seed-config.test.ts`) with the auth-schema provisioning canaried against the real
+    plugin migrations in `tests/integration/seed-phase.test.ts`. Docs: `docs/seed-phase.md`.
+
+- 5aa85a4: `bos upgrade` shows its plan before writing — per-file consent instead of refuse-or-force (#844)
+
+  On a TTY, `bos upgrade` now stops and shows what it is about to do before doing it:
+
+  - **The version plan**: resolved release, package deltas (`from → to`), changelog link.
+  - **The file plan**: every file the sync will write — template updates, new files, and conflicts (labeled "local edits — template wins (backup kept)") — as a multi-select, **defaulting to overwrite all**: space toggles, enter confirms.
+  - **Write?** — nothing lands until the confirm. Cancelling leaves the tree untouched.
+  - **Post-upgrade clean** (default on): runs `bos clean` after a successful upgrade with the sync/import backups preserved — they are the review surface for the files just overwritten. Surfaced as a note in the result.
+
+  Under the hood:
+
+  - `bos sync`/`upgradeTemplate` gain `overwrite: string[]` — the approved write set. When present it is an exhaustive filter over updated/added/conflicted: selected files are written (backed up), deselected conflicts are preserved (never an abort), and a preserved file **keeps its old baseline** — so the skip never launders a local fork into the new normal: the next upgrade re-asks (the three-way comparison conflicts again when the template has moved), instead of today's silent template-win.
+  - The selection rides the train's re-exec boundary (`--overwrite a,b,c` to the migration child), so the migration phase's sync applies the same approved set.
+  - `--force` keeps its meaning (overwrite everything, no prompts) and non-TTY runs (CI, scripts) keep the classic refuse-on-conflict behavior. The preflight abort names the interactive plan as the remedy.
+  - `--overwrite a,b,c` also works hand-written; `--clean-after` runs the post-step non-interactively.
+
+- 2e1ece5: The #642 revival — integrity back in the federation pipeline (ADR 0046 ticket 03): the MF fetch hook installs inside `createPluginRuntime` (the host's `__mfInstance` probe is gone), the registry keys by the resolved hashed artifact URLs — `resolvedIntegrityMap` derives them (entry, ssr entry, files-map entries) from the pin's resolution and rides the runtime config as `integrityMap` — and a lazily-fetched file whose served bytes drifted from the pin fails with the tagged `IntegrityMismatch` naming expected and actual, refusing the plugin load instead of a webpack TypeError. The SRI primitive collapses into the engine (`computeSri`) — the only `createHash("sha384")` site outside the storage boundary is the engine's. Migrated call sites: SnapshotWatch's entry verification, tenant override verification (blocking and stale-while-revalidate modes preserved), the SSR-entry gate in federation.server, ui-compose's manifest fetch (compose parity stays), and the local dist hashing in `diff.ts`.
+- 2e1ece5: The chain walker (ADR 0046 ticket 02): `verifyChain(config, { depth })` walks the distribution spine at pointer (pinned manifest documents), entries (+ the pinned remoteEntry/ssr bytes), or files (+ every file in each manifest's files map) depth — one engine call per hop, one report shape (the `bos verify` result, generalized with per-entry legs and an `ok` verdict). Consumers collapse onto it: `bos verify` gains a `--depth` flag (default `files`, report unchanged), the smoke gate walks the booted identity in-image at entries depth as a pre-promotion leg, the SnapshotWatch adopt transaction verifies the full extends-merged candidate composition instead of the ui slot alone, and `verifyRollbackSnapshot` delegates at pointer depth with the canonical report wording.
+- 2e1ece5: Digest identity consolidation (ADR 0046 ticket 04): one module (`everything-dev/fingerprint`) owns every composition-plane identity, and the recorded fingerprint seam is closed. `deploymentFingerprint`/`pointerFingerprint` are renamed `deploymentDigest`/`pointerDigest`, and the deployment digest now derives from the pointer inputs — the pin coordinates resolution stamps onto every resolved slot (`digest` field) — plus the resolved entry coordinates, so a pointer-only republish (identical entry bytes, changed files map) moves it: the host's adopt comparison now notices such publishes instead of serving stale pins until restart, and the client soft-refresh signal moves with it. The vocabulary cutover renames every wire field the old word survived in — lockfile + boot snapshot (`fingerprint` → `pointerDigest`, schemaVersion 1 → 2; old files fail the strict parse naming the field and regenerate on the next `bos lock` / first adopt), deploy records and their summaries, the CLI contract results, the client payload (`deploymentFingerprint` → `deploymentDigest`), and `/.well-known/version` (now `deploymentDigest` + `pointerDigest`). The endpoint split also fixes the ops split-brain detector's cross-plane comparison — published pointer digest vs the host's served pointer digest (previously compared against the serving-generation digest, which never matches). The compose variant fingerprint is renamed `variantCacheKey` — it hashes dev mtimes, a cache key, not an identity. The module's own subpath retires with the word: `everything-dev/fingerprint` is removed and replaced by `everything-dev/digest` (hard removal — importers update at the upgrade).
+- 2e1ece5: The Verifier engine (ADR 0046 ticket 01): one fetch → sha384 → compare implementation behind the `Verifier` `Context.Service`, the `Verified<T>` branded artifact type, the yieldable `IntegrityMismatch` / `ProvenanceUnknown` / `SignatureInvalid` error taxonomy, and process-lifetime verified-document caching where the cache is the last-known-good. `bos verify`, `resolveRemoteVersion`, and `fetchVerifiedManifest` now ride the engine — report and CLI surfaces are unchanged.
+- 2e1ece5: Manifest attribution (ADR 0046 ticket 05): the deploy train signs each slot's version manifest with the runtime's existing publish identity — the explicit publish key (`resolveSigningKey`, near-kit) or the custody wallet (OutLayer `signMessage`, `format: "raw"`) — and the chain walker verifies the signature against a key record published in the on-chain config: `publish.verification: { publicKey } | "off"` (absent ≡ off, the rollout default; unsigned manifests verify as today and old readers strip the field). The payload is the canonical key-sorted serialization the version-id derivation already uses (`signaturePayloadOf`; the `signature` field never enters the version id, like `builtAt`), so signer and verifier agree on the bytes regardless of the stored document's whitespace. The verifying key rides in the signature block, letting the walker distinguish _wrong signature_ from _signed by an unregistered key_ — both are the engine's tagged `SignatureInvalid`, a distinct leg in the verify report (`VerifyRemoteResult.signature`) that fails the chain hard: `bos verify` exits nonzero with an attribution column, and the smoke/adopt legs refuse the composition while the SRI legs still report. A signing identity that doesn't match the key record fails the train before anything uploads — rotation is a config publish, never a silent key swap.
+
+### Patch Changes
+
+- e139d6e: The `.bos/logs` pruner sees every writer's names; sync backups are bounded (part of #844)
+
+  - `pruneDatedLogs` now matches the pre-#476 PID-less `dev-<ts>.log` legacy format, the PID-less `dev-latest.log`, and the regression stack's `framework-<port>.log` / `regression-<mode>.log` wrappers — on a long-lived checkout 192 of 205 log files were invisible to the pruner. The <24h live-session guard, the newest-20 keep, and the 7-day age cap are unchanged and now apply uniformly across all classes.
+  - `bos sync`/`bos upgrade` prune `.bos/sync-backup/` to the newest 10 timestamped dirs after each backup — upgrade sediment no longer accumulates forever.
+  - `docs/agents/how-it-fits.md` stops claiming logs have no rotation (it landed in #596/#603) and documents the pruner's actual coverage.
+
+- e82f0bd: Strip `createRpcClient` to a bare typed oRPC client: `createRpcClient(hostUrl, path = "/api/rpc")`. The wrapper's transport opinions (429 retry, connection-error toast, `credentials: "include"`, SSR header merging, browser memoization) move into the UI seam (`everything-dev` `ui/api.ts` `createApiClient`/`createPluginApiClient`), where they already belonged — server consumers now get a plain Promise-native client with no hidden globals. Transport customization (headers, timeouts, retries, test doubles) is `RPCLink`'s native surface; Effect callers lift calls with `Effect.tryPromise` and own timeout/retry/cache in their service layer.
+- Updated dependencies [e82f0bd]
+- Updated dependencies [2e1ece5]
+- Updated dependencies [2e1ece5]
+  - every-plugin@3.0.0-rc.17
+
 ## 2.0.0-rc.42
 
 ### Patch Changes
