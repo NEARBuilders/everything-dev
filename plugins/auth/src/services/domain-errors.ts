@@ -145,6 +145,21 @@ export class UnknownTeamRole extends Schema.TaggedError<UnknownTeamRole>()("Unkn
   message: Schema.String,
 }) {}
 
+export class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", {
+  message: Schema.String,
+  userId: Schema.String,
+}) {}
+
+export class MemberNotFound extends Schema.TaggedError<MemberNotFound>()("MemberNotFound", {
+  message: Schema.String,
+  memberId: Schema.optional(Schema.String),
+}) {}
+
+export class TeamMemberNotFound extends Schema.TaggedError<TeamMemberNotFound>()(
+  "TeamMemberNotFound",
+  { message: Schema.String, teamMemberId: Schema.String },
+) {}
+
 export class DeployKeyAccountNotLinked extends Schema.TaggedError<DeployKeyAccountNotLinked>()(
   "DeployKeyAccountNotLinked",
   { message: Schema.String, action: Schema.String },
@@ -182,6 +197,9 @@ const FAILURE_TAGS = new Set([
   "NearNetworkRequired",
   "ApiKeyNotFound",
   "UnknownTeamRole",
+  "UserNotFound",
+  "MemberNotFound",
+  "TeamMemberNotFound",
   "DeployKeyAccountNotLinked",
 ]);
 
@@ -221,6 +239,9 @@ export type AuthFailure =
   | NearNetworkRequired
   | ApiKeyNotFound
   | UnknownTeamRole
+  | UserNotFound
+  | MemberNotFound
+  | TeamMemberNotFound
   | DeployKeyAccountNotLinked;
 
 export function toTransportError(error: AuthFailure): ORPCError<string, unknown> {
@@ -323,6 +344,24 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       });
     case "UnknownTeamRole":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
+    case "UserNotFound":
+      return new ORPCError("NOT_FOUND", {
+        message: error.message,
+        data: { resource: "user", resourceId: error.userId },
+      });
+    case "MemberNotFound":
+      return new ORPCError("NOT_FOUND", {
+        message: error.message,
+        data: {
+          resource: "member",
+          ...(error.memberId ? { resourceId: error.memberId } : {}),
+        },
+      });
+    case "TeamMemberNotFound":
+      return new ORPCError("NOT_FOUND", {
+        message: error.message,
+        data: { resource: "teamMember", resourceId: error.teamMemberId },
+      });
     case "DeployKeyAccountNotLinked":
       return new ORPCError("FORBIDDEN", {
         message: error.message,
