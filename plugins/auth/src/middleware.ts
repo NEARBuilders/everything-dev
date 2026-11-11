@@ -11,6 +11,7 @@ import {
   type OnboardingCodeCipherTag,
   type PluginServices,
 } from "./service-types";
+import type { AdminOrganizationsService } from "./services/admin-organizations";
 import type { AdminUsersService } from "./services/admin-users";
 import type { ApiKeysService } from "./services/api-keys";
 import type { InvitationsService } from "./services/invitations";
@@ -30,6 +31,7 @@ export type AuthEffectServices =
   | AuthApiTag
   | ApiKeysService
   | AdminUsersService
+  | AdminOrganizationsService
   | DatabaseTag
   | OnboardingCodeCipherTag
   | MembershipPolicyTag

@@ -161,6 +161,12 @@ export const apiKeyRateLimitSchema = z.object({
   max: z.number().int().positive().optional(),
 });
 
+export const adminOrganizationSummarySchema = organizationInfoSchema.extend({
+  createdAt: z.date(),
+  memberCount: z.number(),
+  teamCount: z.number(),
+});
+
 export const memberSchema = z.object({
   id: z.string(),
   userId: z.string(),

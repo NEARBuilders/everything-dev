@@ -12,6 +12,7 @@ import type { AuthPermissionStatements } from "../src/auth-config";
 import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
 import { type ContractType, contract, type InferInput, type InferOutput } from "../src/contract";
 import * as schema from "../src/db/schema";
+import { createAdminOrganizationHandlers } from "../src/handlers/admin-organizations";
 import { createAdminUsersHandlers } from "../src/handlers/admin-users";
 import { createApiKeyHandlers } from "../src/handlers/api-keys";
 import { createInvitationHandlers } from "../src/handlers/invitations";
@@ -300,6 +301,7 @@ export function createTestHandlers(services: PluginServices) {
     apiKeys: wrap(createApiKeyHandlers(builder, requireAuth)),
     teams: wrap(createTeamHandlers(builder, requireAuth)),
     adminUsers: wrap(createAdminUsersHandlers(builder, requireAuth)),
+    adminOrganizations: wrap(createAdminOrganizationHandlers(builder, requireAuth)),
     near: wrap(createNearHandlers(builder, requireAuth)),
     onboarding: wrap(createOnboardingHandlers(builder, requireAuth)),
   };

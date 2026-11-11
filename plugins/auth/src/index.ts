@@ -10,6 +10,7 @@ import { normalizeAuthConfig } from "./config";
 import { authSecretsSchema, authVariablesSchema } from "./config-schemas";
 import { contract } from "./contract";
 import { DatabaseLive, DatabaseTag } from "./db/layer";
+import { createAdminOrganizationHandlers } from "./handlers/admin-organizations";
 import { createAdminUsersHandlers } from "./handlers/admin-users";
 import { createApiKeyHandlers } from "./handlers/api-keys";
 import { createInvitationHandlers } from "./handlers/invitations";
@@ -97,6 +98,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       ...createSessionHandlers(builder),
       ...createPasskeyHandlers(builder, requireAuth),
       ...createOrganizationHandlers(builder, requireAuth),
+      ...createAdminOrganizationHandlers(builder, requireAuth),
       ...createMemberHandlers(builder, requireAuth),
       ...createInvitationHandlers(builder, requireAuth),
       ...createApiKeyHandlers(builder, requireAuth),
