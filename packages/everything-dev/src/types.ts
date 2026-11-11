@@ -346,6 +346,8 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
       .optional(),
     /** The authored release (ADR 0034): the exact framework version this app targets. */
     release: z.string().optional(),
+    /** The authored seed declaration (#865). */
+    seed: SeedConfigSchema.optional(),
     ci: CiConfigSchema.optional(),
     cdn: CdnConfigSchema.optional(),
   }),
@@ -405,6 +407,8 @@ export interface BosConfigInput {
   publish?: PublishConfig;
   /** The child's authored release — one field, everything derived (ADR 0034). */
   release?: string;
+  /** The authored seed declaration (#865). */
+  seed?: SeedConfig;
   ci?: CiConfig;
   cdn?: CdnConfig;
   rolledBackFrom?: string;
@@ -428,6 +432,43 @@ export const CdnConfigSchema = z.object({
   origin: z.string().optional(),
 });
 export type CdnConfig = z.infer<typeof CdnConfigSchema>;
+
+/**
+ * The `seed.auth.ownerAdmin` identity (#865): `true` derives the NEAR account
+ * from the app's top-level `account`; an object names it explicitly (NEAR
+ * account and/or email).
+ */
+export const SeedOwnerAdminSchema = z.union([
+  z.literal(true),
+  z
+    .object({
+      nearAccount: z.string().optional(),
+      email: z.string().optional(),
+    })
+    .strict(),
+]);
+export type SeedOwnerAdmin = z.infer<typeof SeedOwnerAdminSchema>;
+
+/**
+ * The authored seed declaration (#865). `steps` are workspace-relative script
+ * paths, idempotent by contract (upserts) — they run once per `version`;
+ * bumping the version re-runs them deliberately. Dev: `bos dev` seeds
+ * automatically before services spawn. Production: never implicit — `bos seed`
+ * runs it with explicit, env-provided owner credentials.
+ */
+export const SeedConfigSchema = z
+  .object({
+    version: z.number().int().positive(),
+    auth: z
+      .object({
+        ownerAdmin: SeedOwnerAdminSchema,
+      })
+      .strict()
+      .optional(),
+    steps: z.array(z.string()).optional(),
+  })
+  .strict();
+export type SeedConfig = z.infer<typeof SeedConfigSchema>;
 
 export const PublishAuthSchema = z.enum(["session", "key", "custody"]);
 export type PublishAuth = z.infer<typeof PublishAuthSchema>;
@@ -468,6 +509,9 @@ export const BosConfigSchema = z.object({
   publish: PublishConfigSchema.optional(),
   /** The authored release (ADR 0034): the exact framework version this app targets. */
   release: z.string().optional(),
+  /** The authored seed declaration (#865) — dev boots seed automatically;
+   * the published payload strips it (workspace-relative steps). */
+  seed: SeedConfigSchema.optional(),
   ci: CiConfigSchema.optional(),
   cdn: CdnConfigSchema.optional(),
   rolledBackFrom: z.string().optional(),

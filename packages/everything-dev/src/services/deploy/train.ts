@@ -48,7 +48,11 @@ import {
   readManifestTag,
   readVersionRecord,
 } from "../registry/pointer";
-import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
+import {
+  mergeAuthoredOverPublished,
+  stripLocalDevelopmentTargets,
+  stripSeedConfig,
+} from "../resolution/merge";
 import { bootSnapshotOf, writeBootSnapshot } from "../snapshot/schema";
 import {
   type BuildTargetsDeps,
@@ -727,6 +731,7 @@ export async function runPublishTrain(
   // canonical — republished verbatim.
   if (input.exactPayload !== true) {
     publishPayload = stripLocalDevelopmentTargets(publishPayload);
+    publishPayload = stripSeedConfig(publishPayload);
   }
 
   // KEEP: release-scoped extends inheritance (ADR 0034 amendment) — every

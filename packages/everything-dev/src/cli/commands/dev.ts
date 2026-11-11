@@ -49,6 +49,7 @@ export const runDev = async (ctx: CommandContext): Promise<void> => {
     build: "Building...",
     "resolve config": "Resolving config...",
     ports: "Finding available ports...",
+    seed: "Seeding database...",
     "generate artifacts": "Generating code artifacts...",
   };
 

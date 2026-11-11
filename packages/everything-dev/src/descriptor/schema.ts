@@ -1,5 +1,10 @@
 import * as z from "zod";
-import { JsonObjectSchema, RemoteDigestSchema, SharedDepMapSchema } from "../types";
+import {
+  JsonObjectSchema,
+  RemoteDigestSchema,
+  SeedConfigSchema,
+  SharedDepMapSchema,
+} from "../types";
 
 /** Pipeline-owned fields — never authored; injected from the deploy map. */
 export const PipelineFieldsSchema = z.object({
@@ -156,6 +161,10 @@ export const AppDescriptorSchema = z
       })
       .strict()
       .optional(),
+    /** The authored seed declaration (#865): `version` gates one-shot runs,
+     * `auth.ownerAdmin` provisions the app owner as admin, `steps` are
+     * idempotent workspace-relative seed scripts. Never published. */
+    seed: SeedConfigSchema.optional(),
     host: HostRefSchema.optional(),
     api: ApiRefSchema.optional(),
     ui: UiRefSchema.optional(),

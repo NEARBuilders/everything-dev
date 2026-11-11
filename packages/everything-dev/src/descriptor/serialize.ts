@@ -31,6 +31,7 @@ const FIELD_COMMENTS: Record<string, string> = {
   cdn: "CDN origin serving this runtime's built bundles.",
   publish:
     "Publish settings: signing mode (session | key | custody) and sourcePublish (publish workspace source archives with each deploy).",
+  seed: "Seed declaration (#865): `version` gates one-shot runs (bump to re-run), `auth.ownerAdmin` provisions the app owner as platform admin, `steps` are idempotent workspace-relative seed scripts. Dev seeds on boot; production seeds via `bos seed` only.",
   host: "Local host workspace override.",
   api: "Local API workspace override.",
   ui: "Local UI workspace override.",

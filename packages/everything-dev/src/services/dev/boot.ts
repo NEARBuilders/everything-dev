@@ -16,6 +16,7 @@ import type { BosConfig, SourceMode } from "../../types";
 import { run } from "../../utils/run";
 import { generateCodeArtifacts } from "../codegen/artifacts";
 import { openResolution, type ResolutionSession } from "../resolution/session";
+import { runSeedPhase } from "../seed/runner";
 import { detectLocalPackages } from "../workspace/linked-packages";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { ensureFreshDeps, findWorkspaceRoot } from "../workspace/workspace";
@@ -264,6 +265,34 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
     const preflightFailures = yield* preflightLocalInfra(plan.envGenerated, mergedEnv);
     if (preflightFailures.length > 0) {
       return yield* new DevPreflightFailed({ messages: preflightFailures.map((f) => f.error) });
+    }
+
+    // Seed phase (#865): when the authored config declares a `seed` block,
+    // run it before any service spawns — the services hold their PGlite data
+    // dirs open for their lifetime, so nothing here can run after them.
+    if (bosConfig.seed) {
+      const authVariables = plan.runtimeConfig.auth?.variables as
+        | { siwn?: { recipient?: string; recipients?: Record<string, string> } }
+        | undefined;
+      const seedResult = yield* step(timings, "seed", () =>
+        runSeedPhase({
+          configDir: session.root,
+          seed: bosConfig.seed!,
+          runtime: plan.runtimeConfig,
+          fallbackAccount: bosConfig.account,
+          siwnRecipient:
+            authVariables?.siwn?.recipients?.[plan.runtimeConfig.networkId] ??
+            authVariables?.siwn?.recipient,
+          env: mergedEnv,
+        }),
+      );
+      if (seedResult.status === "seeded") {
+        yield* Effect.logInfo(
+          `[seed] version ${seedResult.version} applied` +
+            (seedResult.owner ? ` — owner admin provisioned (${seedResult.owner.mode})` : "") +
+            (seedResult.steps.length > 0 ? ` — ${seedResult.steps.length} step(s) ran` : ""),
+        );
+      }
     }
 
     const services = buildServiceDescriptorMapFromPlan(plan, { ssr, proxy });
