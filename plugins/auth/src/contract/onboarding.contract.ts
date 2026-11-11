@@ -1,7 +1,7 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { z } from "zod";
-import { Errors } from "./errors";
+import { OnboardingErrors } from "./errors";
 import { onboardingCodeSummarySchema, onboardingStatsSchema } from "./schemas";
 
 export const onboardingRoutes = {
@@ -17,7 +17,7 @@ export const onboardingRoutes = {
       }),
     )
     .output(onboardingCodeSummarySchema.extend({ code: z.string() }))
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   listOnboardingCodes: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/codes" })
@@ -28,7 +28,7 @@ export const onboardingRoutes = {
       }),
     )
     .output(z.array(onboardingCodeSummarySchema))
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   revokeOnboardingCode: oc
     .route({ method: "POST", path: "/v1/auth/onboarding/codes/revoke" })
@@ -39,7 +39,7 @@ export const onboardingRoutes = {
       }),
     )
     .output(z.object({ success: z.boolean() }))
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   getOnboardingStation: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/codes/station" })
@@ -50,7 +50,7 @@ export const onboardingRoutes = {
       }),
     )
     .output(onboardingCodeSummarySchema.extend({ code: z.string() }))
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   getOnboardingStatus: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/codes/status" })
@@ -72,7 +72,7 @@ export const onboardingRoutes = {
         ),
       }),
     )
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   getOnboardingCodeInfo: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/info" })
@@ -90,7 +90,7 @@ export const onboardingRoutes = {
         })
         .nullable(),
     )
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   getOnboardingStats: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/stats" })
@@ -104,7 +104,7 @@ export const onboardingRoutes = {
       }),
     )
     .output(onboardingStatsSchema)
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   redeemOnboardingCode: oc
     .route({ method: "POST", path: "/v1/auth/onboarding/redeem" })
@@ -118,5 +118,5 @@ export const onboardingRoutes = {
         eventName: z.string(),
       }),
     )
-    .errors(Errors),
+    .errors(OnboardingErrors),
 };

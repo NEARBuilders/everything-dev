@@ -98,10 +98,12 @@ export class CodeRevoked extends Schema.TaggedError<CodeRevoked>()("CodeRevoked"
 
 export class CodeExpired extends Schema.TaggedError<CodeExpired>()("CodeExpired", {
   message: Schema.String,
+  expiresAt: Schema.optional(Schema.Date),
 }) {}
 
 export class CodeLimitReached extends Schema.TaggedError<CodeLimitReached>()("CodeLimitReached", {
   message: Schema.String,
+  maxUses: Schema.optional(Schema.Number),
 }) {}
 
 export class RedeemOrgMissing extends Schema.TaggedError<RedeemOrgMissing>()("RedeemOrgMissing", {
@@ -246,8 +248,10 @@ export type AuthFailure =
 
 export function toTransportError(error: AuthFailure): ORPCError<string, unknown> {
   switch (error._tag) {
-    case "AuthApiError":
-      return new ORPCError(error.code, { message: error.message, data: error.data });
+    case "AuthApiError": {
+      const code = typeof error.data?.code === "string" ? error.data.code : error.code;
+      return new ORPCError(code, { message: error.message, data: error.data });
+    }
     case "DbError":
       return new ORPCError("INTERNAL_SERVER_ERROR", {
         message: error.message,
@@ -287,7 +291,7 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
     case "NotOrgMember":
       return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
     case "MembershipEnded":
-      return new ORPCError("FORBIDDEN", {
+      return new ORPCError("MEMBERSHIP_ENDED", {
         message: error.message,
         data: { action: MEMBERSHIP_ENDED_ACTION },
       });
@@ -306,9 +310,9 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
     case "CodeCreateFailed":
       return new ORPCError("INTERNAL_SERVER_ERROR", { message: error.message });
     case "CodeNotFound":
-      return new ORPCError("NOT_FOUND", {
+      return new ORPCError("CODE_NOT_FOUND", {
         message: error.message,
-        data: { resource: "onboardingCode", ...(error.codeId ? { resourceId: error.codeId } : {}) },
+        data: { codeId: error.codeId },
       });
     case "CodeInactive":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
@@ -318,15 +322,21 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
         data: { apiKeyProvided: false },
       });
     case "CodeRevoked":
-      return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
+      return new ORPCError("CODE_REVOKED", { message: error.message, data: {} });
     case "CodeExpired":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
+      return new ORPCError("CODE_EXPIRED", {
+        message: error.message,
+        data: { expiresAt: error.expiresAt?.toISOString() },
+      });
     case "CodeLimitReached":
-      return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
+      return new ORPCError("CODE_EXHAUSTED", {
+        message: error.message,
+        data: { maxUses: error.maxUses },
+      });
     case "RedeemOrgMissing":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
+      return new ORPCError("ORG_NOT_FOUND", { message: error.message, data: {} });
     case "OrgFull":
-      return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
+      return new ORPCError("ORG_FULL", { message: error.message, data: {} });
     case "EventTeamCreateFailed":
       return new ORPCError("INTERNAL_SERVER_ERROR", { message: error.message });
     case "InviteeAmbiguous":

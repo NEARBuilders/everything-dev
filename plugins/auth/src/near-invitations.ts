@@ -145,6 +145,8 @@ export function nearInvitations(
             if (existing) {
               throw new APIError("BAD_REQUEST", {
                 message: "You are already a member of this organization",
+                code: "ALREADY_MEMBER",
+                organizationId: invitation.organizationId,
               });
             }
             const [{ memberCount } = { memberCount: 0 }] = await tx
