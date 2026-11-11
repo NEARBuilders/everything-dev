@@ -72,6 +72,20 @@ export function createOnboardingHandlers(
       return yield* mapDomainError(onboarding.getOnboardingCodeInfo(input.code));
     }),
 
+    rotateStandingOnboardingCode: builder.rotateStandingOnboardingCode
+      .use(requireAuth)
+      .effect(function* ({ input, context }) {
+        const onboarding = yield* OnboardingService;
+        return yield* mapDomainError(onboarding.rotateStandingOnboardingCode(context, input));
+      }),
+
+    getStandingOnboardingCode: builder.getStandingOnboardingCode
+      .use(requireAuth)
+      .effect(function* ({ input, context }) {
+        const onboarding = yield* OnboardingService;
+        return yield* mapDomainError(onboarding.getStandingOnboardingCode(context, input));
+      }),
+
     redeemOnboardingCode: builder.redeemOnboardingCode.use(requireAuth).effect(function* ({
       input,
       context,

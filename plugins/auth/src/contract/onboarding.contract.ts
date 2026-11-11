@@ -9,11 +9,11 @@ export const onboardingRoutes = {
     .route({ method: "POST", path: "/v1/auth/onboarding/codes" })
     .input(
       z.object({
-        eventId: z.string().min(1).max(200),
-        eventName: z.string().trim().min(1).max(160),
+        eventId: z.string().min(1).max(200).optional(),
+        eventName: z.string().trim().min(1).max(160).optional(),
         organizationId: z.string().optional(),
-        maxUses: z.number().int().min(1).max(500).optional(),
-        expiresAt: z.date().optional(),
+        maxUses: z.number().int().min(0).max(500).optional(),
+        expiresAt: z.date().nullable().optional(),
       }),
     )
     .output(onboardingCodeSummarySchema.extend({ code: z.string() }))
@@ -28,6 +28,18 @@ export const onboardingRoutes = {
       }),
     )
     .output(z.array(onboardingCodeSummarySchema))
+    .errors(OnboardingErrors),
+
+  rotateStandingOnboardingCode: oc
+    .route({ method: "POST", path: "/v1/auth/onboarding/codes/standing/rotate" })
+    .input(z.object({ organizationId: z.string().optional(), eventId: z.string().optional() }))
+    .output(onboardingCodeSummarySchema.extend({ code: z.string() }))
+    .errors(OnboardingErrors),
+
+  getStandingOnboardingCode: oc
+    .route({ method: "GET", path: "/v1/auth/onboarding/codes/standing" })
+    .input(z.object({ organizationId: z.string().optional(), eventId: z.string().optional() }))
+    .output(onboardingCodeSummarySchema.extend({ code: z.string() }).nullable())
     .errors(OnboardingErrors),
 
   revokeOnboardingCode: oc
@@ -81,7 +93,7 @@ export const onboardingRoutes = {
       z
         .object({
           organizationName: z.string(),
-          eventName: z.string(),
+          eventName: z.string().nullable(),
           inviterName: z.string().nullable(),
           role: z.string(),
           expired: z.boolean(),
@@ -115,7 +127,7 @@ export const onboardingRoutes = {
         alreadyRedeemed: z.boolean(),
         organizationId: z.string(),
         organizationName: z.string(),
-        eventName: z.string(),
+        eventName: z.string().nullable(),
       }),
     )
     .errors(OnboardingErrors),
