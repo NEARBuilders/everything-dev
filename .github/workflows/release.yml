@@ -80,30 +80,37 @@ jobs:
 
       - name: Detect a release candidate (publish imminent)
         id: rc
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          # The changesets action publishes when the push merges the version
-          # PR — its own commit title, pinned by the action's `commit:` input
-          # — or (stable mode, after `pre exit`) when the merged diff
-          # consumes changesets. Pending .md counts can NEVER signal during
-          # the rc train: pre mode never consumes them (hundreds sit in
-          # .changeset/, by design) and .changeset/README.md exists forever,
-          # so a file-count check misdetects every version merge as
-          # "changesets pending" and the publish slips out ungated.
-          SUBJECT="$(git log -1 --pretty=%s HEAD)"
-          case "$SUBJECT" in
-            "chore: version packages"*)
-              echo "rc=true" >> "$GITHUB_OUTPUT"
-              echo "::notice::Version PR merged ($SUBJECT) — a publish is imminent; the full regression gates it"
-              exit 0
-              ;;
-          esac
-          if find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' -print -quit | grep -q .; then
-            echo "rc=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Pending changesets — this run opens/updates the version PR; the regression gate does not apply"
-          else
+          # The changesets action's publish decision is "any workspace package
+          # version is not on npm" — version-PR subjects and pending-changeset
+          # file counts are proxies that disagree with it. 2026-11-11: a
+          # dispatched run read "no changesets" over hundreds of pending files
+          # (its changed-since-before filter gets an empty `before` on
+          # dispatches, which makes the reader throw and yield zero), skipped
+          # the gate as a "version-PR leg", and attempted an ungated publish
+          # of unvalidated rc packages. Ask the registry directly: a publish
+          # is imminent iff any publishable package's version is missing from
+          # npm — gate exactly that. Dispatches always gate: they are a
+          # deliberate release action.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "::notice::Dispatched release run — the full regression gates it before npm sees anything"
             echo "rc=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::No pending changesets — a publish is imminent; the full regression gates it"
+            exit 0
           fi
+          rc=false
+          for pkg in every-plugin better-near-auth everything-dev; do
+            local_version="$(node -p "require('./packages/$pkg/package.json').version")"
+            if npm view "$pkg@$local_version" version >/dev/null 2>&1; then
+              echo "$pkg@$local_version is already on npm"
+            else
+              echo "$pkg@$local_version is not on npm — a publish is imminent; the full regression gates it"
+              rc=true
+              break
+            fi
+          done
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
 
   # The release gate: the full regression matrix must be green before npm
   # sees anything. Dispatched as a manual retry (workflow_dispatch), the rc
