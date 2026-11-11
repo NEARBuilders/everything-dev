@@ -113,15 +113,46 @@ void test("per-identity pglite dirs under the dev root are dev data too", () => 
   );
 });
 
-void test("in-memory pglite and external postgres URLs are accepted test targets", () => {
+void test("the in-memory test marker substitutes wiped per-workspace pglite dirs", () => {
   const repoRoot = fixture();
   writeFileSync(
     join(repoRoot, ".env.test"),
     "API_DATABASE_URL=pglite::memory:\nBETTER_AUTH_SECRET=test-secret\n",
   );
   const config = computeRegressionEnv({ repoRoot, env: {} });
-  assert.equal(config.dbUrls.API_DATABASE_URL, "pglite::memory:");
-  assert.equal(config.dbUrls.AUTH_DATABASE_URL, "pglite::memory:");
+  const dbRoot = join(repoRoot, ".bos", "regression", "db");
+  assert.equal(config.dbUrls.API_DATABASE_URL, `pglite:${dbRoot}/api`);
+  assert.equal(config.dbUrls.AUTH_DATABASE_URL, `pglite:${dbRoot}/auth`);
+  assert.equal(config.dbRoot, dbRoot);
+});
+
+void test("explicit database URLs pass through untouched (sslmode param preserved)", () => {
+  const repoRoot = fixture();
+  const url = "postgres://test:test@postgres-api-test:5432/api_test_db?sslmode=disable";
+  const config = computeRegressionEnv({
+    repoRoot,
+    env: { API_DATABASE_URL: url, BETTER_AUTH_SECRET: "test-secret" },
+  });
+  assert.equal(config.dbUrls.API_DATABASE_URL, url);
+});
+
+void test("plugin keys slug per-workspace regression dirs like the dev layout", () => {
+  const repoRoot = fixture();
+  writeFileSync(
+    join(repoRoot, "bos.config.json"),
+    JSON.stringify({
+      app: { api: { secrets: ["API_DATABASE_URL"] } },
+      plugins: {
+        "@acme/widget-plugin": { secrets: ["WIDGET_DATABASE_URL"] },
+      },
+    }),
+  );
+  writeFileSync(join(repoRoot, ".env.test"), "BETTER_AUTH_SECRET=test-secret\n");
+  const config = computeRegressionEnv({ repoRoot, env: {} });
+  assert.equal(
+    config.dbUrls.WIDGET_DATABASE_URL,
+    `pglite:${join(repoRoot, ".bos", "regression", "db")}/widget`,
+  );
 });
 
 void test("invalid modes fail before starting a stack", () => {
