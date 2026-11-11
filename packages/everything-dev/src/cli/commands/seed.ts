@@ -7,10 +7,18 @@ import type { CommandContext, ResultRenderer } from "./context";
  * Production seeding is explicit (#865): `bos seed --env production` must be
  * confirmed, and the owner bootstrap demands env-provided credentials
  * (enforced in the handler) — never config defaults, never boot side effects.
+ * Non-interactive stdin cannot confirm, so it must say so with `--yes`
+ * explicitly rather than hanging on a prompt nobody can answer.
  */
 export const seedPreCall = async (ctx: CommandContext): Promise<void> => {
   const input = ctx.input as { env?: string; yes?: boolean; [key: string]: unknown };
   if (input.env !== "production" || input.yes === true) return;
+  if (process.stdin.isTTY !== true) {
+    console.error(
+      "bos seed --env production writes production data — non-interactive environments must pass --yes to confirm",
+    );
+    process.exit(1);
+  }
   console.log();
   const confirmed = await p.confirm({
     message: "Seed the production databases? This writes data outside the deploy train.",

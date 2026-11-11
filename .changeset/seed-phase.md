@@ -26,7 +26,14 @@ declared in config, checked automatically, run when needed:
   and issues a session for the admin user instead of minting a duplicate.
 - **Production: explicit only** — `bos seed --env production` requires `postgres://` URLs,
   env-provided owner credentials (`SEED_OWNER_ADMIN_NEAR_ACCOUNT` / `SEED_OWNER_ADMIN_EMAIL`,
-  never config defaults), and a confirmation prompt; the deploy train never seeds.
+  never config defaults), and a confirmation prompt; non-interactive stdin must pass `--yes`
+  explicitly rather than hanging on a prompt. The deploy train never seeds.
+- **DevEx guards** — the phase refuses to run while a dev stack is live for the project (the
+  shared pid registry is checked when pglite URLs are in play — a cross-process seed would
+  block on the PGlite file lock indefinitely, ADR 0044); a seeded boot pays only the marker
+  read (migrations run only when the phase will actually seed); `SEED_STEP_TIMEOUT_MS` bounds
+  each step (SIGTERM → SIGKILL, default off).
 - Route `POST /seed` in the CLI contract; the runner (`services/seed/runner.ts`) and the marker
   semantics are the unit-tested contract surface (`tests/unit/seed-phase.test.ts`,
-  `tests/unit/seed-config.test.ts`). Docs: `docs/seed-phase.md`.
+  `tests/unit/seed-config.test.ts`) with the auth-schema provisioning canaried against the real
+  plugin migrations in `tests/integration/seed-phase.test.ts`. Docs: `docs/seed-phase.md`.

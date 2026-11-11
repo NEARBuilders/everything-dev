@@ -12,6 +12,7 @@ import type { WorkspaceIdentity } from "../../db/identity";
 import { workspaceIdentityFromWorkspaceDir } from "../../db/identity";
 import { loadMigrations, runMigrations } from "../../db/run-migrations";
 import type { SeedConfig, SeedOwnerAdmin } from "../../types";
+import { type PidEntry, pruneDead, readRegistry } from "../processes/registry";
 
 /**
  * The seed phase (#865): run the app's declared seed before services serve.
@@ -173,7 +174,12 @@ export function resolveSeedWorkspaces(
         };
     const hasMigrations =
       workspaceDir !== undefined && existsSync(migrationsJournalPath(workspaceDir));
-    if (!hasMigrations && workspaceDir === undefined && !env[identity.secretName]) {
+    // Addressable means the phase can at least open a database for the entry:
+    // a local workspace (pglite default applies) or an explicit URL in the
+    // environment. Skip only remotes we cannot address at all.
+    const addressable =
+      hasMigrations || workspaceDir !== undefined || Boolean(env[identity.secretName]);
+    if (!addressable) {
       continue;
     }
     workspaces.push({
@@ -422,13 +428,46 @@ async function runSeedStep(
   if (!existsSync(scriptPath)) {
     throw new SeedPhaseError(`seed step not found: ${step}`, "steps", step);
   }
+  const timeoutRaw = env.SEED_STEP_TIMEOUT_MS;
+  const timeoutParsed = timeoutRaw ? Number(timeoutRaw) : Number.NaN;
+  const timeoutMs = Number.isFinite(timeoutParsed) && timeoutParsed > 0 ? timeoutParsed : undefined;
   return new Promise((resolvePromise, reject) => {
+    // Own process group: the timeout must reach the whole step tree (tsx
+    // spawns the script as a child of itself — a bare child.kill can strand
+    // the inner process holding the pipes open).
     const child = spawn("pnpm", ["exec", "tsx", scriptPath], {
       cwd: configDir,
       env: env as NodeJS.ProcessEnv,
       stdio: "inherit",
+      detached: process.platform !== "win32",
     });
+    let timedOut = false;
+    let killTimer: NodeJS.Timeout | undefined;
+    const timer = timeoutMs
+      ? setTimeout(() => {
+          timedOut = true;
+          try {
+            if (child.pid) process.kill(-child.pid, "SIGTERM");
+          } catch {
+            child.kill("SIGTERM");
+          }
+          killTimer = setTimeout(() => {
+            try {
+              if (child.pid) process.kill(-child.pid, "SIGKILL");
+            } catch {
+              child.kill("SIGKILL");
+            }
+          }, 5_000);
+          killTimer.unref();
+        }, timeoutMs)
+      : undefined;
+    timer?.unref();
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+    };
     child.on("error", (cause) => {
+      cleanup();
       reject(
         new SeedPhaseError(
           `seed step "${step}" could not start (tsx must be installed at the workspace root): ${cause.message}`,
@@ -438,6 +477,17 @@ async function runSeedStep(
       );
     });
     child.on("exit", (code) => {
+      cleanup();
+      if (timedOut) {
+        reject(
+          new SeedPhaseError(
+            `seed step "${step}" timed out after ${timeoutMs}ms (SEED_STEP_TIMEOUT_MS) — steps are idempotent by contract; fix and re-run (bump seed.version or pass --force)`,
+            "steps",
+            step,
+          ),
+        );
+        return;
+      }
       if (code === 0) {
         resolvePromise();
         return;
@@ -453,9 +503,37 @@ async function runSeedStep(
   });
 }
 
+/**
+ * A dev stack holds its PGlite data dirs open for its services' lifetime — a
+ * cross-process seed run would queue on the file lock indefinitely (ADR 0044).
+ * Fail fast when the shared pid registry shows a live session for this
+ * project. Postgres workspaces are unaffected; an unreadable registry degrades
+ * to best-effort (proceed).
+ */
+export function guardAgainstLiveStack(configDir: string, workspaces: SeedWorkspace[]): void {
+  if (!workspaces.some((ws) => ws.url.startsWith("pglite:"))) return;
+  let live: PidEntry[];
+  try {
+    live = pruneDead(readRegistry());
+  } catch {
+    return;
+  }
+  const root = resolve(configDir);
+  const held = live.some((entry) => resolve(entry.configDir) === root);
+  if (held) {
+    throw new SeedPhaseError(
+      "a dev stack for this project appears to be running (`bos ps`) — its services hold this " +
+        "project's PGlite data dirs open and a seed run would block on the file lock. Stop it " +
+        "first (`bos kill`), then re-run.",
+      "guard",
+    );
+  }
+}
+
 export async function runSeedPhase(input: SeedPhaseInput): Promise<SeedPhaseResult> {
   const { seed, configDir, env, runtime } = input;
   const workspaces = resolveSeedWorkspaces(runtime, configDir, env);
+  guardAgainstLiveStack(configDir, workspaces);
   const api = workspaces.find((ws) => ws.key === "api");
   if (!api) {
     throw new SeedPhaseError(
@@ -465,8 +543,11 @@ export async function runSeedPhase(input: SeedPhaseInput): Promise<SeedPhaseResu
   }
   const auth = workspaces.find((ws) => ws.key === "auth");
 
-  const migrated = await ensureWorkspaceSchemas(workspaces);
-
+  // The marker gates everything: a matching version means the phase's writes
+  // already happened, so the boot pays one api-database open (the marker read)
+  // and skips migrations entirely — the services' in-process migrate-on-boot
+  // owns schema currency on that path. Migrations run only when the phase
+  // will actually seed.
   const markerWas = await readSeedMarker(api);
   const declaredSteps = seed.steps ?? [];
   if (!input.force && markerWas === seed.version) {
@@ -474,11 +555,13 @@ export async function runSeedPhase(input: SeedPhaseInput): Promise<SeedPhaseResu
       status: "already-seeded",
       version: seed.version,
       markerWas,
-      workspaces: migrated,
+      workspaces: [],
       owner: null,
       steps: [],
     };
   }
+
+  const migrated = await ensureWorkspaceSchemas(workspaces);
 
   const credential = resolveOwnerCredential(
     seed.auth?.ownerAdmin,

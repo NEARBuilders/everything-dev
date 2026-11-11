@@ -36,6 +36,12 @@ every local workspace's resolved `<SLUG>_DATABASE_URL` (e.g. `API_DATABASE_URL`,
 `AUTH_DATABASE_URL`, `VOTES_DATABASE_URL`), so scripts can address any
 workspace database without re-deriving secrets.
 
+A step that never exits (a network call without a timeout, an accidental
+prompt) would otherwise hang `bos dev` pre-spawn behind the phase spinner. Set
+`SEED_STEP_TIMEOUT_MS` in the environment to bound each step — the runner
+SIGTERMs the step at the deadline (SIGKILL five seconds later) and fails the
+phase loudly. Default: no timeout.
+
 ### The idempotency contract
 
 Steps run once per `seed.version`. They must be **idempotent — upserts, not
@@ -70,14 +76,21 @@ The phase must run pre-spawn by construction: in dev every workspace DB is a
 PGlite data dir held open by its service process for the process's lifetime
 (ADR 0044), and a cross-process open would block on the file lock. Sequential
 open→use→close before the services spawn is the only legal ordering, which is
-also why the phase applies migrations itself.
+also why the phase applies migrations itself. For the same reason, `bos seed`
+refuses to run while a dev stack is live for the project (the shared pid
+registry is checked when pglite URLs are in play) — `bos kill` first.
 
 ### The marker
 
-One row (`id = 'app'`) in the `bos_seed_state` table of the api database:
-`{ version, seeded_at, steps }`. A matching version short-circuits the phase —
-the second boot does nothing beyond the (idempotent) migration pass. Bump
-`seed.version` to re-run deliberately.
+- One row (`id = 'app'`) in the `bos_seed_state` table of the api database:
+  `{ version, seeded_at, steps }`. A matching version short-circuits the phase
+  — the second boot pays one api-database open (the marker read) and touches
+  nothing else; migrations run only when the phase will actually seed.
+- **Any version mismatch re-runs, including downgrades** — running an older
+  config against a newer-marker database re-runs the older declaration too.
+  The idempotency contract is what makes both directions safe.
+- Bump `seed.version` to re-run deliberately; `bos seed --force` re-runs at
+  the same version.
 
 ### The owner-admin bootstrap
 
@@ -108,8 +121,9 @@ Requirements, all enforced:
   declared, the owner identity must come from the environment, never the
   authored config: set `SEED_OWNER_ADMIN_NEAR_ACCOUNT` and/or
   `SEED_OWNER_ADMIN_EMAIL`.
-- **Confirmation** — the CLI asks before writing; `--yes` skips the prompt in
-  scripts.
+- **Confirmation** — the CLI asks before writing; `--yes` skips the prompt.
+  Non-interactive stdin (CI, scripts) cannot confirm and must pass `--yes`
+  explicitly rather than hanging on a prompt.
 - **Same marker semantics** — re-deploys don't re-seed; bump `seed.version`
   (or pass `--force`) to re-run.
 
