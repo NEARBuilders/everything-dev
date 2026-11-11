@@ -454,11 +454,15 @@ export const buildOnboardingService = ({
         return yield* new CodeRevoked({ message: "This onboarding code was revoked" });
       }
       if (toDate(codeRow.expiresAt) < dateFromMillis(yield* Clock.currentTimeMillis)) {
-        return yield* new CodeExpired({ message: "This onboarding code has expired" });
+        return yield* new CodeExpired({
+          message: "This onboarding code has expired",
+          expiresAt: toDate(codeRow.expiresAt),
+        });
       }
       if (codeRow.usedCount >= codeRow.maxUses) {
         return yield* new CodeLimitReached({
           message: "This onboarding code has reached its limit",
+          maxUses: codeRow.maxUses,
         });
       }
 
@@ -575,6 +579,7 @@ export const buildOnboardingService = ({
           if (!updated) {
             throw new CodeLimitReached({
               message: "This onboarding code has reached its limit",
+              maxUses: codeRow.maxUses,
             });
           }
 

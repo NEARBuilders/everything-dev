@@ -292,7 +292,7 @@ describe("onboarding handlers", () => {
         context: { reqHeaders: newcomer.reqHeaders },
       }),
     ).rejects.toMatchObject({
-      code: "FORBIDDEN",
+      code: "MEMBERSHIP_ENDED",
       message: expect.stringMatching(/no longer a member/i),
       data: { action: MEMBERSHIP_ENDED_ACTION },
     });
@@ -333,7 +333,7 @@ describe("onboarding handlers", () => {
         input: { code: code.code },
         context: { reqHeaders: second.reqHeaders },
       }),
-    ).rejects.toThrow(/reached its limit/i);
+    ).rejects.toMatchObject({ code: "CODE_EXHAUSTED", data: { maxUses: 1 } });
 
     const member = await services.services.db.query.member.findFirst({
       where: and(eq(schema.member.userId, second.userId), eq(schema.member.organizationId, org.id)),
