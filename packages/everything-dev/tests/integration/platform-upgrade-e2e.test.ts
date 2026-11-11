@@ -1168,6 +1168,7 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
 
 describe("#874 replay — a root republish must not move a pinned child's host bytes", () => {
   const SLOT = "/bundles/dev.everything.near/everything.dev/host";
+  const anyEntryIntegrity = computeManifestSri("{}");
   const VERSION_DIR = "versions/0123456789abcdef";
   const oldGeneration = JSON.stringify({
     metaData: { pluginVersion: "2.0.0-rc.43-old" },
@@ -1182,12 +1183,12 @@ describe("#874 replay — a root republish must not move a pinned child's host b
   const legacyDoc = JSON.stringify({
     version: "fedcba9876543210",
     entry: "remoteEntry.legacy.js",
-    entryIntegrity: computeManifestSri("{}"),
+    entryIntegrity: anyEntryIntegrity,
   });
   const versionDoc = JSON.stringify({
     version: "0123456789abcdef",
     entry: "remoteEntry.0123abcd.js",
-    entryIntegrity: computeManifestSri("{}"),
+    entryIntegrity: anyEntryIntegrity,
     dir: VERSION_DIR,
   });
   let server: Server;

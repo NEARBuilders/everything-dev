@@ -240,17 +240,16 @@ const SHARED_DEP_DRIFT_MARKER = "Could not resolve shared dependency";
 
 function hostSkewRemediation(
   cause: unknown,
-  runtimeConfig: RuntimeConfig,
+  image: ReturnType<typeof readInImagePlatformManifest>,
+  digest: RuntimeConfig["host"]["digest"],
   remoteUrl: string,
 ): string {
   const message = cause instanceof Error ? cause.message : String(cause);
   if (!message.includes(SHARED_DEP_DRIFT_MARKER)) return "";
-  const image = readInImagePlatformManifest();
-  const pin = runtimeConfig.host.digest;
   return (
     "\nHost release skew — the host bundle's shared singletons do not resolve in this image:\n" +
     `  image: ${image?.frameworkVersion ?? "unknown"}\n` +
-    `  pin:   ${pin ? `${pin.manifest} at ${remoteUrl}` : `${remoteUrl} (unpinned)`}\n` +
+    `  pin:   ${digest ? `${digest.manifest} at ${remoteUrl}` : `${remoteUrl} (unpinned)`}\n` +
     "  fix:   bos upgrade && bos deploy — move the release pin and the image together"
   );
 }
@@ -279,6 +278,7 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
     // pin never named, and the boot composed them anyway).
     const slotRootManifestUrl = `${baseUrl}/mf-manifest.json`;
     const hostPin = runtimeConfig.host.digest;
+    const imageManifest = readInImagePlatformManifest();
     let manifestUrl = slotRootManifestUrl;
     if (hostPin) {
       const resolvedPin = yield* Effect.tryPromise({
@@ -295,16 +295,12 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
         // Development keeps the unpinned fallback: an unresolved pin degrades
         // to the fixed name exactly as deriveVersionManifestFields tolerates
         // there; published configs fail loud (the pin is the boot contract).
-        Effect.tapError((error) =>
+        Effect.catchTag("OrchestratorError", (error) =>
           runtimeConfig.env === "development"
             ? Effect.logWarning(
                 `[host pin] ${hostPin.manifest} failed to resolve, continuing unpinned (development): ${error.detail}`,
-              )
-            : Effect.void,
-        ),
-        Effect.catchIf(
-          (_error): _error is OrchestratorError => runtimeConfig.env === "development",
-          () => Effect.succeed(null),
+              ).pipe(Effect.as(null))
+            : Effect.fail(error),
         ),
       );
       if (resolvedPin) {
@@ -382,7 +378,7 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
           operation: "load host module",
           detail:
             `${cause instanceof Error ? cause.message : String(cause)}` +
-            hostSkewRemediation(cause, runtimeConfig, remoteUrl),
+            hostSkewRemediation(cause, imageManifest, runtimeConfig.host.digest, remoteUrl),
           cause,
         }),
     }).pipe(
@@ -410,13 +406,12 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
     // The serving build's identity (#537): the host remote cannot read the
     // in-image platform manifest itself (its import.meta.url is a CDN URL),
     // so the booting process resolves it once and injects it.
-    const manifest = readInImagePlatformManifest();
-    const platform = manifest
+    const platform = imageManifest
       ? {
-          frameworkVersion: manifest.frameworkVersion,
-          everyPluginVersion: manifest.everyPluginVersion,
-          gitSha: manifest.gitSha,
-          image: manifest.image,
+          frameworkVersion: imageManifest.frameworkVersion,
+          everyPluginVersion: imageManifest.everyPluginVersion,
+          gitSha: imageManifest.gitSha,
+          image: imageManifest.image,
         }
       : undefined;
     const serverHandle = hostModule.runServer({

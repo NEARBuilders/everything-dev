@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pinnedManifestDocumentUrl } from "../../src/services/deploy/version-manifest";
 import { OrchestratorError, spawnRemoteHost } from "../../src/services/dev/orchestrator";
@@ -191,16 +191,11 @@ describe("pinnedManifestDocumentUrl", () => {
   });
 });
 
-/** Effect v4 Cause shape — failures ride `cause.reasons[]` (Fail/Die/Interrupt);
- * the toJSON rendering names them differently, so access the real slot. */
-const inlineFailure = (exit: { _tag: string; cause?: unknown }): OrchestratorError | undefined => {
-  if (exit._tag !== "Failure") return undefined;
-  const cause = exit.cause as
-    | { reasons?: ReadonlyArray<{ _tag: string; error?: unknown; defect?: unknown }> }
-    | undefined;
-  const reason = cause?.reasons?.find((r) => r._tag === "Fail" || r._tag === "Die");
-  if (!reason) return undefined;
-  return ((reason.error ?? reason.defect) as OrchestratorError) ?? undefined;
+/** The library-blessed failure accessor — no Cause-shape walking, no
+ * toJSON guessing; Exit.findError returns the first fail-reason error. */
+const failureOf = (exit: Exit<unknown, unknown>): OrchestratorError | undefined => {
+  const found = Exit.findError(exit);
+  return found._tag === "Success" ? (found.success as OrchestratorError) : undefined;
 };
 
 const dumpCause = (exit: unknown): string =>
@@ -287,7 +282,7 @@ describe("spawnRemoteHost — the #874 replay: a root publish must not move a pi
     );
 
     expect(exit._tag).toBe("Failure");
-    const failure = inlineFailure(exit);
+    const failure = failureOf(exit);
     expect(failure, dumpCause(exit)).toBeInstanceOf(OrchestratorError);
     expect(failure?.message).toContain("resolve host pin");
     expect(failure?.message).toContain("versions/v1.json");
@@ -310,7 +305,7 @@ describe("spawnRemoteHost — the #874 replay: a root publish must not move a pi
     );
 
     expect(exit._tag).toBe("Failure");
-    const failure = inlineFailure(exit);
+    const failure = failureOf(exit);
     const message = failure?.message ?? "";
     expect(message, dumpCause(exit)).toContain("Could not resolve shared dependency");
     expect(message).toContain("Host release skew");
