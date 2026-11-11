@@ -75,11 +75,14 @@ export default defineConfig({
     {
       // The dev server is smoke-only — boot + one page per render mode + the
       // redirect spec. Its resource profile must never stall CI again.
+      // app-load is the ui-only PR gate (#826): the smoke script filters this
+      // project down to that spec by file argument.
       name: "dev:ssr",
       testMatch: [
         "specs/dev-ssr-hydration.spec.ts",
         "specs/csr-compose.spec.ts",
         "specs/auth-redirect.spec.ts",
+        "specs/app-load.spec.ts",
       ],
     },
     {
