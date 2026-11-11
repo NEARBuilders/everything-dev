@@ -187,12 +187,6 @@ export class PluginRuntime<R = RegisteredPlugins> {
       }
     }
 
-    // Create client factory that accepts request context. The plugin's
-    // Effect context is injected so `.effect()` handlers resolve services
-    // on in-process (server-side / SSR) calls. In development, a context
-    // missing keys the plugin declares as required warns at construction —
-    // the footgun this guards against is failing deep inside the first route
-    // call, far from the factory call that dropped the credentials.
     const createClient = (context?: any) => {
       if (process.env.NODE_ENV !== "production") {
         this.warnOnMissingRequiredContext(initialized, context);
@@ -214,10 +208,9 @@ export class PluginRuntime<R = RegisteredPlugins> {
   }
 
   /**
-   * Warns once per (plugin, missing-keys) combination when a client is
-   * created without context keys the plugin's declared context schema marks
-   * required. Development-only: the runtime stays auth-agnostic — this reads
-   * the schema, never the semantics of any particular key.
+   * Warns once per (plugin, missing-keys) when a client is created without
+   * context keys the plugin's declared context schema marks required.
+   * Development-only and schema-driven — the runtime stays auth-agnostic.
    */
   private warnOnMissingRequiredContext(
     initialized: InitializedPlugin<AnyPlugin>,

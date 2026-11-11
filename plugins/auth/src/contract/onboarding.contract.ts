@@ -1,10 +1,7 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
-import { RATE_LIMITED } from "every-plugin/errors";
 import { z } from "zod";
-import { OnboardingErrors } from "./errors";
-
-const RateLimitedOnboardingErrors = { ...OnboardingErrors, RATE_LIMITED } as const;
+import { OnboardingErrors, OnboardingRateLimitedErrors } from "./errors";
 
 import { onboardingCodeSummarySchema, onboardingStatsSchema } from "./schemas";
 
@@ -38,7 +35,7 @@ export const onboardingRoutes = {
     .route({ method: "POST", path: "/v1/auth/onboarding/codes/standing/rotate" })
     .input(z.object({ organizationId: z.string().optional(), eventId: z.string().optional() }))
     .output(onboardingCodeSummarySchema.extend({ code: z.string() }))
-    .errors(RateLimitedOnboardingErrors),
+    .errors(OnboardingRateLimitedErrors),
 
   getStandingOnboardingCode: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/codes/standing" })
@@ -134,5 +131,5 @@ export const onboardingRoutes = {
         eventName: z.string().nullable(),
       }),
     )
-    .errors(RateLimitedOnboardingErrors),
+    .errors(OnboardingRateLimitedErrors),
 };

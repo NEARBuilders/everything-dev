@@ -78,6 +78,8 @@ export function createOnboardingHandlers(
     rotateStandingOnboardingCode: builder.rotateStandingOnboardingCode
       .use(requireAuth)
       .effect(function* ({ input, context }) {
+        const limiter = yield* RateLimiterTag;
+        yield* mapDomainError(limiter.enforce("createOnboardingCode", context.userId));
         const onboarding = yield* OnboardingService;
         return yield* mapDomainError(onboarding.rotateStandingOnboardingCode(context, input));
       }),

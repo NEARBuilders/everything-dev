@@ -3,6 +3,7 @@ import {
   BAD_REQUEST,
   FORBIDDEN,
   NOT_FOUND,
+  RATE_LIMITED,
   SERVICE_UNAVAILABLE,
   UNAUTHORIZED,
 } from "every-plugin/errors";
@@ -72,4 +73,9 @@ export const OnboardingErrors = {
 export const InvitationErrors = {
   ...Errors,
   ALREADY_MEMBER,
+} as const;
+
+export const OnboardingRateLimitedErrors = {
+  ...OnboardingErrors,
+  RATE_LIMITED,
 } as const;

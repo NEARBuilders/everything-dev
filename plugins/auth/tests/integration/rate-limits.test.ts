@@ -41,9 +41,11 @@ describe("rate limiter", () => {
   it("is a no-op for operations without configured rules", async () => {
     const limiter = createRateLimiter({});
     for (let i = 0; i < 5; i++) {
-      await limiter.enforce("redeemOnboardingCode", "user-1").pipe(Effect.runPromise);
+      const outcome = await limiter
+        .enforce("redeemOnboardingCode", "user-1")
+        .pipe(Effect.runPromise);
+      expect(outcome).toBeUndefined();
     }
-    expect(true).toBe(true);
   });
 });
 

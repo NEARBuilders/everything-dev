@@ -13,10 +13,7 @@ export interface RateRule {
 
 export type RateRules = Partial<Record<RateLimitOperation, RateRule>>;
 
-export interface RateDecision {
-  allowed: boolean;
-  retryAfterSeconds: number;
-}
+export type RateLimiterService = typeof RateLimiter.Service;
 
 export class RateLimiter extends Context.Service<
   RateLimiter,
@@ -28,7 +25,7 @@ export class RateLimiter extends Context.Service<
   }
 >()("auth/RateLimiter") {}
 
-export const createRateLimiter = (rules: RateRules = {}): typeof RateLimiter.Service => {
+export const createRateLimiter = (rules: RateRules = {}): RateLimiterService => {
   const buckets = new Map<string, { count: number; resetAt: number }>();
 
   return {
@@ -38,6 +35,11 @@ export const createRateLimiter = (rules: RateRules = {}): typeof RateLimiter.Ser
         if (!rule) return;
 
         const now = Date.now();
+        if (buckets.size > 256) {
+          for (const [key, bucket] of buckets) {
+            if (bucket.resetAt <= now) buckets.delete(key);
+          }
+        }
         const key = `${operation}:${subject}`;
         const bucket = buckets.get(key);
         if (!bucket || bucket.resetAt <= now) {
