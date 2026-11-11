@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "../../src/db/schema";
 import {
@@ -396,6 +396,73 @@ describe("admin organizations", () => {
     } finally {
       await limited.driver.close();
     }
+  });
+
+  it("adds a member without the admin belonging to the organization", async () => {
+    const handlers = createTestHandlers(setup.services).adminOrganizations;
+    const org = await createTestOrg(setup.services, member.userId);
+    const outsider = await createTestUser(setup.services);
+
+    const added = await handlers.adminAddMember({
+      input: { organizationId: org.id, userId: outsider.userId, role: "member" },
+      context: { reqHeaders: admin.reqHeaders },
+    });
+    expect(added).toMatchObject({
+      organizationId: org.id,
+      userId: outsider.userId,
+      role: "member",
+    });
+
+    const row = await setup.services.db.query.member.findFirst({
+      where: and(
+        eq(schema.member.organizationId, org.id),
+        eq(schema.member.userId, outsider.userId),
+      ),
+    });
+    expect(row).toMatchObject({ role: "member" });
+
+    await expect(
+      handlers.adminAddMember({
+        input: { organizationId: org.id, userId: outsider.userId, role: "member" },
+        context: { reqHeaders: admin.reqHeaders },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      handlers.adminAddMember({
+        input: { organizationId: org.id, userId: "missing-user", role: "member" },
+        context: { reqHeaders: admin.reqHeaders },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("refuses to demote the only owner of an organization", async () => {
+    const handlers = createTestHandlers(setup.services).adminOrganizations;
+    const org = await createTestOrg(setup.services, member.userId);
+    const second = await createTestUser(setup.services);
+
+    await expect(
+      handlers.adminUpdateMemberRole({
+        input: { organizationId: org.id, userId: member.userId, role: "member" },
+        context: { reqHeaders: admin.reqHeaders },
+      }),
+    ).rejects.toThrow();
+
+    const stillOwner = await setup.services.db.query.member.findFirst({
+      where: and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, member.userId)),
+    });
+    expect(stillOwner?.role).toBe("owner");
+
+    await handlers.adminAddMember({
+      input: { organizationId: org.id, userId: second.userId, role: "owner" },
+      context: { reqHeaders: admin.reqHeaders },
+    });
+
+    const demoted = await handlers.adminUpdateMemberRole({
+      input: { organizationId: org.id, userId: member.userId, role: "member" },
+      context: { reqHeaders: admin.reqHeaders },
+    });
+    expect(demoted.role).toBe("member");
   });
 
   it("creates, updates, and deletes teams", async () => {

@@ -29,7 +29,7 @@ import { OrphanSweepLive } from "./orphan-sweep";
 import { AuthServicesTag } from "./service-types";
 import { buildAuthServicesLayer } from "./service-wiring";
 import { toError } from "./utils";
-import { socialProviderWarnings } from "./warnings";
+import { cookieDomainWarnings, socialProviderWarnings } from "./warnings";
 
 export default createPlugin.withPlugins<PluginsClient>()({
   variables: authVariablesSchema,
@@ -44,7 +44,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
   servicesTag: AuthServicesTag,
 
-  warnings: socialProviderWarnings,
+  warnings: (config) => [...socialProviderWarnings(config), ...cookieDomainWarnings(config)],
 
   initialize: (config) =>
     Effect.gen(function* () {

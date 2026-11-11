@@ -89,6 +89,7 @@ export function buildAuthServicesLayer(services: PluginServices) {
       buildAdminOrganizationsService({
         auth: services.auth,
         db: services.db,
+        membershipPolicy: services.membershipPolicy,
         registry: services.permissionRegistry,
       }),
     ),

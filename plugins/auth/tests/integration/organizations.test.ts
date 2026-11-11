@@ -124,7 +124,7 @@ describe("organization handlers", () => {
           input: { organizationId: organization.id },
           context: { reqHeaders: otherUser.reqHeaders },
         }),
-      ).rejects.toThrow("Admin access required");
+      ).rejects.toThrow("Requires role: admin");
     });
   });
 
