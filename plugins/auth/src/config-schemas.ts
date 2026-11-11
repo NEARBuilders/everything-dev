@@ -159,6 +159,23 @@ export const authVariablesSchema = z.object({
       trustedProxies: z.array(z.string()).optional(),
     })
     .optional(),
+  crossSubDomainCookies: z
+    .object({
+      enabled: z.boolean(),
+      domain: z
+        .string()
+        .trim()
+        .regex(
+          /^\.[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i,
+          'must be a dot-prefixed registrable domain (e.g. ".example.com")',
+        )
+        .optional(),
+    })
+    .refine((cookies) => !cookies.enabled || cookies.domain !== undefined, {
+      message:
+        "domain is required when crossSubDomainCookies is enabled — siblings can only send a cookie scoped to a named domain",
+    })
+    .optional(),
 });
 
 export const authSecretsSchema = z.object({
