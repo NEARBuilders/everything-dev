@@ -234,11 +234,15 @@ Generated type bridges connect contract to UI/API:
 
 ## In-Process Plugin Composition
 
-Another plugin receives the auth client via `createPlugin.withPlugins<PluginsClient>()`. In `initialize`, `plugins.auth` is a `ClientFactory<authContract>` — call it with request context for a typed oRPC client:
+Another plugin receives the auth client via `createPlugin.withPlugins<PluginsClient>()`. Each entry is `{ client, router }` — `client` is the context-taking factory. Capture it in `initialize`; derive the caller-scoped client where a request context exists:
 
 ```typescript
-const auth = await plugins.auth({ context });
-const session = await auth.getAuthContext();
+// initialize — capture the factory
+initialize: (config, plugins) => Effect.succeed({ authClient: plugins.auth.client, ... });
+
+// in a route handler or middleware — derive from the caller's context
+const auth = plugins.auth.client({ reqHeaders: context.reqHeaders, user: context.user, session: context.session });
+const session = await auth.getContext();
 ```
 
 Create typed middleware from auth context using `createAuthMiddleware(builder)`:
@@ -356,7 +360,7 @@ interface AuthRequestContext {
 Register auth under `app.auth` in `bos.config.json` with `variables.siwn.recipients.{mainnet,testnet}`, keep `ui/src/lib/auth.ts` as the re-export of `everything-dev/ui/auth` (`createAuthClient`, `useAuthClient`, `sessionQueryOptions`), and add an `_authenticated.tsx` layout that runs `sessionQueryOptions(context.authClient, context.session)` in `beforeLoad` and redirects to `/login`.
 
 **"My plugin needs the signed-in user's NEAR account."**
-In the plugin's `initialize` composed with auth, call `const auth = await plugins.auth({ context })` then `auth.getAuthContext()`; or in a route use the `requireAuth` middleware from `createAuthMiddleware(builder)` and read `context.userId` / `context.near.primaryAccountId` from the narrowed context.
+Capture `plugins.auth.client` in `initialize`, then derive per request with `const auth = plugins.auth.client({ reqHeaders: context.reqHeaders, ...authContext })` and `await auth.getContext()`; or in a route use the `requireAuth` middleware from `createAuthMiddleware(builder)` and read `context.userId` / `context.near.primaryAccountId` from the narrowed context.
 
 **"`authClient.near.client` no longer compiles."**
 Removed in 1.8.1 — switch to `authClient.near.getNearClient()` (throws on the server, so call it only in client-side handlers).

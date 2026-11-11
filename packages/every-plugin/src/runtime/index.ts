@@ -32,6 +32,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
   private routerCache = new Map<string, PluginRouterType<any>>();
   private cacheLeafIds = new WeakMap<object, number>();
   private nextCacheLeafId = 0;
+  private warnedMissingContext = new Set<string>();
 
   constructor(
     private runtime: ManagedRuntime.ManagedRuntime<PluginService, never>,
@@ -188,14 +189,21 @@ export class PluginRuntime<R = RegisteredPlugins> {
 
     // Create client factory that accepts request context. The plugin's
     // Effect context is injected so `.effect()` handlers resolve services
-    // on in-process (server-side / SSR) calls.
-    const createClient = (context?: any) =>
-      createRouterClient(router, {
+    // on in-process (server-side / SSR) calls. In development, a context
+    // missing keys the plugin declares as required warns at construction —
+    // the footgun this guards against is failing deep inside the first route
+    // call, far from the factory call that dropped the credentials.
+    const createClient = (context?: any) => {
+      if (process.env.NODE_ENV !== "production") {
+        this.warnOnMissingRequiredContext(initialized, context);
+      }
+      return createRouterClient(router, {
         context: {
           ...context,
           "effect/context": initialized.effectContext,
         },
       });
+    };
 
     return {
       createClient: createClient as any,
@@ -203,6 +211,39 @@ export class PluginRuntime<R = RegisteredPlugins> {
       metadata: initialized.metadata,
       initialized: initialized as InitializedPlugin<RegisteredPlugin<K, R>>,
     } as UsePluginResult<K, R>;
+  }
+
+  /**
+   * Warns once per (plugin, missing-keys) combination when a client is
+   * created without context keys the plugin's declared context schema marks
+   * required. Development-only: the runtime stays auth-agnostic — this reads
+   * the schema, never the semantics of any particular key.
+   */
+  private warnOnMissingRequiredContext(
+    initialized: InitializedPlugin<AnyPlugin>,
+    context: unknown,
+  ): void {
+    const schema = initialized.plugin.configSchema.context;
+    if (!schema || typeof schema !== "object" || !("shape" in schema)) return;
+
+    const shape = (schema as { shape: Record<string, unknown> }).shape;
+    const record = (context ?? {}) as Record<string, unknown>;
+    const missing = Object.keys(shape).filter((key) => {
+      const field = shape[key] as { isOptional?: () => boolean } | undefined;
+      if (field && typeof field.isOptional === "function" && field.isOptional()) return false;
+      return record[key] === undefined;
+    });
+    if (missing.length === 0) return;
+
+    const warnKey = `${initialized.config.pluginId}:${missing.join(",")}`;
+    if (this.warnedMissingContext.has(warnKey)) return;
+    this.warnedMissingContext.add(warnKey);
+
+    console.warn(
+      `[every-plugin] ${initialized.config.pluginId}.client() created without declared context key(s): ${missing.join(", ")}. ` +
+        `Routes that need them will fail on the first call with an unrelated-looking error, far from this construction site. ` +
+        `Forward them from the caller's request context (e.g. reqHeaders).`,
+    );
   }
 
   async loadPlugin<K extends keyof R & string>(

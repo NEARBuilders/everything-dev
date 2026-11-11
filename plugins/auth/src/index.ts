@@ -37,7 +37,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
   secrets: authSecretsSchema,
 
   context: z.object({
-    reqHeaders: z.record(z.string(), z.string()).optional(),
+    reqHeaders: z.record(z.string(), z.string()),
   }),
 
   contract,
