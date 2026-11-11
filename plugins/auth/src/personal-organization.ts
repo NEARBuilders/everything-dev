@@ -1,9 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, exists, or, sql } from "drizzle-orm";
 import type { Database } from "./db/layer";
 import * as schema from "./db/schema";
 import { tryJsonParse } from "./utils";
 
 export const PERSONAL_ORGANIZATION_METADATA = JSON.stringify({ isPersonal: true });
+
+const PERSONAL_METADATA_PATTERN = '"isPersonal"\\s*:\\s*true\\s*[,}\\]]';
 
 export function isPersonalOrganization(
   organization: { slug: string; metadata?: unknown } | null | undefined,
@@ -23,12 +25,31 @@ export function isPersonalOrganization(
 }
 
 export async function findPersonalOrganization(database: Database, userId: string) {
-  return database.query.organization.findFirst({
-    where: and(
-      eq(schema.organization.slug, userId),
-      eq(schema.organization.metadata, PERSONAL_ORGANIZATION_METADATA),
-    ),
-  });
+  const [organization] = await database
+    .select()
+    .from(schema.organization)
+    .where(
+      or(
+        eq(schema.organization.slug, userId),
+        and(
+          sql`${schema.organization.metadata} ~ ${PERSONAL_METADATA_PATTERN}`,
+          exists(
+            database
+              .select()
+              .from(schema.member)
+              .where(
+                and(
+                  eq(schema.member.userId, userId),
+                  eq(schema.member.organizationId, schema.organization.id),
+                ),
+              ),
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(schema.organization.createdAt), asc(schema.organization.id))
+    .limit(1);
+  return organization ?? null;
 }
 
 export async function ensurePersonalOrganization(
