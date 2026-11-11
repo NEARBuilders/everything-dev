@@ -41,8 +41,13 @@ export class OrganizationsService extends Context.Service<
         slug: string;
         logo?: string | null;
         metadata?: Record<string, unknown>;
+        activate?: boolean;
       },
     ) => Effect.Effect<InferOutput<"createOrganization">, AuthFailure>;
+    getOrganization: (
+      headers: Headers,
+      input: { organizationId?: string; organizationSlug?: string },
+    ) => Effect.Effect<InferOutput<"getOrganization">, AuthFailure>;
     setActiveOrganization: (
       headers: Headers,
       organizationId: string | null,
@@ -192,6 +197,7 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
         slug: string;
         logo?: string | null;
         metadata?: Record<string, unknown>;
+        activate?: boolean;
       },
     ) =>
       attemptAuth(() =>
@@ -202,6 +208,7 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
             slug: input.slug,
             logo: input.logo,
             metadata: input.metadata,
+            keepCurrentActiveOrganization: input.activate === false,
           },
         }),
       ).pipe(
@@ -209,6 +216,25 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
           ...toOrganizationInfo(result),
           createdAt: toDate(result.createdAt),
         })),
+      ),
+
+    getOrganization: (
+      headers: Headers,
+      input: { organizationId?: string; organizationSlug?: string },
+    ) =>
+      attemptAuth(() =>
+        auth.api.getOrganization({
+          headers,
+          query: { organizationId: input.organizationId, organizationSlug: input.organizationSlug },
+        }),
+      ).pipe(
+        Effect.catchTag("AuthApiError", (error) => {
+          if (error.code === "BAD_REQUEST" && error.message === "Organization not found") {
+            return Effect.succeed(null);
+          }
+          return Effect.fail(error);
+        }),
+        Effect.map((result: any) => (result ? toOrganizationInfo(result) : null)),
       ),
 
     setActiveOrganization: (headers: Headers, organizationId: string | null) =>

@@ -48,6 +48,19 @@ export function createOrganizationHandlers(
         return yield* mapDomainError(organizations.getOrganizationById(input.organizationId));
       }),
 
+    getOrganization: builder.getOrganization.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }) {
+      const organizations = yield* OrganizationsService;
+      return yield* mapDomainError(
+        organizations.getOrganization(createHeaders(context.reqHeaders), {
+          organizationId: input?.organizationId,
+          organizationSlug: input?.organizationSlug,
+        }),
+      );
+    }),
+
     createOrganization: builder.createOrganization.use(requireAuth).effect(function* ({
       input,
       context,

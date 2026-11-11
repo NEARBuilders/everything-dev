@@ -412,3 +412,45 @@ Email visibility is a role grant: `email: ["read"]` on a role controls whether i
 members see other members' emails. `getContext` returns the caller's effective
 permissions as a nullable `permissions` map; routes in any plugin gate on it with
 `requirePermission(resource, action)`.
+
+## Idempotent org activation (composed flows)
+
+Create-or-reuse in two calls, no CONFLICT-recovery code:
+
+```ts
+const existing = await auth.getOrganization({ organizationSlug: slug }); // null when absent
+const org = existing ?? await auth.createOrganization({ name, slug, activate: false });
+```
+
+`activate: false` (mapped to better-auth's `keepCurrentActiveOrganization`) leaves the
+caller's active organization untouched — composed flows that must not disturb the
+session pass it; restore deterministically with `setActiveOrganization({ organizationId: null })`
+or re-set the intended org. The default (`activate: true`) preserves better-auth's
+create-switches-active behavior. `checkSlug` remains the typed existence probe when
+you only need "is this slug taken".
+
+## Abuse-control primitives (levers, not policy)
+
+The plugin ships no admission policy (#857 — policy is the app's job); it ships the levers:
+
+**Rate limits** — configure per operation in `variables.abuseControl.rateLimits`
+(`createOrganization`, `createOnboardingCode`, `redeemOnboardingCode`; each
+`{ window, max }` in seconds, keyed per caller). Limited calls fail with the
+declared `RATE_LIMITED` error carrying `retryAfterSeconds` and `limitType: "requests"`:
+
+```jsonc
+"abuseControl": {
+  "rateLimits": {
+    "createOrganization": { "window": 3600, "max": 3 }
+  }
+}
+```
+
+The limiter is in-memory per plugin instance — multi-instance hosts share no
+counters. Absent rules mean unlimited.
+
+**Gate signals** — already resolved in the request context; the intended inputs for
+app-side admission decisions: `user.isAnonymous` (anonymous-provisioned accounts),
+`user.emailVerified`, account age (`user.createdAt` vs now), and NEAR linkage
+(`near.hasNearAccount` / `near.primaryAccountId`). Compose them in your own oRPC
+middleware before the auth call — no plugin default policy exists.

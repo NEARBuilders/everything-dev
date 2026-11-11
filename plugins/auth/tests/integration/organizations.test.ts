@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as schema from "../../src/db/schema";
 import {
@@ -362,6 +362,74 @@ describe("organization handlers", () => {
         context: { reqHeaders: user.reqHeaders },
       });
       expect(result.daoAccountId).toBeNull();
+    });
+  });
+
+  describe("getOrganization", () => {
+    it("returns lightweight org info by slug and null for unknown", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId, {
+        name: "Slug Org",
+        slug: `slug-org-${crypto.randomUUID().slice(0, 8)}`,
+      });
+      const handlers = createTestHandlers(services.services);
+
+      const found = await handlers.organizations.getOrganization({
+        input: { organizationSlug: org.slug },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      expect(found?.id).toBe(org.id);
+      expect(found?.slug).toBe(org.slug);
+
+      const missing = await handlers.organizations.getOrganization({
+        input: { organizationSlug: `nope-${crypto.randomUUID().slice(0, 8)}` },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      expect(missing).toBeNull();
+    });
+  });
+
+  describe("createOrganization activate semantics", () => {
+    it("defaults to switching the active organization; activate:false keeps it", async () => {
+      const user = await createTestUser(services.services);
+      const first = await createTestOrg(services.services, user.userId, {
+        slug: `act-a-${crypto.randomUUID().slice(0, 8)}`,
+      });
+      const handlers = createTestHandlers(services.services);
+
+      await handlers.organizations.setActiveOrganization({
+        input: { organizationId: first.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      await handlers.organizations.createOrganization({
+        input: {
+          name: "Side Org",
+          slug: `act-b-${crypto.randomUUID().slice(0, 8)}`,
+          activate: false,
+        },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      const sessionAfterKeep = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.userId, user.userId),
+        orderBy: (s) => desc(s.createdAt),
+      });
+      expect(sessionAfterKeep?.activeOrganizationId).toBe(first.id);
+
+      const switched = await handlers.organizations.createOrganization({
+        input: {
+          name: "Main Org",
+          slug: `act-c-${crypto.randomUUID().slice(0, 8)}`,
+        },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      const sessionAfterSwitch = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.userId, user.userId),
+        orderBy: (s) => desc(s.createdAt),
+      });
+      expect(sessionAfterSwitch?.activeOrganizationId).toBe(switched.id);
     });
   });
 });

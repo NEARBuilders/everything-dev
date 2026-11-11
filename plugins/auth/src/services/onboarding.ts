@@ -154,7 +154,7 @@ export const buildOnboardingService = ({
       const eventId = input.eventId?.trim() || null;
       const eventName = input.eventName?.trim() || null;
       const maxUses = input.maxUses ?? DEFAULT_MAX_USES;
-      const standing = maxUses === 0 && input.expiresAt === null;
+      const isStanding = maxUses === 0 && input.expiresAt === null;
       const nowMs = yield* Clock.currentTimeMillis;
       const now = dateFromMillis(nowMs);
       const expiresAt = input.expiresAt === null ? null : resolveExpiry(input.expiresAt, nowMs);
@@ -164,10 +164,11 @@ export const buildOnboardingService = ({
         });
       }
 
-      if (standing) {
+      if (isStanding) {
         const existing = yield* Effect.promise(() => findStandingCode(db, organizationId, eventId));
-        if (existing?.encryptedCode) {
-          const code = yield* Effect.promise(() => cipher.decrypt(existing.encryptedCode!));
+        const encrypted = existing?.encryptedCode ?? null;
+        if (existing !== null && encrypted !== null) {
+          const code = yield* Effect.promise(() => cipher.decrypt(encrypted));
           return { ...toOnboardingSummary(existing), code };
         }
       }
@@ -177,28 +178,21 @@ export const buildOnboardingService = ({
       );
       const code = generateCode();
       const encryptedCode = yield* Effect.promise(() => cipher.encrypt(code));
-      const [row] = yield* attemptDb(() =>
-        db
-          .insert(schema.onboardingCode)
-          .values({
-            id: crypto.randomUUID(),
-            codeHash: hashCode(code),
-            encryptedCode,
-            organizationId,
-            eventId,
-            eventName,
-            teamId,
-            role: "member",
-            maxUses,
-            usedCount: 0,
-            expiresAt,
-            createdBy: userId,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning(),
+      const row = yield* attemptDb(() =>
+        insertOnboardingCode(db, {
+          codeHash: hashCode(code),
+          encryptedCode,
+          organizationId,
+          eventId,
+          eventName,
+          teamId,
+          maxUses,
+          expiresAt,
+          createdBy: userId,
+          now,
+        }),
       );
-      if (!row) {
+      if (row === null) {
         return yield* new CodeCreateFailed({ message: "Failed to create code" });
       }
 
@@ -248,28 +242,21 @@ export const buildOnboardingService = ({
         );
         const code = generateCode();
         const encryptedCode = yield* Effect.promise(() => cipher.encrypt(code));
-        const [row] = yield* attemptDb(() =>
-          db
-            .insert(schema.onboardingCode)
-            .values({
-              id: crypto.randomUUID(),
-              codeHash: hashCode(code),
-              encryptedCode,
-              organizationId,
-              eventId,
-              eventName: null,
-              teamId,
-              role: "member",
-              maxUses: 0,
-              usedCount: 0,
-              expiresAt: null,
-              createdBy: userId,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .returning(),
+        const row = yield* attemptDb(() =>
+          insertOnboardingCode(db, {
+            codeHash: hashCode(code),
+            encryptedCode,
+            organizationId,
+            eventId,
+            eventName: null,
+            teamId,
+            maxUses: 0,
+            expiresAt: null,
+            createdBy: userId,
+            now,
+          }),
         );
-        if (!row) {
+        if (row === null) {
           return yield* new CodeCreateFailed({ message: "Failed to rotate standing code" });
         }
         return { ...toOnboardingSummary(row), code };
@@ -700,6 +687,43 @@ export const buildOnboardingService = ({
       };
     }),
   });
+
+async function insertOnboardingCode(
+  db: Db,
+  input: {
+    codeHash: string;
+    encryptedCode: string;
+    organizationId: string;
+    eventId: string | null;
+    eventName: string | null;
+    teamId: string;
+    maxUses: number;
+    expiresAt: Date | null;
+    createdBy: string;
+    now: Date;
+  },
+) {
+  const [row] = await db
+    .insert(schema.onboardingCode)
+    .values({
+      id: crypto.randomUUID(),
+      codeHash: input.codeHash,
+      encryptedCode: input.encryptedCode,
+      organizationId: input.organizationId,
+      eventId: input.eventId,
+      eventName: input.eventName,
+      teamId: input.teamId,
+      role: "member",
+      maxUses: input.maxUses,
+      usedCount: 0,
+      expiresAt: input.expiresAt,
+      createdBy: input.createdBy,
+      createdAt: input.now,
+      updatedAt: input.now,
+    })
+    .returning();
+  return row ?? null;
+}
 
 async function findStandingCode(db: Db, organizationId: string, eventId: string | null) {
   const [row] = await db
