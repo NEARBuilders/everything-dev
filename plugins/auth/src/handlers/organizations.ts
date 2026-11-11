@@ -6,6 +6,7 @@ import type {
   AuthHandlerContext,
   RequireAuthMiddleware,
 } from "../middleware";
+import { RateLimiterTag } from "../service-types";
 import { mapDomainError } from "../services/domain-errors";
 import { OrganizationsService } from "../services/organizations";
 import { createHeaders } from "../utils";
@@ -48,10 +49,25 @@ export function createOrganizationHandlers(
         return yield* mapDomainError(organizations.getOrganizationById(input.organizationId));
       }),
 
+    getOrganization: builder.getOrganization.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }) {
+      const organizations = yield* OrganizationsService;
+      return yield* mapDomainError(
+        organizations.getOrganization(createHeaders(context.reqHeaders), {
+          organizationId: input?.organizationId,
+          organizationSlug: input?.organizationSlug,
+        }),
+      );
+    }),
+
     createOrganization: builder.createOrganization.use(requireAuth).effect(function* ({
       input,
       context,
     }) {
+      const limiter = yield* RateLimiterTag;
+      yield* mapDomainError(limiter.enforce("createOrganization", context.userId));
       const organizations = yield* OrganizationsService;
       return yield* mapDomainError(
         organizations.createOrganization(createHeaders(context.reqHeaders), input),
