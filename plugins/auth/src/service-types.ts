@@ -3,6 +3,11 @@ import type { Auth as ConfiguredAuth } from "./auth-instance";
 import type { Database } from "./db/layer";
 import type { OnboardingCodeCipher } from "./onboarding-code-cipher";
 import type { OrganizationMembershipPolicy } from "./organization-membership-policy";
+import type { RateLimiterService } from "./services/rate-limit";
+
+export class RateLimiterTag extends Context.Service<RateLimiterTag, RateLimiterService>()(
+  "auth/RateLimiter",
+) {}
 
 export type PermissionRegistry = {
   statements: Record<string, string[]>;
@@ -17,6 +22,7 @@ export type PluginServices = {
   membershipPolicy: OrganizationMembershipPolicy;
   onboardingCodeCipher: OnboardingCodeCipher;
   permissionRegistry: PermissionRegistry;
+  rateLimiter: RateLimiterService;
 };
 
 export class AuthApiTag extends Context.Service<

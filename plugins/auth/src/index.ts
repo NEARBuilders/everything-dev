@@ -28,6 +28,7 @@ import { createOrganizationMembershipPolicy } from "./organization-membership-po
 import { OrphanSweepLive } from "./orphan-sweep";
 import { AuthServicesTag } from "./service-types";
 import { buildAuthServicesLayer } from "./service-wiring";
+import { createRateLimiter } from "./services/rate-limit";
 import { toError } from "./utils";
 import { cookieDomainWarnings, socialProviderWarnings } from "./warnings";
 
@@ -60,6 +61,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         authConfig.organizationMembershipLimit,
       );
       const onboardingCodeCipher = createOnboardingCodeCipher(authConfig.secret);
+      const rateLimiter = createRateLimiter(config.variables.abuseControl?.rateLimits);
       const permissionRegistry = {
         statements: authConfig.siwn.permissions.statements,
         roleGrants: authConfig.siwn.permissions.roles,
@@ -86,6 +88,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
           membershipPolicy,
           onboardingCodeCipher,
           permissionRegistry,
+          rateLimiter,
         }),
         OrphanSweepLive(db),
       );

@@ -162,6 +162,11 @@ export class TeamMemberNotFound extends Schema.TaggedError<TeamMemberNotFound>()
   { message: Schema.String, teamMemberId: Schema.String },
 ) {}
 
+export class RateLimitExceeded extends Schema.TaggedError<RateLimitExceeded>()(
+  "RateLimitExceeded",
+  { message: Schema.String, retryAfterSeconds: Schema.Number },
+) {}
+
 export class DeployKeyAccountNotLinked extends Schema.TaggedError<DeployKeyAccountNotLinked>()(
   "DeployKeyAccountNotLinked",
   { message: Schema.String, action: Schema.String },
@@ -202,6 +207,7 @@ const FAILURE_TAGS = new Set([
   "UserNotFound",
   "MemberNotFound",
   "TeamMemberNotFound",
+  "RateLimitExceeded",
   "DeployKeyAccountNotLinked",
 ]);
 
@@ -244,6 +250,7 @@ export type AuthFailure =
   | UserNotFound
   | MemberNotFound
   | TeamMemberNotFound
+  | RateLimitExceeded
   | DeployKeyAccountNotLinked;
 
 export function toTransportError(error: AuthFailure): ORPCError<string, unknown> {
@@ -371,6 +378,11 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       return new ORPCError("NOT_FOUND", {
         message: error.message,
         data: { resource: "teamMember", resourceId: error.teamMemberId },
+      });
+    case "RateLimitExceeded":
+      return new ORPCError("RATE_LIMITED", {
+        message: error.message,
+        data: { retryAfterSeconds: error.retryAfterSeconds, limitType: "requests" },
       });
     case "DeployKeyAccountNotLinked":
       return new ORPCError("FORBIDDEN", {

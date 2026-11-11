@@ -7,6 +7,7 @@ import {
   OnboardingCodeCipherTag,
   PermissionRegistryTag,
   type PluginServices,
+  RateLimiterTag,
 } from "./service-types";
 import {
   AdminOrganizationsService,
@@ -36,6 +37,7 @@ export function buildAuthServicesLayer(services: PluginServices) {
     Layer.succeed(OnboardingCodeCipherTag, services.onboardingCodeCipher),
     Layer.succeed(MembershipPolicyTag, services.membershipPolicy),
     Layer.succeed(PermissionRegistryTag, services.permissionRegistry),
+    Layer.succeed(RateLimiterTag, services.rateLimiter),
     Layer.succeed(AuthServicesTag, services),
     Layer.succeed(
       OrganizationsService,

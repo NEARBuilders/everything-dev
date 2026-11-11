@@ -1,6 +1,7 @@
 import type { Implementer } from "@orpc/server";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
+import { RateLimiterTag } from "../service-types";
 import { mapDomainError } from "../services/domain-errors";
 import { OnboardingService } from "../services/onboarding";
 
@@ -13,6 +14,8 @@ export function createOnboardingHandlers(
       input,
       context,
     }) {
+      const limiter = yield* RateLimiterTag;
+      yield* mapDomainError(limiter.enforce("createOnboardingCode", context.userId));
       const onboarding = yield* OnboardingService;
       return yield* mapDomainError(onboarding.createOnboardingCode(context, input));
     }),
@@ -75,6 +78,8 @@ export function createOnboardingHandlers(
     rotateStandingOnboardingCode: builder.rotateStandingOnboardingCode
       .use(requireAuth)
       .effect(function* ({ input, context }) {
+        const limiter = yield* RateLimiterTag;
+        yield* mapDomainError(limiter.enforce("createOnboardingCode", context.userId));
         const onboarding = yield* OnboardingService;
         return yield* mapDomainError(onboarding.rotateStandingOnboardingCode(context, input));
       }),
@@ -90,6 +95,8 @@ export function createOnboardingHandlers(
       input,
       context,
     }) {
+      const limiter = yield* RateLimiterTag;
+      yield* mapDomainError(limiter.enforce("redeemOnboardingCode", context.userId));
       const onboarding = yield* OnboardingService;
       return yield* mapDomainError(onboarding.redeemOnboardingCode(context, input.code));
     }),

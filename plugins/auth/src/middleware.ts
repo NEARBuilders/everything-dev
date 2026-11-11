@@ -10,6 +10,7 @@ import {
   type MembershipPolicyTag,
   type OnboardingCodeCipherTag,
   type PluginServices,
+  type RateLimiterTag,
 } from "./service-types";
 import type { AdminOrganizationsService } from "./services/admin-organizations";
 import type { AdminUsersService } from "./services/admin-users";
@@ -42,6 +43,7 @@ export type AuthEffectServices =
   | OnboardingService
   | PasskeysService
   | PermissionsService
+  | RateLimiterTag
   | NearService
   | SessionService;
 

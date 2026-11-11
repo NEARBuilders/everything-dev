@@ -28,6 +28,7 @@ import { createOnboardingCodeCipher } from "../src/onboarding-code-cipher";
 import { createOrganizationMembershipPolicy } from "../src/organization-membership-policy";
 import type { PluginServices } from "../src/service-types";
 import { buildAuthServicesLayer } from "../src/service-wiring";
+import { createRateLimiter } from "../src/services/rate-limit";
 
 const TEST_DB_URL = "pglite::memory:";
 
@@ -120,6 +121,7 @@ export async function createTestServices(
     membershipPolicy,
     onboardingCodeCipher,
     permissionRegistry: TEST_REGISTRY,
+    rateLimiter: createRateLimiter(configOverrides?.abuseControl?.rateLimits),
   };
 
   return { services, driver };
