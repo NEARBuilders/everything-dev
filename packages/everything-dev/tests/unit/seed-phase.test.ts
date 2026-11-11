@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { configInputToDescriptor, toConfigInput } from "../../src/descriptor/resolve";
 import { AppDescriptorSchema } from "../../src/descriptor/schema";
@@ -225,7 +227,10 @@ describe("resolveOwnerCredential", () => {
 });
 
 describe("repoRoot sanity", () => {
-  it("the helper resolved the repo root, not a subdirectory", () => {
-    expect(repoRoot.split("/").pop()).toBe("everything.dev");
+  it("the helper resolved the pnpm workspace root, not a subdirectory", () => {
+    // Structural, not the checkout's folder name — CI checks out
+    // everything-dev (dash), local checkouts may be anything.
+    expect(existsSync(path.join(repoRoot, "pnpm-workspace.yaml"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "plugins", "auth", "package.json"))).toBe(true);
   });
 });
