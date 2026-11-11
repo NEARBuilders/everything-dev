@@ -13,6 +13,7 @@ import type { BosConfig, BosPluginRef } from "../../types";
 import { fetchRaw } from "../../utils/http-client";
 import { satisfiesConstraint } from "../../utils/semver";
 import type { IntegrityRegistry } from "../deploy/integrity";
+import { pinnedManifestDocumentUrl, resolveRemoteVersion } from "../deploy/version-manifest";
 import { readBundleCache, writeBundleCache } from "../registry/bundle-cache";
 import { computeSri, IntegrityMismatch } from "../verify/engine";
 
@@ -399,10 +400,30 @@ export async function checkFederationCompat(
   }
 
   const hostUrl = bosConfig.app.host.production;
+  // Probe the pin's immutable coordinates when the slot pins one (#874) —
+  // the fixed name at the mutable slot root answers with the newest bytes,
+  // so the check would grade the composition the boot will never load.
+  // Resolution failure keeps the floating probe (diagnostic surface stays
+  // best-effort; the boot path is where the pin is a contract).
+  let probeUrl = hostUrl;
+  const hostPin = bosConfig.app.host.digest;
+  if (hostPin) {
+    // Probe the pin's immutable coordinates when the slot pins one (#874) —
+    // the fixed name at the mutable slot root serves the newest bytes, so the
+    // check would grade a composition the boot never loads. Resolution failure
+    // keeps the floating probe: this surface is diagnostic and stays
+    // best-effort; the boot path is where the pin is a contract.
+    try {
+      const resolvedPin = await resolveRemoteVersion({ base: hostUrl, digest: hostPin });
+      probeUrl = pinnedManifestDocumentUrl(hostUrl, resolvedPin);
+    } catch {
+      probeUrl = hostUrl;
+    }
+  }
   let hostManifest: RemoteManifest | null = null;
   let hostReason: string | undefined;
   try {
-    hostManifest = (await fetchManifest(hostUrl, timeoutMs)) as RemoteManifest;
+    hostManifest = (await fetchManifest(probeUrl, timeoutMs)) as RemoteManifest;
   } catch (e) {
     hostReason = e instanceof Error ? e.message : String(e);
   }
