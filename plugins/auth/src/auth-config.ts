@@ -4,6 +4,7 @@ import type {
   SessionGasKeyDualNetworkConfig,
   SubAccountConfig,
 } from "better-near-auth";
+import type { RateRules } from "./services/rate-limit";
 
 export type AuthNetwork = "mainnet" | "testnet";
 
@@ -83,6 +84,7 @@ export interface AuthConfig {
   baseUrl: string;
   network?: AuthNetwork;
   organizationMembershipLimit?: number;
+  abuseControl?: { rateLimits?: RateRules };
   trustedOrigins?: string[];
   isProduction?: boolean;
   rateLimit?: AuthRateLimitConfig;

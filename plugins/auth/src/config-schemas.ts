@@ -95,6 +95,23 @@ export const authVariablesSchema = z.object({
   trustedOrigins: z.array(z.string()).optional(),
   apiKeyHeaders: z.array(z.string()).default(["x-api-key"]),
   organizationMembershipLimit: z.number().int().positive().optional(),
+  abuseControl: z
+    .object({
+      rateLimits: z
+        .object({
+          createOrganization: z
+            .object({ window: z.number().int().positive(), max: z.number().int().positive() })
+            .optional(),
+          createOnboardingCode: z
+            .object({ window: z.number().int().positive(), max: z.number().int().positive() })
+            .optional(),
+          redeemOnboardingCode: z
+            .object({ window: z.number().int().positive(), max: z.number().int().positive() })
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   socialProviders: z
     .object({
       github: z
