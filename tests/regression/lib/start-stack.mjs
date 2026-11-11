@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Boots the regression stack (dev/prod/backcompat) with the test environment
-// from .env.test (wiped per-workspace pglite dirs) so regression runs never
-// touch dev data or dev ports.
+// from .env.test (in-memory pglite) so regression runs never touch dev data
+// or dev ports.
 import { spawn } from "node:child_process";
-import { mkdirSync, openSync, rmSync } from "node:fs";
+import { mkdirSync, openSync } from "node:fs";
 import net from "node:net";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -72,11 +72,6 @@ if (!root) {
 }
 
 const regressionEnv = computeRegressionEnv({ repoRoot: root });
-// The regression DB root is scratch: wiped per run so every boot starts from
-// empty — the seed phase's marker lives in the api database, so a fresh dir
-// means the phase runs again. Wiped before the stack spawns; nothing holds
-// these dirs open yet.
-rmSync(regressionEnv.dbRoot, { recursive: true, force: true });
 const spec = regressionStackOptions(regressionEnv, mode);
 await waitForDatabases(regressionEnv.dbUrls);
 killStalePorts(regressionEnv.stalePorts);
