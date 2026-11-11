@@ -4,6 +4,7 @@ import { Data, Deferred, Effect, Option, Ref, Schedule, Schema, Stream } from "e
 import { ShellEnv } from "../../env/project-env";
 import type { RuntimeConfig } from "../../types";
 import { fetchWithRetryEff } from "../../utils/http-client";
+import { pinnedManifestDocumentUrl, resolveRemoteVersion } from "../deploy/version-manifest";
 import { loadRemoteModule, registerRemote } from "../federation/service";
 import { readInImagePlatformManifest } from "../platform/manifest";
 import { stripAnsi } from "./logs";
@@ -232,7 +233,29 @@ export class LocalPathMissing extends Data.TaggedError("LocalPathMissing")<{ key
   }
 }
 
-const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallbacks) =>
+/** The load-failure marker the shared-singleton resolver throws with — its
+ * bare package error hides the drift story (#874), so the two plane
+ * identities and the remediation ride the same failure detail. */
+const SHARED_DEP_DRIFT_MARKER = "Could not resolve shared dependency";
+
+function hostSkewRemediation(
+  cause: unknown,
+  runtimeConfig: RuntimeConfig,
+  remoteUrl: string,
+): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  if (!message.includes(SHARED_DEP_DRIFT_MARKER)) return "";
+  const image = readInImagePlatformManifest();
+  const pin = runtimeConfig.host.digest;
+  return (
+    "\nHost release skew — the host bundle's shared singletons do not resolve in this image:\n" +
+    `  image: ${image?.frameworkVersion ?? "unknown"}\n` +
+    `  pin:   ${pin ? `${pin.manifest} at ${remoteUrl}` : `${remoteUrl} (unpinned)`}\n` +
+    "  fix:   bos upgrade && bos deploy — move the release pin and the image together"
+  );
+}
+
+export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallbacks) =>
   Effect.gen(function* () {
     const runtimeConfig = yield* DevRuntimeConfig;
     const remoteUrl = descriptor.remoteUrl;
@@ -249,7 +272,46 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       .replace(/\/remoteEntry\.js$/, "")
       .replace(/\/mf-manifest\.json$/, "")
       .replace(/\/$/, "");
-    const manifestUrl = `${baseUrl}/mf-manifest.json`;
+    // The host slot is pinned like every other remote (deriveVersionManifestFields
+    // stamps `digest`), and the registered manifest document must come from the
+    // pin's immutable coordinates — the fixed name at the mutable slot root is
+    // the generation-skew tier (#874: a root publish moved bytes the child's
+    // pin never named, and the boot composed them anyway).
+    const slotRootManifestUrl = `${baseUrl}/mf-manifest.json`;
+    const hostPin = runtimeConfig.host.digest;
+    let manifestUrl = slotRootManifestUrl;
+    if (hostPin) {
+      const resolvedPin = yield* Effect.tryPromise({
+        try: () => resolveRemoteVersion({ base: remoteUrl, digest: hostPin }),
+        catch: (cause) =>
+          new OrchestratorError({
+            operation: "resolve host pin",
+            detail: `${hostPin.manifest} at ${remoteUrl} — ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+            cause,
+          }),
+      }).pipe(
+        // Development keeps the unpinned fallback: an unresolved pin degrades
+        // to the fixed name exactly as deriveVersionManifestFields tolerates
+        // there; published configs fail loud (the pin is the boot contract).
+        Effect.tapError((error) =>
+          runtimeConfig.env === "development"
+            ? Effect.logWarning(
+                `[host pin] ${hostPin.manifest} failed to resolve, continuing unpinned (development): ${error.detail}`,
+              )
+            : Effect.void,
+        ),
+        Effect.catchIf(
+          (error): error is OrchestratorError => runtimeConfig.env === "development",
+          () => Effect.succeed(null),
+        ),
+      );
+      if (resolvedPin) {
+        manifestUrl = pinnedManifestDocumentUrl(slotRootManifestUrl, resolvedPin);
+        callbacks.onLog(descriptor.key, `Host pin ${hostPin.manifest} → ${manifestUrl}`);
+      }
+    }
 
     // The manifest IS the entry contract (ADR 0020 amendment: hashed
     // entrypoints, fixed-name `remoteEntry.js` retired — it 404s on the CDN).
@@ -318,7 +380,9 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       catch: (cause) =>
         new OrchestratorError({
           operation: "load host module",
-          detail: cause instanceof Error ? cause.message : String(cause),
+          detail:
+            `${cause instanceof Error ? cause.message : String(cause)}` +
+            hostSkewRemediation(cause, runtimeConfig, remoteUrl),
           cause,
         }),
     }).pipe(

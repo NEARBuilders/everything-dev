@@ -1,6 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path, { join } from "node:path";
-import { type BuildEntryReport, BuildEntryReportSchema } from "every-plugin/build/artifact-names";
+import {
+  type BuildEntryReport,
+  BuildEntryReportSchema,
+  MF_MANIFEST_FILENAME,
+} from "every-plugin/build/artifact-names";
 import {
   composeVersionManifest,
   type SourceRef,
@@ -225,6 +229,27 @@ function readStagedRemoteVersion(base: string, digest: RemoteDigest): ResolvedRe
   } catch {
     return null;
   }
+}
+
+/**
+ * The container manifest document a pinned boot registers (#874): the pin's
+ * hashed browser manifest copy when the build emitted one — immutable in both
+ * the CDN layout and the staged flat layout — else the fixed name under the
+ * pin's immutable version directory (#826; CDN only — staged dists are flat
+ * on disk), else the fixed name at the slot root. The last tier is the
+ * legacy/dev shape, and the tier the #874 incident rode: reading the fixed
+ * name at the mutable slot root lets a later root publish move bytes the
+ * child's pin never named.
+ */
+export function pinnedManifestDocumentUrl(
+  fallbackUrl: string,
+  resolved: Pick<ResolvedRemoteVersion, "base" | "dir" | "browserManifestUrl">,
+): string {
+  if (resolved.browserManifestUrl) return resolved.browserManifestUrl;
+  if (resolved.dir && !process.env.BOS_BUNDLE_DIR) {
+    return `${resolved.base.replace(/\/$/, "")}/${resolved.dir}/${MF_MANIFEST_FILENAME}`;
+  }
+  return fallbackUrl;
 }
 
 export async function resolveRemoteVersion(input: {

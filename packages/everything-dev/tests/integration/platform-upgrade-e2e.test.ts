@@ -33,6 +33,10 @@ import {
   PLATFORM_IMAGE_REF,
   platformTruthViolations,
 } from "../../src/services/deploy/platform-manifest";
+import {
+  pinnedManifestDocumentUrl,
+  resolveRemoteVersion,
+} from "../../src/services/deploy/version-manifest";
 import { checkUiCompositionCompat } from "../../src/services/federation/service";
 import {
   checkPlatformCompat,
@@ -1159,5 +1163,85 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
       release?: string;
     };
     expect(migratedConfig.release).toBeUndefined();
+  });
+});
+
+describe("#874 replay — a root republish must not move a pinned child's host bytes", () => {
+  const SLOT = "/bundles/dev.everything.near/everything.dev/host";
+  const VERSION_DIR = "versions/0123456789abcdef";
+  const oldGeneration = JSON.stringify({
+    metaData: { pluginVersion: "2.0.0-rc.43-old" },
+    exposes: {},
+    shared: [],
+  });
+  const newGeneration = JSON.stringify({
+    metaData: { pluginVersion: "2.0.0-rc.99-new" },
+    exposes: {},
+    shared: [],
+  });
+  const legacyDoc = JSON.stringify({
+    version: "fedcba9876543210",
+    entry: "remoteEntry.legacy.js",
+    entryIntegrity: computeManifestSri("{}"),
+  });
+  const versionDoc = JSON.stringify({
+    version: "0123456789abcdef",
+    entry: "remoteEntry.0123abcd.js",
+    entryIntegrity: computeManifestSri("{}"),
+    dir: VERSION_DIR,
+  });
+  let server: Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      const serve = (body: string, status = 200) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(body);
+      };
+      if (req.url === `${SLOT}/mf-manifest.json`) serve(newGeneration);
+      else if (req.url === `${SLOT}/${VERSION_DIR}/mf-manifest.json`) serve(oldGeneration);
+      else if (req.url === `${SLOT}/versions/legacy.json`) serve(legacyDoc);
+      else if (req.url === `${SLOT}/versions/v43.json`) serve(versionDoc, 200);
+      else serve("{}", 404);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("no server address");
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it("a pinned boot registers the pin's immutable manifest — the slot root's newest bytes never load", async () => {
+    const base = `${baseUrl}${SLOT}`;
+    const resolved = await resolveRemoteVersion({
+      base,
+      digest: { manifest: "versions/v43.json", integrity: computeManifestSri(versionDoc) },
+    });
+
+    const registered = pinnedManifestDocumentUrl(`${base}/mf-manifest.json`, resolved);
+    expect(registered).toBe(`${base}/${VERSION_DIR}/mf-manifest.json`);
+
+    const [pinned, floating] = await Promise.all([
+      (await fetch(registered)).json(),
+      (await fetch(`${base}/mf-manifest.json`)).json(),
+    ]);
+    expect(pinned.metaData.pluginVersion).toBe("2.0.0-rc.43-old");
+    expect(floating.metaData.pluginVersion).toBe("2.0.0-rc.99-new");
+  });
+
+  it("a legacy pin (no version dir) resolves at the slot root — the drift tier, named by the boot", async () => {
+    const base = `${baseUrl}${SLOT}`;
+    const resolved = await resolveRemoteVersion({
+      base,
+      digest: { manifest: "versions/legacy.json", integrity: computeManifestSri(legacyDoc) },
+    });
+    expect(resolved.dir).toBeUndefined();
+    expect(pinnedManifestDocumentUrl(`${base}/mf-manifest.json`, resolved)).toBe(
+      `${base}/mf-manifest.json`,
+    );
   });
 });

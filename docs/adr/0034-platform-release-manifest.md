@@ -177,3 +177,38 @@ release-scoping effective.
 - The citynode correlator-commit class of error is caught at deploy time by the platform check instead of at runtime by a federation failure.
 - With release-scoped extends inheritance, a root publish can no longer skew or break an un-upgraded platform-pinned child's runtime; child deploys stay green between `bos upgrade`s.
 - Future seams, recorded not built: caret-tolerant `platform` pins (auto-minor within compat) once range resolution proves out; per-dep compat granularity; a versioned manifest history beside the pointer slot (the registry's history API covers this for now — and per the #546 amendment, it is also the fix for stale pins outliving a republish); boot-time release scoping for children pinned to pre-`slots` releases that cannot redeploy.
+
+## Amendment (2026-11-11 — the booted host rides the pin (#874))
+
+The skew-loud boot and release-scoped stamping froze what a child *composes*,
+but one loader never got the memo: the orchestrator's host load read the fixed
+manifest name at the **mutable slot root** — the document every root republish
+overwrites. A pinned child (rc.43 pin, rc.42 image, both healthy) booted the
+root's newest host bytes the day they published, and the fail-loud
+shared-singleton resolver crashed the app with a bare package error — drift
+killing the app once more, through the one slot that had no gate.
+
+Decision, generalizing the #826 rule to boot paths:
+
+1. **Boot-path loads resolve the pin.** The orchestrator resolves the host
+   slot's `digest` through the verify engine and registers the manifest from
+   the pin's immutable coordinates — the hashed browser-manifest copy when
+   the build emitted one, else `versions/<dirId>/mf-manifest.json` (CDN only;
+   staged layouts stay flat), else the slot-root fixed name (legacy pins and
+   dev boots). `pinnedManifestDocumentUrl` in the deploy/version-manifest
+   module is the one implementation, shared with `mf check`'s host probe —
+   the check now grades the composition the boot will actually load.
+2. **The residual skew fails named.** When a pinned host's shared singletons
+   cannot resolve in the booting image, the orchestrator appends the two plane
+   identities (image frameworkVersion, the pin) and the remediation —
+   `Host release skew … bos upgrade && bos deploy` — instead of the bare
+   package error.
+3. **The invariant, now testable:** a root republish cannot move the bytes a
+   pinned child boots. Exercised by the #874 replay — e2e (two generations at
+   one slot root; the boot registers the pin's generation) and the orchestrator
+   unit replay (dev fallback, legacy pins, production resolution failures).
+
+Consequences: children on frozen images stay green across parent publishes —
+the image moves only when the child moves it. Legacy pins (pre-`dir`
+manifests) keep the slot-root tier — protected until their next `bos upgrade`,
+which is the repair that moves them onto immutable coordinates.
