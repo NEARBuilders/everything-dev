@@ -402,7 +402,7 @@ describe("organization handlers", () => {
         context: { reqHeaders: user.reqHeaders },
       });
 
-      const kept = await handlers.organizations.createOrganization({
+      await handlers.organizations.createOrganization({
         input: {
           name: "Side Org",
           slug: `act-b-${crypto.randomUUID().slice(0, 8)}`,
@@ -430,7 +430,6 @@ describe("organization handlers", () => {
         orderBy: (s) => desc(s.createdAt),
       });
       expect(sessionAfterSwitch?.activeOrganizationId).toBe(switched.id);
-      void kept;
     });
   });
 });

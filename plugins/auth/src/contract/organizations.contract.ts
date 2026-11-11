@@ -1,11 +1,7 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
-import { RATE_LIMITED } from "every-plugin/errors";
 import { z } from "zod";
 import { Errors } from "./errors";
-
-const CreateOrgErrors = { ...Errors, RATE_LIMITED } as const;
-
 import {
   daoOutputSchema,
   invitationSchema,
@@ -59,7 +55,7 @@ export const organizationRoutes = {
       }),
     )
     .output(organizationInfoSchema.extend({ createdAt: z.date() }))
-    .errors(CreateOrgErrors),
+    .errors(Errors),
 
   getOrganization: oc
     .route({ method: "GET", path: "/v1/auth/organizations/get" })

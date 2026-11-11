@@ -56,6 +56,6 @@ describe("credential-less in-process client (the #860 repro)", () => {
       context: { reqHeaders: user.reqHeaders },
     });
 
-    expect(Array.isArray(organizations)).toBe(true);
+    expect(organizations.length).toBeGreaterThan(0);
   });
 });
