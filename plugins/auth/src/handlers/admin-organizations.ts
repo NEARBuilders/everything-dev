@@ -8,7 +8,6 @@ import type {
 } from "../middleware";
 import { AdminOrganizationsService } from "../services/admin-organizations";
 import { mapDomainError } from "../services/domain-errors";
-import { createHeaders } from "../utils";
 
 export function createAdminOrganizationHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,
@@ -59,9 +58,9 @@ export function createAdminOrganizationHandlers(
     adminAddMember: builder.adminAddMember
       .use(requireAuth)
       .use(requireAdmin)
-      .effect(function* ({ input, context }) {
+      .effect(function* ({ input }) {
         const admin = yield* AdminOrganizationsService;
-        return yield* mapDomainError(admin.addMember(createHeaders(context.reqHeaders), input));
+        return yield* mapDomainError(admin.addMember(input));
       }),
 
     adminRemoveMember: builder.adminRemoveMember

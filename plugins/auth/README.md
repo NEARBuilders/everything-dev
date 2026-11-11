@@ -65,7 +65,15 @@ It runs inside the **everything-plugin** framework (oRPC + Effect) and is design
 
 `onboard` hrefs must be app paths (`/…`) or `https://` URLs. `links.next`, `links.home` and `community.url` replace `{organizationId}` with the joined organization's ID. A failed or invalid `community.url` response shows nothing extra.
 
-`crossSubDomainCookies` scopes the session cookie to a shared registrable domain so sibling subdomains (e.g. `app.example.com` and `api.example.com`) share one session. Every app on that domain must run the **same `BETTER_AUTH_SECRET`** — the cookie is sealed with it — and each app should list its siblings' origins in `trustedOrigins`. Absent or disabled config keeps cookies host-scoped.
+`crossSubDomainCookies` scopes the session cookie to a shared registrable domain so sibling subdomains (e.g. `app.example.com` and `api.example.com`) share one session. Absent or disabled config keeps cookies host-scoped.
+
+**Multi-app session sharing** — a family of apps whose sessions roam a shared registrable domain needs all three legs together; the cookie alone is not enough:
+
+1. **Shared cookie** — each app sets `crossSubDomainCookies: { enabled: true, domain: ".example.com" }` where `example.com` covers every app's host. A cookie whose `Domain` does not cover the app's own host is dropped by the browser, which breaks sign-in on that app (the boot warnings flag this, along with localhost hosts, which can never carry a `Domain` attribute).
+2. **Shared secret** — every app on the domain must run the **same `BETTER_AUTH_SECRET`**: the cookie is sealed with it, so a sibling that runs a different secret sees every incoming session as invalid and signs the user out.
+3. **Shared database** — every app's `AUTH_DATABASE_URL` must point at the **same `postgres://` database**. Auth tables live un-namespaced in that database (`namespace: false` — Better Auth's schema owns the public tables), so the shared cookie resolves the same session row everywhere. Without it, the cookie resolves to a session row the sibling cannot see and the request still reads as signed-out. The pglite default is per-identity and dev-only; cross-app session sharing is a `postgres://` setup.
+
+Each app should also cross-list its siblings' origins in `trustedOrigins`. The everything.dev family recipe this configuration mirrors is documented in `docs/adr/0027-apps-decomposition-every-app.md`.
 
 ### Plugin Secrets
 

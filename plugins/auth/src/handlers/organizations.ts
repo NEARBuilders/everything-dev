@@ -1,7 +1,11 @@
 import type { Implementer } from "@orpc/server";
-import { Effect } from "effect";
+import { createAuthMiddleware } from "everything-dev/api";
 import type { ContractType } from "../contract";
-import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
+import type {
+  AuthHandlerAuthedContext,
+  AuthHandlerContext,
+  RequireAuthMiddleware,
+} from "../middleware";
 import { mapDomainError } from "../services/domain-errors";
 import { OrganizationsService } from "../services/organizations";
 import { createHeaders } from "../utils";
@@ -10,6 +14,7 @@ export function createOrganizationHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,
   requireAuth: RequireAuthMiddleware,
 ) {
+  const { requireAdmin } = createAuthMiddleware<AuthHandlerAuthedContext>(builder);
   return {
     listOrganizations: builder.listOrganizations.use(requireAuth).effect(function* ({ context }) {
       const organizations = yield* OrganizationsService;
@@ -35,19 +40,13 @@ export function createOrganizationHandlers(
       );
     }),
 
-    getOrganizationForAdmin: builder.getOrganizationForAdmin.use(requireAuth).effect(function* ({
-      input,
-      context,
-      errors,
-    }) {
-      const organizations = yield* OrganizationsService;
-      if (context.user.role !== "admin") {
-        return yield* Effect.fail(
-          errors.FORBIDDEN({ message: "Admin access required", data: { action: "admin-access" } }),
-        );
-      }
-      return yield* mapDomainError(organizations.getOrganizationById(input.organizationId));
-    }),
+    getOrganizationForAdmin: builder.getOrganizationForAdmin
+      .use(requireAuth)
+      .use(requireAdmin)
+      .effect(function* ({ input }) {
+        const organizations = yield* OrganizationsService;
+        return yield* mapDomainError(organizations.getOrganizationById(input.organizationId));
+      }),
 
     createOrganization: builder.createOrganization.use(requireAuth).effect(function* ({
       input,

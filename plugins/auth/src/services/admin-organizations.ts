@@ -3,6 +3,7 @@ import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferInput, InferOutput } from "../contract";
 import * as schema from "../db/schema";
+import type { OrganizationMembershipPolicy } from "../organization-membership-policy";
 import { toDate, toInvitation, toOrganizationInfo, toTeam } from "../serializers";
 import type { PermissionRegistry, PluginServices } from "../service-types";
 import { parseMemberRoles } from "../utils";
@@ -42,7 +43,6 @@ export class AdminOrganizationsService extends Context.Service<
       organizationId: string,
     ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     addMember: (
-      headers: Headers,
       input: InferInput<"adminAddMember">,
     ) => Effect.Effect<InferOutput<"adminAddMember">, AuthFailure>;
     removeMember: (
@@ -70,10 +70,12 @@ export class AdminOrganizationsService extends Context.Service<
 export const buildAdminOrganizationsService = ({
   auth,
   db,
+  membershipPolicy,
   registry,
 }: {
   auth: Auth;
   db: Db;
+  membershipPolicy: OrganizationMembershipPolicy;
   registry: PermissionRegistry;
 }) => {
   const notFound = (organizationId: string) =>
@@ -357,25 +359,82 @@ export const buildAdminOrganizationsService = ({
       return { success: true };
     }),
 
-    addMember: (headers, input) =>
-      attemptAuth(() =>
-        auth.api.addMember({
-          headers,
-          body: {
+    addMember: Effect.fn("AdminOrganizationsService.addMember")(function* (
+      input: InferInput<"adminAddMember">,
+    ) {
+      const organization = yield* attemptDb(() =>
+        db.query.organization.findFirst({
+          where: eq(schema.organization.id, input.organizationId),
+        }),
+      );
+      if (!organization) {
+        return yield* notFound(input.organizationId);
+      }
+
+      const user = yield* attemptDb(() =>
+        db.query.user.findFirst({ where: eq(schema.user.id, input.userId) }),
+      );
+      if (!user) {
+        return yield* new UserNotFound({
+          message: `User not found: ${input.userId}`,
+          userId: input.userId,
+        });
+      }
+
+      const existing = yield* attemptDb(() =>
+        db.query.member.findFirst({
+          where: and(
+            eq(schema.member.organizationId, input.organizationId),
+            eq(schema.member.userId, input.userId),
+          ),
+        }),
+      );
+      if (existing) {
+        return yield* new AuthApiError({
+          code: "BAD_REQUEST",
+          data: {},
+          message: "User is already a member of this organization",
+        });
+      }
+
+      const [{ memberCount } = { memberCount: 0 }] = yield* attemptDb(() =>
+        db
+          .select({ memberCount: sql<number>`count(*)::int` })
+          .from(schema.member)
+          .where(eq(schema.member.organizationId, input.organizationId)),
+      );
+      if (!membershipPolicy.hasCapacity(memberCount)) {
+        return yield* new AuthApiError({
+          code: "BAD_REQUEST",
+          data: {},
+          message: "This organization is full, so no more members can join",
+        });
+      }
+
+      const now = new Date();
+      const [member] = yield* attemptDb(() =>
+        db
+          .insert(schema.member)
+          .values({
+            id: crypto.randomUUID(),
+            organizationId: input.organizationId,
             userId: input.userId,
             role: input.role,
-            organizationId: input.organizationId,
-          },
-        }),
-      ).pipe(
-        Effect.map((member: any) => ({
-          id: member.id,
-          userId: member.userId,
-          organizationId: member.organizationId,
-          role: member.role,
-          createdAt: toDate(member.createdAt),
-        })),
-      ),
+            createdAt: now,
+          })
+          .returning(),
+      );
+      if (!member) {
+        return yield* new MemberNotFound({ message: "Member creation failed" });
+      }
+      return {
+        id: member.id,
+        userId: member.userId,
+        organizationId: member.organizationId,
+        role: member.role,
+        createdAt: toDate(member.createdAt),
+      };
+    }),
 
     removeMember: Effect.fn("AdminOrganizationsService.removeMember")(function* (
       input: InferInput<"adminRemoveMember">,
@@ -476,6 +535,26 @@ export const buildAdminOrganizationsService = ({
       );
       if (!member) {
         return yield* new MemberNotFound({ message: "Member not found" });
+      }
+
+      const demotingOnlyOwner =
+        parseMemberRoles(member.role).includes("owner") &&
+        !parseMemberRoles(input.role).includes("owner");
+      if (demotingOnlyOwner) {
+        const members = yield* attemptDb(() =>
+          db.query.member.findMany({
+            where: eq(schema.member.organizationId, input.organizationId),
+            columns: { role: true },
+          }),
+        );
+        const owners = members.filter((row) => parseMemberRoles(row.role).includes("owner"));
+        if (owners.length <= 1) {
+          return yield* new AuthApiError({
+            code: "BAD_REQUEST",
+            data: {},
+            message: "Cannot demote the only owner of an organization",
+          });
+        }
       }
 
       const [updated] = yield* attemptDb(() =>

@@ -58,3 +58,55 @@ export function socialProviderWarnings(config: {
     }),
   ].filter((warning): warning is PluginWarningInfo => warning !== null);
 }
+
+function authBaseUrlHost(baseUrl: string | undefined): string | null {
+  if (!baseUrl) return null;
+  const candidate = /^https?:\/\//i.test(baseUrl) ? baseUrl : `https://${baseUrl}`;
+  try {
+    return new URL(candidate).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackHost(host: string): boolean {
+  return (
+    host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost")
+  );
+}
+
+/**
+ * crossSubDomainCookies (#668) fails silently at the browser: a Set-Cookie
+ * whose Domain does not cover the app's own host is dropped outright (sign-in
+ * stops working), and localhost hosts can never carry a Domain attribute.
+ * Both misconfigurations are caught at config time here instead.
+ */
+export function cookieDomainWarnings(config: {
+  variables: AuthPluginVariables;
+}): PluginWarningInfo[] {
+  const cookies = config.variables.crossSubDomainCookies;
+  if (!cookies?.enabled) return [];
+  const host = authBaseUrlHost(config.variables.baseUrl);
+  if (!host) return [];
+  const warnings: PluginWarningInfo[] = [];
+  if (isLoopbackHost(host)) {
+    warnings.push({
+      pluginKey: "auth",
+      message:
+        "crossSubDomainCookies is enabled but the auth baseUrl is a localhost host — browsers refuse Domain cookies for local hosts, so sessions stay host-scoped in this environment",
+      hint: "Exercise cross-domain session sharing on a staging deployment whose hosts share the configured registrable domain instead",
+    });
+  }
+  if (cookies.domain) {
+    const domain = cookies.domain.toLowerCase().replace(/^\./, "");
+    const coversHost = host === domain || host.endsWith(`.${domain}`);
+    if (!coversHost) {
+      warnings.push({
+        pluginKey: "auth",
+        message: `crossSubDomainCookies.domain "${cookies.domain}" does not cover the auth baseUrl host "${host}" — browsers drop cookies scoped to a foreign domain, which breaks sign-in on this app`,
+        hint: `Use a dot-prefixed registrable domain that is a suffix of "${host}" (e.g. ".${host.split(".").slice(-2).join(".")}")`,
+      });
+    }
+  }
+  return warnings;
+}
