@@ -197,14 +197,14 @@ export function buildPluginContext(c) {
 The API plugin receives `auth` in `initialize`:
 
 ```ts
-initialize: (config, plugins, _tools) =>
+initialize: (config, plugins) =>
   Effect.gen(function* () {
     const { auth, ...restPlugins } = plugins;
     return { auth, plugins: restPlugins, ... };
   })
 ```
 
-Use the host's session middleware for in-process auth checks. The canonical middleware import is `everything-dev/api` (`packages/everything-dev/src/api/auth-middleware.ts:34`). For in-process calls, access the auth client via the injected `context.authClient` in route handlers, or use `useAuthClient()` from `@/app` in the UI.
+Use the host's session middleware for in-process auth checks. The canonical middleware import is `everything-dev/api` (`packages/everything-dev/src/api/auth-middleware.ts:34`). The API request context carries the host-resolved auth state (`context.user`, `context.session`, `context.reqHeaders`) — not a client. To act as the caller on the auth plugin, derive the in-process client: `plugins.auth.client({ reqHeaders: context.reqHeaders, ...authContext })`. In the UI, use `useAuthClient()` from `@/app`.
 
 ## Auth on the Client
 
@@ -287,12 +287,14 @@ const baseApi = await loadPluginEntry(runtime, apiEntry, integrityRegistry, plug
 The API plugin receives `plugins` in `initialize`:
 
 ```ts
-initialize: (config, plugins, _tools) =>
+initialize: (config, plugins) =>
   Effect.gen(function* () {
-    const authClient = plugins.auth({ reqHeaders: someHeaders });
-    const session = await authClient.getSession();
-    return { auth: plugins.auth, plugins, ... };
+    return { authClient: plugins.auth.client, plugins, ... };
   })
+
+// per request, in a handler or middleware — derive from the caller's context
+const auth = deps.authClient({ reqHeaders: context.reqHeaders, user: context.user, session: context.session });
+const session = await auth.getContext();
 ```
 
 ### API-Owned Registry Pattern
@@ -431,7 +433,7 @@ The host (`host/src/program.ts`) creates RPC and OpenAPI handlers from each plug
 
 **"Add an admin-only route."** Contract declares `.errors({ UNAUTHORIZED, FORBIDDEN })`; handler is `.effect(function* ...)` and guards with `return yield* Effect.fail(errors.UNAUTHORIZED({ apiKeyProvided: !!context.apiKey }))` — note all-optional error shapes still need an explicit `data: {}`. For shared middleware shapes, see `packages/everything-dev/src/api/auth-middleware.ts`.
 
-**"Call the auth plugin from my route."** The host injects `context.authClient` into route handlers via the plugin client. Access it as `context.authClient.getSession()` for in-process calls, or use `useAuthClient()` from `@/app` in the UI. See `packages/everything-dev/src/api/auth-middleware.ts` for the middleware pattern and `context.userId`/`context.user` narrowing with `requireAuth`.
+**"Call the auth plugin from my route."** The API request context carries the host-resolved auth state (`context.user`, `context.session`, `context.reqHeaders`), not a client. For checks, use the shared middleware (`requireAuth`, `requireOrgRole` from `everything-dev/api`). To act as the caller on the auth plugin, derive the client: `plugins.auth.client({ reqHeaders: context.reqHeaders, ...context })` from the factory captured in `initialize`. See `packages/everything-dev/src/api/auth-middleware.ts` for the middleware pattern and `context.userId`/`context.user` narrowing with `requireAuth`.
 
 **"Wire an SSE route."** Contract: `.output(eventIterator(Schema))`. Handler: async generator that subscribes to the publisher and yields per event, filtering server-side on `pluginId`/query params.
 
