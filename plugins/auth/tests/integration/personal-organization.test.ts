@@ -1,6 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../../src/db/schema";
+import {
+  activateDefaultOrganizationForSession,
+  ensurePersonalOrganization,
+  findPersonalOrganization,
+} from "../../src/personal-organization";
 import { createTestHandlers, createTestOrg, createTestServices, createTestUser } from "../helpers";
 
 let services: Awaited<ReturnType<typeof createTestServices>>;
@@ -86,6 +91,135 @@ describe("personal organization", () => {
     expect(result.organization.organization?.name).toBe(user.name);
     expect(result.organization.isPersonal).toBe(true);
     expect(result.organization.member?.role).toBe("owner");
+  });
+
+  describe("drifted personal organizations", () => {
+    const countMemberships = async (userId: string) => {
+      const rows = await services.services.db
+        .select({ id: schema.organization.id })
+        .from(schema.organization)
+        .innerJoin(schema.member, eq(schema.member.organizationId, schema.organization.id))
+        .where(eq(schema.member.userId, userId));
+      return rows.length;
+    };
+
+    it("resolves a metadata-drifted org by slug and does not create a duplicate", async () => {
+      const user = await createTestUser(services.services);
+      await services.services.db
+        .update(schema.organization)
+        .set({ metadata: JSON.stringify({ isPersonal: true }, null, 2) })
+        .where(eq(schema.organization.id, user.personalOrgId));
+
+      const found = await findPersonalOrganization(services.services.db, user.userId);
+      expect(found?.id).toBe(user.personalOrgId);
+
+      const ensured = await ensurePersonalOrganization(services.services.db, {
+        id: user.userId,
+        name: user.name,
+      });
+      expect(ensured?.id).toBe(user.personalOrgId);
+      expect(await countMemberships(user.userId)).toBe(1);
+    });
+
+    it("resolves a slug-drifted org via the metadata flag", async () => {
+      const user = await createTestUser(services.services);
+      await services.services.db
+        .update(schema.organization)
+        .set({ slug: `renamed-${crypto.randomUUID().slice(0, 8)}` })
+        .where(eq(schema.organization.id, user.personalOrgId));
+
+      const found = await findPersonalOrganization(services.services.db, user.userId);
+      expect(found?.id).toBe(user.personalOrgId);
+
+      const ensured = await ensurePersonalOrganization(services.services.db, {
+        id: user.userId,
+        name: user.name,
+      });
+      expect(ensured?.id).toBe(user.personalOrgId);
+      expect(await countMemberships(user.userId)).toBe(1);
+    });
+
+    it("converges existing duplicates on the oldest org", async () => {
+      const user = await createTestUser(services.services);
+      const driftedId = crypto.randomUUID();
+      await services.services.db.insert(schema.organization).values({
+        id: driftedId,
+        name: "Old Personal",
+        slug: `drifted-${crypto.randomUUID().slice(0, 8)}`,
+        metadata: '{ "isPersonal": true }',
+        createdAt: new Date(Date.now() - 60_000),
+      });
+      await services.services.db.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        userId: user.userId,
+        organizationId: driftedId,
+        role: "owner",
+        createdAt: new Date(),
+      });
+
+      const found = await findPersonalOrganization(services.services.db, user.userId);
+      expect(found?.id).toBe(driftedId);
+
+      const ensured = await ensurePersonalOrganization(services.services.db, {
+        id: user.userId,
+        name: user.name,
+      });
+      expect(ensured?.id).toBe(driftedId);
+      expect(await countMemberships(user.userId)).toBe(2);
+    });
+
+    it("does not match another user's personal organization", async () => {
+      const userA = await createTestUser(services.services);
+      const userB = await createTestUser(services.services);
+      await services.services.db
+        .update(schema.organization)
+        .set({ slug: `renamed-${crypto.randomUUID().slice(0, 8)}` })
+        .where(eq(schema.organization.id, userA.personalOrgId));
+
+      const found = await findPersonalOrganization(services.services.db, userB.userId);
+      expect(found?.id).toBe(userB.personalOrgId);
+
+      const ensured = await ensurePersonalOrganization(services.services.db, {
+        id: userB.userId,
+        name: userB.name,
+      });
+      expect(ensured?.id).toBe(userB.personalOrgId);
+    });
+
+    it("skips anonymous users", async () => {
+      const result = await ensurePersonalOrganization(services.services.db, {
+        id: crypto.randomUUID(),
+        name: "Ghost",
+        isAnonymous: true,
+      });
+      expect(result).toBeNull();
+    });
+
+    it("activates the converged org on a session without an active organization", async () => {
+      const user = await createTestUser(services.services);
+      await services.services.db
+        .update(schema.organization)
+        .set({ slug: `renamed-${crypto.randomUUID().slice(0, 8)}` })
+        .where(eq(schema.organization.id, user.personalOrgId));
+      const session = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.userId, user.userId),
+      });
+      await services.services.db
+        .update(schema.session)
+        .set({ activeOrganizationId: null })
+        .where(eq(schema.session.id, session?.id ?? ""));
+
+      await activateDefaultOrganizationForSession(services.services.db, {
+        id: session?.id ?? "",
+        userId: user.userId,
+        activeOrganizationId: null,
+      });
+
+      const updated = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.id, session?.id ?? ""),
+      });
+      expect(updated?.activeOrganizationId).toBe(user.personalOrgId);
+    });
   });
 
   describe("restore on re-login", () => {
