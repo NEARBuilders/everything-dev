@@ -896,7 +896,20 @@ jobs:
       needs.detect-changes.outputs.regression-browser-smoke == 'true' &&
       needs.detect-changes.outputs.regression-browser == 'true'
     timeout-minutes: 15
+    # Matrix-of-one: the single literal the container tag and the drift-guard
+    # step both derive from (env context isn't available in container.image).
+    # Must track the lockfile's @playwright/test resolution. The official
+    # container ships browsers + system deps, so apt never runs on this
+    # gate; the sharded matrix below stays on the probe-gated action — its
+    # start:* suites need docker, which a job container can't provide.
+    strategy:
+      matrix:
+        playwright-version: ["1.65.0"]
+    container:
+      image: mcr.microsoft.com/playwright:v${{ matrix.playwright-version }}-noble
+      options: --user 1001 --init --ipc=host
     env:
+      PLAYWRIGHT_VERSION: ${{ matrix.playwright-version }}
       CI: true
       CORS_ORIGIN: http://localhost:4100
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
@@ -930,7 +943,14 @@ jobs:
       - name: Build every-plugin dist
         run: pnpm run build template
 
-      - uses: ./.github/actions/install-playwright
+      - name: Verify container matches the lockfile's Playwright
+        run: |
+          actual="$(pnpm exec playwright --version)"
+          expected="Version ${PLAYWRIGHT_VERSION}"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::lockfile resolves ${actual}, but the job container ships v${PLAYWRIGHT_VERSION} browsers — bump the playwright-version matrix value in this job"
+            exit 1
+          fi
 
       - name: Run ui smoke spec (dev:ssr)
         run: pnpm run test:regression:browser:smoke
