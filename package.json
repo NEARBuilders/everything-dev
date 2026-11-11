@@ -79,7 +79,7 @@
     "@biomejs/biome": "2.4.15",
     "@changesets/cli": "^2.29.8",
     "@effect/tsgo": "^0.63.0",
-    "@playwright/test": "^1.58.1",
+    "@playwright/test": "^1.65.0",
     "@shadcn/lint": "^0.2.0",
     "@types/pg": "catalog:",
     "dotenv": "^17.3.1",

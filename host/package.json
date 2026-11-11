@@ -37,7 +37,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.1",
+    "@playwright/test": "^1.65.0",
     "everything-dev": "workspace:^",
     "@module-federation/rsbuild-plugin": "catalog:",
     "@rsbuild/core": "catalog:",
