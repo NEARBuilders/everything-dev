@@ -332,7 +332,7 @@ export const onboardingCode = pgTable(
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
     eventId: text("event_id"),
-    eventName: text("event_name").notNull(),
+    eventName: text("event_name"),
     encryptedCode: text("encrypted_code"),
     teamId: text("team_id")
       .notNull()
@@ -340,7 +340,7 @@ export const onboardingCode = pgTable(
     role: text("role").default("member").notNull(),
     maxUses: integer("max_uses").default(50).notNull(),
     usedCount: integer("used_count").default(0).notNull(),
-    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }),
     revokedAt: timestamp("revoked_at", { mode: "date", withTimezone: true }),
     createdBy: text("created_by")
       .notNull()

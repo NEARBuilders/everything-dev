@@ -160,12 +160,12 @@ export function toAdminSession(session: any) {
 export function toOnboardingSummary(row: {
   id: string;
   eventId: string | null;
-  eventName: string;
+  eventName: string | null;
   teamId: string;
   role: string;
   maxUses: number;
   usedCount: number;
-  expiresAt: Date | string;
+  expiresAt: Date | string | null;
   revokedAt: Date | null;
   createdAt: Date | string;
 }) {
@@ -177,7 +177,7 @@ export function toOnboardingSummary(row: {
     role: row.role,
     maxUses: row.maxUses,
     usedCount: row.usedCount,
-    expiresAt: toDate(row.expiresAt),
+    expiresAt: row.expiresAt === null ? null : toDate(row.expiresAt),
     revokedAt: row.revokedAt ? toDate(row.revokedAt) : null,
     createdAt: toDate(row.createdAt),
   };

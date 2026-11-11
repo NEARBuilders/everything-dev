@@ -261,12 +261,12 @@ export const passkeySchema = z.object({
 export const onboardingCodeSummarySchema = z.object({
   id: z.string(),
   eventId: z.string().nullable(),
-  eventName: z.string(),
+  eventName: z.string().nullable(),
   teamId: z.string(),
   role: z.string(),
   maxUses: z.number(),
   usedCount: z.number(),
-  expiresAt: z.date(),
+  expiresAt: z.date().nullable(),
   revokedAt: z.date().nullable(),
   createdAt: z.date(),
 });
