@@ -83,26 +83,23 @@ export function readDotEnv(repoRoot, fileName = ".env") {
   return parse(fs.readFileSync(envPath));
 }
 
-function databaseSecretEntries(config) {
+function databaseSecrets(config) {
   const sections = [
-    { key: "api", secrets: config.app?.api?.secrets },
-    { key: "auth", secrets: config.app?.auth?.secrets },
-    ...Object.entries(config.plugins ?? {}).map(([key, plugin]) => ({
-      key,
-      secrets: plugin?.secrets,
-    })),
+    config.app?.api?.secrets,
+    config.app?.auth?.secrets,
+    ...Object.values(config.plugins ?? {}).map((plugin) => plugin?.secrets),
   ];
   const seen = new Set();
-  const entries = [];
-  for (const { key, secrets } of sections) {
-    for (const secret of secrets ?? []) {
+  const secrets = [];
+  for (const list of sections) {
+    for (const secret of list ?? []) {
       if (typeof secret === "string" && secret.endsWith("_DATABASE_URL") && !seen.has(secret)) {
         seen.add(secret);
-        entries.push({ secret, key });
+        secrets.push(secret);
       }
     }
   }
-  return entries;
+  return secrets;
 }
 /**
  * The compose-era local convention (`postgres://everythingdev:…@localhost:{5432,5433}/…`
@@ -128,37 +125,6 @@ function isDevDatabaseUrl(url) {
   );
 }
 
-/**
- * Mirror of the framework's normalizeSlug (db/core) — the regression dirs
- * must name themselves exactly as the dev layout (ADR 0044) does, so the
- * pre-spawn seed phase and the services address the same files.
- */
-function normalizeSlug(name) {
-  const basename = name.split("/").pop() ?? name;
-  return basename
-    .replace(/^@/, "")
-    .replace(/[^a-zA-Z0-9_-]/g, "_")
-    .replace(/-plugin$/i, "")
-    .replace(/-/g, "_")
-    .toLowerCase();
-}
-
-/**
- * The regression database root: scratch, wiped per run (start-stack), one
- * subdirectory per workspace. `.env.test`'s in-memory pglite marker means
- * "harness-picked pglite" and is substituted for these dirs, because an
- * in-memory database cannot be seeded — nothing exists before its service
- * process creates it, so a pre-spawn seed phase (#866) has nothing to
- * address. A wiped dir keeps in-memory's isolation (nothing survives a
- * run) while opening the pre-spawn window the seed phase needs.
- *
- * The substituted URLs are ABSOLUTE: each service resolves a relative pglite
- * path against its own workspace cwd (that is how the dev layout scatters
- * `api/.bos/db/api` vs `.bos/db/auth`), and the wipe must own one root.
- */
-const REGRESSION_DB_SUBDIR = path.join(".bos", "regression", "db");
-const IN_MEMORY_PGLITE_URLS = new Set(["pglite::memory:", "pglite:memory:"]);
-
 export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
   const root = repoRoot ?? findRepoRoot();
   if (!root) throw new Error("No authored config (bos.app.ts) found in any parent directory");
@@ -166,23 +132,19 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
   const fileEnv = readDotEnv(root);
   const testEnv = readDotEnv(root, ".env.test");
   const allowDevDb = env.REGRESSION_ALLOW_DEV_DB === "1";
-  const regressionDbRoot = path.join(root, REGRESSION_DB_SUBDIR);
 
   const dbUrls = {};
-  for (const { secret, key } of databaseSecretEntries(config)) {
+  for (const secret of databaseSecrets(config)) {
     const resolved = testEnv[secret] ?? env[secret] ?? fileEnv[secret] ?? TEST_DATABASE_DEFAULT;
-    const url = IN_MEMORY_PGLITE_URLS.has(resolved)
-      ? `pglite:${regressionDbRoot}/${normalizeSlug(key)}`
-      : resolved;
-    if (!allowDevDb && isDevDatabaseUrl(url)) {
+    if (!allowDevDb && isDevDatabaseUrl(resolved)) {
       throw new Error(
-        `refusing to run: ${secret} resolves to the dev database (${url}). ` +
+        `refusing to run: ${secret} resolves to the dev database (${resolved}). ` +
           "Regression tests must stay isolated from dev data. " +
           "Restore the generated .env.test (in-memory pglite — run `pnpm run bos dev` to regenerate), " +
           "or set REGRESSION_ALLOW_DEV_DB=1 to override deliberately.",
       );
     }
-    dbUrls[secret] = url;
+    dbUrls[secret] = resolved;
   }
 
   const baseUrl = env.REGRESSION_BASE_URL ?? fileEnv.REGRESSION_BASE_URL ?? DEFAULT_BASE_URL;
@@ -218,7 +180,6 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
     baseUrl,
     basePort,
     dbUrls,
-    dbRoot: regressionDbRoot,
     authSecret,
     bootstrapAdminKey,
     stalePorts,

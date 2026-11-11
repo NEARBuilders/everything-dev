@@ -104,21 +104,6 @@ admin user instead of minting a second user. Multi-segment accounts (whose
 sign-in email is unpredictable) are linked by the `near_account` row, not the
 email.
 
-## Regression: the phase runs on every boot
-
-The regression harness substitutes `.env.test`'s in-memory pglite markers for
-wiped per-workspace pglite dirs (`.bos/regression/db/<slug>`, absolute paths —
-services resolve relative pglite paths against their own workspace cwd), and
-start-stack wipes the root before the stack spawns. A fresh dir holds no
-marker, so **a declared `seed` block runs in full on every regression boot** —
-the phase's pre-spawn window is exactly what makes this possible.
-
-That is also the migration path for consumer apps whose test helpers open
-`pg` connections directly (e.g. seeding fixtures for browser specs): a direct
-connection requires a shared, externally-reachable database, which is what
-keeps postgres service containers in CI. Port those helpers to declared
-`seed` steps and the suite runs on pglite with no services at all.
-
 ## Production: supported, never implicit
 
 Production seeding never happens as a side effect of boot or deploy. Run it

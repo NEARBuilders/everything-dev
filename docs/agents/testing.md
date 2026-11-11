@@ -106,10 +106,8 @@ boundary above; until it lands, this document is the contract.
   cached session; mint a new state only when the fixtures don't cover it, and
   route the seeding through the shared HTTP helpers
   (`tests/regression/lib/http-seed.mjs` and the bootstrap-admin API key is
-  the supported path — the stack database is a pglite data dir held open by
-  its service (ADR 0044's file lock), so direct DB writes are impossible
-  post-spawn. App fixtures belong in declared `seed` steps instead, which
-  the phase runs pre-spawn — see `docs/seed-phase.md).
+  the supported path — the stack database is in-process pglite, so direct DB
+  writes are impossible).
 - **Serial by design**: `workers: 1`, `fullyParallel: false`, `retries: 1` —
   specs share ports and the seeded cookie cache. Don't write a spec that
   assumes a clean global state another spec might have breathed on; seed
