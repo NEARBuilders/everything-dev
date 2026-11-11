@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { compactIpAddress, compactRateLimit } from "../../src/auth-instance";
+import {
+  compactCrossSubDomainCookies,
+  compactIpAddress,
+  compactRateLimit,
+} from "../../src/auth-instance";
 import {
   buildRelayerConfig,
   buildSubAccountConfig,
@@ -289,6 +293,38 @@ describe("normalizeAuthConfig", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("accepts a dot-prefixed crossSubDomainCookies domain (#668)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      crossSubDomainCookies: { enabled: true, domain: ".nearbuilders.org" },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts a disabled crossSubDomainCookies block without a domain (#668)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      crossSubDomainCookies: { enabled: false },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects enabled crossSubDomainCookies without a domain (#668)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      crossSubDomainCookies: { enabled: true },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects a bare (non-dot-prefixed) crossSubDomainCookies domain (#668)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      crossSubDomainCookies: { enabled: true, domain: "nearbuilders.org" },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
   it("rejects an unknown rateLimit storage (#688)", () => {
     const parsed = authVariablesSchema.safeParse({
       ...baseVariables,
@@ -327,6 +363,21 @@ describe("normalizeAuthConfig", () => {
     // an empty trustedProxies list is not an opt-in
     expect(compactIpAddress({ ipAddressHeaders: ["x-real-ip"], trustedProxies: [] })).toEqual({
       ipAddressHeaders: ["x-real-ip"],
+    });
+  });
+
+  it("compacts the crossSubDomainCookies mapping — absent and disabled blocks emit nothing (#668)", () => {
+    expect(compactCrossSubDomainCookies(undefined)).toEqual({});
+    expect(compactCrossSubDomainCookies({ enabled: false })).toEqual({});
+    expect(compactCrossSubDomainCookies({ enabled: false, domain: ".nearbuilders.org" })).toEqual(
+      {},
+    );
+    expect(compactCrossSubDomainCookies({ enabled: true, domain: ".nearbuilders.org" })).toEqual({
+      crossSubDomainCookies: { enabled: true, domain: ".nearbuilders.org" },
+    });
+    // no domain: better-auth falls back to the base URL's root domain
+    expect(compactCrossSubDomainCookies({ enabled: true })).toEqual({
+      crossSubDomainCookies: { enabled: true },
     });
   });
 
@@ -380,10 +431,25 @@ describe("normalizeAuthConfig", () => {
     });
   });
 
-  it("leaves rateLimit and ipAddress absent when unconfigured", () => {
+  it("carries the crossSubDomainCookies variables through (#668)", () => {
+    const { authConfig } = normalizeAuthConfig(
+      {
+        ...baseVariables,
+        crossSubDomainCookies: { enabled: true, domain: ".nearbuilders.org" },
+      },
+      baseSecrets,
+    );
+    expect(authConfig.crossSubDomainCookies).toEqual({
+      enabled: true,
+      domain: ".nearbuilders.org",
+    });
+  });
+
+  it("leaves rateLimit, ipAddress, and crossSubDomainCookies absent when unconfigured", () => {
     const { authConfig } = normalizeAuthConfig(baseVariables, baseSecrets);
     expect(authConfig.rateLimit).toBeUndefined();
     expect(authConfig.ipAddress).toBeUndefined();
+    expect(authConfig.crossSubDomainCookies).toBeUndefined();
   });
 
   it("serves mainnet for a mainnet runtime account", () => {

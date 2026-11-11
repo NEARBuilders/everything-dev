@@ -68,6 +68,16 @@ export interface AuthIpAddressConfig {
   trustedProxies?: string[];
 }
 
+/** Cross-subdomain cookie sharing (#668): when enabled, Better Auth sets the
+ * session cookie's Domain attribute to `domain` (a dot-prefixed registrable
+ * domain, e.g. `.nearbuilders.org`) so sibling subdomains share one session.
+ * Cookies sealed for a shared domain require every app on it to run the same
+ * BETTER_AUTH_SECRET. */
+export interface AuthCrossSubDomainCookiesConfig {
+  enabled: boolean;
+  domain?: string;
+}
+
 export interface AuthConfig {
   secret: string;
   baseUrl: string;
@@ -77,6 +87,7 @@ export interface AuthConfig {
   isProduction?: boolean;
   rateLimit?: AuthRateLimitConfig;
   ipAddress?: AuthIpAddressConfig;
+  crossSubDomainCookies?: AuthCrossSubDomainCookiesConfig;
   referral?: AuthReferralConfig;
   socialProviders?: {
     github?: {

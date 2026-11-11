@@ -208,6 +208,7 @@ export function normalizeAuthConfig(
     isProduction: new URL(baseUrl).protocol === "https:",
     rateLimit: variables.rateLimit,
     ipAddress: variables.ipAddress,
+    crossSubDomainCookies: variables.crossSubDomainCookies,
     socialProviders: {
       github: {
         clientId: variables.socialProviders?.github?.clientId,

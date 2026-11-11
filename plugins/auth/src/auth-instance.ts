@@ -18,6 +18,7 @@ import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "bet
 import { gt } from "drizzle-orm";
 import type {
   AuthConfig,
+  AuthCrossSubDomainCookiesConfig,
   AuthIpAddressConfig,
   AuthPermissionStatements,
   AuthRateLimitConfig,
@@ -148,6 +149,25 @@ export function compactIpAddress(
   return {
     ipAddressHeaders: ipAddress?.ipAddressHeaders ?? ["x-forwarded-for"],
     ...(ipAddress?.trustedProxies?.length ? { trustedProxies: ipAddress.trustedProxies } : {}),
+  };
+}
+
+/**
+ * Maps the authored crossSubDomainCookies variables to better-auth's advanced
+ * option shape, emitting the block only when enabled so absent config leaves
+ * better-auth's cookie behavior untouched (#668). A disabled block drops the
+ * domain too — better-auth reads it only when enabled. Without a domain,
+ * better-auth falls back to the root domain of the base URL.
+ */
+export function compactCrossSubDomainCookies(
+  cookies: AuthCrossSubDomainCookiesConfig | undefined,
+): { crossSubDomainCookies?: { enabled: boolean; domain?: string } } {
+  if (!cookies?.enabled) return {};
+  return {
+    crossSubDomainCookies: {
+      enabled: cookies.enabled,
+      ...(cookies.domain !== undefined ? { domain: cookies.domain } : {}),
+    },
   };
 }
 
@@ -570,6 +590,11 @@ export function createAuthInstance(
       // The default trusts the standard forwarded header; deployments without
       // a proxy are unaffected (the header is absent and the fallback applies).
       ipAddress: compactIpAddress(config.ipAddress),
+      // Sibling subdomains sharing one session cookie (#668): authored config
+      // only — absent config keeps cookies host-scoped. The domain must be the
+      // shared registrable domain (schema-enforced dot-prefix), and every app
+      // sealing cookies for it must run the same BETTER_AUTH_SECRET.
+      ...compactCrossSubDomainCookies(config.crossSubDomainCookies),
     },
   });
   authRef = auth;
