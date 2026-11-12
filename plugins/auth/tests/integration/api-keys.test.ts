@@ -383,4 +383,126 @@ describe("API key handlers", () => {
       expect(result.success).toBe(true);
     });
   });
+
+  describe("Better Auth api-key routes without configId", () => {
+    const AUTH_BASE = "http://localhost:3000/api/auth";
+
+    function authRequest(
+      cookie: string,
+      path: string,
+      init: { method: "GET" | "POST"; body?: Record<string, unknown> },
+    ): Promise<Response> {
+      return services.services.auth.handler(
+        new Request(`${AUTH_BASE}${path}`, {
+          method: init.method,
+          headers: { "Content-Type": "application/json", cookie },
+          body: init.body ? JSON.stringify(init.body) : undefined,
+        }),
+      );
+    }
+
+    it("creates a personal user-keys key from a bare create({ name })", async () => {
+      const user = await createTestUser(services.services);
+
+      const res = await authRequest(user.cookie, "/api-key/create", {
+        method: "POST",
+        body: { name: "bare personal key" },
+      });
+
+      expect(res.status).toBe(200);
+      const created = (await res.json()) as {
+        key: string;
+        configId: string;
+        referenceId: string;
+      };
+      expect(created.key).toMatch(/^api_/);
+      expect(created.configId).toBe("user-keys");
+      expect(created.referenceId).toBe(user.userId);
+
+      const handlers = createTestHandlers(services.services);
+      const verified = await handlers.apiKeys.verifyApiKey({
+        input: { key: created.key },
+        context: { reqHeaders: {} },
+      });
+      expect(verified.valid).toBe(true);
+      expect(verified.key?.configId).toBe("user-keys");
+    });
+
+    it("creates an org-keys key from a bare create with organizationId", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId);
+
+      const res = await authRequest(user.cookie, "/api-key/create", {
+        method: "POST",
+        body: { name: "bare org key", organizationId: org.id },
+      });
+
+      expect(res.status).toBe(200);
+      const created = (await res.json()) as { key: string; configId: string; referenceId: string };
+      expect(created.key).toMatch(/^org_/);
+      expect(created.configId).toBe("org-keys");
+      expect(created.referenceId).toBe(org.id);
+    });
+
+    it("lists existing and bare-created personal keys without configId, excluding org keys", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId);
+      const existing = await createTestApiKey(services.services, {
+        userId: user.userId,
+        name: "existing personal",
+      });
+      const orgKey = await createTestApiKey(services.services, {
+        userId: user.userId,
+        organizationId: org.id,
+        name: "existing org",
+      });
+      const bareRes = await authRequest(user.cookie, "/api-key/create", {
+        method: "POST",
+        body: { name: "bare personal" },
+      });
+      const bare = (await bareRes.json()) as { id: string };
+
+      const res = await authRequest(user.cookie, "/api-key/list", { method: "GET" });
+
+      expect(res.status).toBe(200);
+      const listed = (await res.json()) as { apiKeys: Array<{ id: string; configId: string }> };
+      const ids = listed.apiKeys.map((key) => key.id);
+      expect(ids).toEqual(expect.arrayContaining([existing.id, bare.id]));
+      expect(ids).not.toContain(orgKey.id);
+      expect(listed.apiKeys.every((key) => key.configId === "user-keys")).toBe(true);
+    });
+
+    it("updates a personal key without configId", async () => {
+      const user = await createTestUser(services.services);
+      const existing = await createTestApiKey(services.services, { userId: user.userId });
+
+      const res = await authRequest(user.cookie, "/api-key/update", {
+        method: "POST",
+        body: { keyId: existing.id, name: "renamed" },
+      });
+
+      expect(res.status).toBe(200);
+      const updated = (await res.json()) as { name: string; configId: string };
+      expect(updated.name).toBe("renamed");
+      expect(updated.configId).toBe("user-keys");
+    });
+
+    it("gets and deletes a personal key without configId", async () => {
+      const user = await createTestUser(services.services);
+      const existing = await createTestApiKey(services.services, { userId: user.userId });
+
+      const getRes = await authRequest(user.cookie, `/api-key/get?id=${existing.id}`, {
+        method: "GET",
+      });
+      expect(getRes.status).toBe(200);
+      expect(((await getRes.json()) as { id: string }).id).toBe(existing.id);
+
+      const deleteRes = await authRequest(user.cookie, "/api-key/delete", {
+        method: "POST",
+        body: { keyId: existing.id },
+      });
+      expect(deleteRes.status).toBe(200);
+      expect(((await deleteRes.json()) as { success: boolean }).success).toBe(true);
+    });
+  });
 });
