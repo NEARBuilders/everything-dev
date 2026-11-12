@@ -42,7 +42,7 @@ export function watchIntervalMs(): number {
  */
 export { pointerDigest } from "everything-dev/digest";
 
-export type WatchTickOutcome = "clean" | "swapped" | "swap-failed" | "pointer-unreachable";
+export type WatchTickOutcome = "clean" | "swapped" | "held" | "swap-failed" | "pointer-unreachable";
 
 /**
  * The full cause chain of a watch-tick failure. A bare `Effect.tryPromise`
@@ -81,7 +81,10 @@ export interface WatchTickDeps {
 /**
  * One watch tick (atomic-deploys 08): fetch the published pointer; a
  * digest change → the adopt transaction (derive → pre-warm → verify →
- * swap — the adopt's own SRI pass covers the entries it adopts). An adopt
+ * swap — the adopt's own SRI pass covers the entries it adopts). A held
+ * adopt (coherence guard, fly-hosting 14) counts as seen — `lastSeen`
+ * records the digest so the tick does not re-derive a generation the host
+ * refuses to serve until restart. An adopt
  * failure logs and leaves `lastSeen` unchanged so the next tick retries.
  * On the unchanged-pointer path the current entries are SRI-verified each
  * tick; a verification failure there means the pinned bytes are wrong on the
@@ -108,26 +111,35 @@ export const runWatchTick = (
 
     const digest = pointerDigest(pointer);
     if (digest !== deps.lastSeen) {
-      const adopted = yield* Effect.tryPromise(() => deps.adopt(pointer)).pipe(
+      const adoptStatus = yield* Effect.tryPromise(() => deps.adopt(pointer)).pipe(
         Effect.match({
           onSuccess: (outcome) => {
             if (outcome.status === "swapped") {
               logger.info(`[SnapshotWatch] snapshot swapped to ${digest}`);
+            } else if (outcome.status === "held") {
+              logger.info(`[SnapshotWatch] adoption held — a restart adopts the generation whole`);
             }
-            return true;
+            return outcome.status;
           },
           onFailure: (cause) => {
             logger.error(
               `[SnapshotWatch] adopt failed for ${digest} — retrying next tick:`,
               describeCauseChain(cause),
             );
-            return false;
+            return undefined;
           },
         }),
       );
       return {
-        lastSeen: adopted ? digest : deps.lastSeen,
-        outcome: adopted ? "swapped" : "swap-failed",
+        lastSeen: adoptStatus !== undefined ? digest : deps.lastSeen,
+        outcome:
+          adoptStatus === "held"
+            ? "held"
+            : adoptStatus === "swapped"
+              ? "swapped"
+              : adoptStatus !== undefined
+                ? "clean"
+                : "swap-failed",
       };
     }
 
@@ -377,7 +389,7 @@ export class SnapshotWatch extends Context.Service<
                     `[SnapshotWatch] adopt still failing — next attempt in ${nextDelayS}s`,
                   );
                 }
-              } else if (outcome === "clean" || outcome === "swapped") {
+              } else {
                 consecutiveAdoptFailures = 0;
               }
             }

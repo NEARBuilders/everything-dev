@@ -130,6 +130,20 @@ describe("runWatchTick", () => {
     expect(loggerMock.error).toHaveBeenCalled();
   });
 
+  it("a held adopt is recorded as seen — the tick does not re-derive a refused generation", async () => {
+    const deps = makeDeps({
+      adopt: vi.fn().mockResolvedValue({ status: "held", pendingRestart: ["app.api"] }),
+    });
+    const { lastSeen, outcome } = await Effect.runPromise(
+      runWatchTick({ ...deps, lastSeen: undefined }),
+    );
+    expect(outcome).toBe("held");
+    expect(lastSeen).toBe(pointerDigest(publishedPointer));
+    expect(
+      loggerMock.info.mock.calls.some((call: unknown[]) => String(call[0]).includes("held")),
+    ).toBe(true);
+  });
+
   it("the adopt-failure log unwraps Effect's UnknownError wrapper to the real cause", async () => {
     const realCause = new Error("pinned entry failed verification (https://cdn/ui/remoteEntry.js)");
     const unknownErrorWrapper = Object.assign(new Error("An error occurred in Effect.tryPromise"), {
