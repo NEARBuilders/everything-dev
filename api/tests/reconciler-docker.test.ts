@@ -5,12 +5,21 @@ import { join } from "node:path";
 import { Layer, ManagedRuntime } from "effect";
 import { HostingAdapter } from "everything-dev/hosting";
 import { dockerHostingAdapterLayer } from "everything-dev/hosting/docker";
+import {
+  DeployRecordSchema,
+  deployRecordTsOf,
+  keyPathOf,
+  ManifestSchema,
+  ManifestTagSchema,
+  type RegistryHistoryEntry,
+  runtimeRefOf,
+} from "everything-dev/registry";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DatabaseLive } from "@/db/layer";
 import {
   buildDeployHistoryService,
   DeployHistoryService,
-  type RegistryHistoryEntry,
+  type DeployHistorySource,
 } from "@/lib/deploy-history";
 import { buildReconciler, instanceNameFor, type ReconcilerStatusSnapshot } from "@/lib/reconciler";
 import { SecretsStore, SecretsStoreLive } from "@/lib/secrets-store";
@@ -45,50 +54,80 @@ function removeContainer(name: string): void {
 
 const stateDir = mkdtempSync(join(tmpdir(), "bos-reconciler-e2e-"));
 
-let manifests: RegistryHistoryEntry[] = [];
-let configs: RegistryHistoryEntry[] = [];
-let platforms: RegistryHistoryEntry[] = [];
+const REF = runtimeRefOf({ accountId: ACCOUNT, gatewayId: GATEWAY });
+const IMAGE_REF = "nginx";
+const REGISTRY_URL = "https://kv.example.test/v0/latest/ns/ns/bos.config.json";
 
-const fetchJson = (url: string, init?: RequestInit): Promise<unknown> => {
-  const body = init?.body ? (JSON.parse(init.body as string) as { key_prefix?: string }) : null;
-  if (body?.key_prefix?.includes("/manifests/")) {
-    return Promise.resolve({ entries: manifests });
-  }
-  if (url.includes("platform.json")) return Promise.resolve({ entries: platforms });
-  return Promise.resolve({ entries: configs });
+let records: Array<{ key: string; blockHeight: number; blockTimestampNs: string; value: unknown }> =
+  [];
+let configEntries: RegistryHistoryEntry[] = [];
+let tagEntries: RegistryHistoryEntry[] = [];
+const versionRecords = new Map<string, unknown>();
+
+const source: DeployHistorySource = {
+  listDeployRecords: async () => records,
+  keyHistory: async (key) => (key.kind === "manifest" ? tagEntries : configEntries),
+  readVersionRecord: async (key) =>
+    key.kind === "version" ? (versionRecords.get(key.version) ?? null) : null,
 };
 
-const publish = (sequence: number, configSlot: string, imageRef: string): void => {
+const versionRecordFixture = (version: string, tag: string) =>
+  ManifestSchema.parse({
+    schemaVersion: 1,
+    kind: "everything-dev/platform-manifest",
+    frameworkVersion: version,
+    everyPluginVersion: "0.19.2",
+    image: { ref: IMAGE_REF, tags: [tag] },
+    catalog: {},
+    sharedDeps: {},
+    templateInventory: [],
+    compat: { minChild: "2.0.0-rc.37" },
+  });
+
+const publish = (sequence: number, configSlot: string, imageTag: string): void => {
   const block = 100 + sequence;
   const publishedAt = `2026-10-22T00:${String(sequence).padStart(2, "0")}:00.000Z`;
-  manifests = [
+  const version = `2.0.0-rc.${sequence}`;
+  records = [
     {
-      key: `apps/${ACCOUNT}/${GATEWAY}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`,
+      key: keyPathOf({ kind: "deployRecord", ref: REF, ts: deployRecordTsOf(publishedAt) }),
       blockHeight: block,
-      blockTimestampNs: block,
-      value: JSON.stringify({
+      blockTimestampNs: String(block),
+      value: DeployRecordSchema.parse({
         account: ACCOUNT,
         gateway: GATEWAY,
         network: "mainnet",
         publishedAt,
-        registryUrl: "https://cdn.example.com",
+        registryUrl: REGISTRY_URL,
+        platformManifest: {
+          version,
+          tag: keyPathOf({ kind: "manifest", ref: REF }),
+          tagIntegrity: "sha384-tag",
+          record: keyPathOf({ kind: "version", ref: REF, version }),
+          integrity: "sha384-record",
+        },
       }),
     },
   ];
-  configs = [
+  configEntries = [
     {
       blockHeight: block,
-      blockTimestampNs: block,
-      value: JSON.stringify({ plugins: { votes: configSlot } }),
+      blockTimestampNs: String(block),
+      value: { plugins: { votes: configSlot } },
     },
   ];
-  platforms = [
+  tagEntries = [
     {
       blockHeight: block,
-      blockTimestampNs: block,
-      value: JSON.stringify({ image: { ref: imageRef, tags: [] } }),
+      blockTimestampNs: String(block),
+      value: ManifestTagSchema.parse({
+        schemaVersion: 1,
+        version,
+        digest: "4d5c80037cc00a8b663b83146d65fd5e6c3686b46ab7efdf0970aad04f6042ba",
+      }),
     },
   ];
+  versionRecords.set(version, versionRecordFixture(version, imageTag));
 };
 
 describe.skipIf(!haveDocker)("reconciler converges a docker instance on publish", () => {
@@ -102,7 +141,7 @@ describe.skipIf(!haveDocker)("reconciler converges a docker instance on publish"
       Layer.mergeAll(
         Layer.succeed(
           DeployHistoryService,
-          DeployHistoryService.of(buildDeployHistoryService(fetchJson)),
+          DeployHistoryService.of(buildDeployHistoryService(source)),
         ),
         dockerHostingAdapterLayer({
           containerPort: 80,
@@ -136,7 +175,7 @@ describe.skipIf(!haveDocker)("reconciler converges a docker instance on publish"
     const history = await runtime.runPromise(DeployHistoryService);
     const store = await runtime.runPromise(SecretsStore);
 
-    publish(1, "v1", "nginx:alpine");
+    publish(1, "v1", "alpine");
     const reconciler = buildReconciler(
       { history, secrets: store, adapter, provisionDatabases: undefined },
       { watch: [{ account: ACCOUNT, gateway: GATEWAY }], pollIntervalMs: 15000 },
@@ -152,7 +191,7 @@ describe.skipIf(!haveDocker)("reconciler converges a docker instance on publish"
     await runtime.runPromise(
       store.set({ account: ACCOUNT, gateway: GATEWAY, name: "AI_API_KEY", value: "sk-from-vault" }),
     );
-    publish(2, "v2", "nginx:1.27-alpine");
+    publish(2, "v2", "1.27-alpine");
 
     const second = await runtime.runPromise(reconciler.tick());
     expect(second.namespaces[0]).toMatchObject({ convergedDigest: expect.any(String) });
