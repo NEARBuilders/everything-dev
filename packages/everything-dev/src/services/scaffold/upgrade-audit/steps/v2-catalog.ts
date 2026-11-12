@@ -66,7 +66,7 @@ export const V2_CATALOG: Readonly<Record<string, string>> = {
   "drizzle-orm": "^0.45.4",
   effect: "4.0.0-rc.118",
   "every-plugin": "^3.0.0-rc.18",
-  "everything-dev": "^2.0.0-rc.44",
+  "everything-dev": "^2.0.0-rc.45",
   "near-kit": "^0.20.2",
   pg: "^8.12.0",
   react: "19.3.1",

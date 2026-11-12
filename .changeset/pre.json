@@ -129,6 +129,7 @@
     "deploy-cdn-origin-guard",
     "deploy-confirm-tx-status",
     "deploy-folder-form-plugin-uis",
+    "deploy-history-reader-wire",
     "deploy-image-leg-run-stdout",
     "deploy-key-mint",
     "deploy-legs-tier-matrix",
