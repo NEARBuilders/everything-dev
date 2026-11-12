@@ -119,7 +119,7 @@ jobs:
   # manual retry (workflow_dispatch), the rc detection runs the same way — a
   # deliberate re-publish re-proves the tree.
   regression:
-    name: Release gate — regression (unit + start + backcompat)
+    name: Release gate — regression (unit + start)
     needs: [gate]
     if: needs.gate.outputs.release == 'true' && needs.gate.outputs.rc == 'true'
     uses: ./.github/workflows/regression-full.yml

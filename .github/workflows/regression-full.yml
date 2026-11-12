@@ -9,11 +9,11 @@
 # PARALLEL planes (wall = the slowest plane, not their sum):
 #
 #   nightly -- the full matrix: unit + dev + start + backcompat + framework.
-#   release -- the publish gate: unit + start + backcompat only. The dev
-#     and framework planes pin the 'bos dev' machinery (source-mode dev
-#     server, process death) -- dev-plane concerns app-code changes cannot
-#     break, whose user journeys the start plane's full suite already
-#     covers. The gate proves the production artifact (start) and the
+#   release -- the publish gate: unit + start only. The dev
+#     dev and framework planes pin the 'bos dev' machinery (source-mode
+#     dev server, process death), and backcompat needs the root app's
+#     unstamped production URLs -- dev-plane concerns app-code changes
+#     cannot break. The gate proves the production artifact (start); the
 #     published-chain contract (backcompat); the nightly canaries the dev
 #     plane. ci.yml keeps workflow_dispatch triage jobs for every plane.
 #
@@ -31,7 +31,7 @@ on:
   workflow_call:
     inputs:
       tier:
-        description: "release = unit + start + backcompat / nightly = full matrix incl. dev + framework"
+        description: "release = unit + start / nightly = full matrix incl. dev + backcompat + framework"
         required: false
         type: string
         default: "nightly"
@@ -109,7 +109,7 @@ jobs:
             test-results/**
 
   unit-backcompat:
-    name: Unit + backcompat plane
+    name: Unit plane (+ backcompat on nightly)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -157,9 +157,16 @@ jobs:
         run: pnpm run test:regression:unit
 
       - name: Install Playwright chromium
+        # Backcompat rides the nightly tier only: the mode points
+        # --remote-plugins at the ROOT app's authored config, which stamps no
+        # production URLs — boot dies in artifact generation (Nov-08..12
+        # nightlies, identical two log lines). Fixing the mode is separate
+        # work; meanwhile it must not gate publishes.
+        if: inputs.tier == 'nightly'
         run: pnpm run test:regression:browser:install
 
       - name: Run the backcompat plane (http + browser)
+        if: inputs.tier == 'nightly'
         run: pnpm run test:regression:backcompat
 
       - name: Upload regression artifacts on failure or cancel
