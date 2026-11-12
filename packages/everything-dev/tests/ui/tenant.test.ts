@@ -432,6 +432,14 @@ describe("entry url resolution", () => {
     expect(resolveClientEntryUrl("https://cdn.example.com/ui/mf-manifest.json")).toBe(
       "https://cdn.example.com/ui/remoteEntry.js",
     );
+    expect(
+      resolveClientEntryUrl("https://cdn.example.com/ui/mf-manifest.0190fae63d7daaa5.json"),
+    ).toBe("https://cdn.example.com/ui/remoteEntry.js");
+    expect(
+      resolveClientEntryUrl(
+        "https://cdn.example.com/ui/versions/v1/mf-manifest.0190fae63d7daaa5.json",
+      ),
+    ).toBe("https://cdn.example.com/ui/versions/v1/remoteEntry.js");
   });
 
   it("resolves server entry urls the way the host does", () => {
@@ -451,6 +459,12 @@ describe("entry url resolution", () => {
       "https://cdn.example.com/ssr",
     );
     expect(normalizeBundleBaseUrl("https://cdn.example.com/ui/mf-manifest.json")).toBe(
+      "https://cdn.example.com/ui",
+    );
+    expect(
+      normalizeBundleBaseUrl("https://cdn.example.com/ui/mf-manifest.0190fae63d7daaa5.json"),
+    ).toBe("https://cdn.example.com/ui");
+    expect(normalizeBundleBaseUrl("https://cdn.example.com/ui/mf-manifest.abc12345.json?t=1")).toBe(
       "https://cdn.example.com/ui",
     );
     expect(normalizeBundleBaseUrl("  https://cdn.example.com/ui  ")).toBe(

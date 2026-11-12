@@ -1,4 +1,5 @@
 import { isEffectCriticalSharedDep } from "../../shared-deps-spec";
+import { isManifestDocumentUrl } from "../../ui/manifest/contract";
 
 interface IdentityManifest {
   metaData?: { pluginVersion?: string; name?: string };
@@ -14,12 +15,16 @@ export interface SharedIdentityMismatch {
 const MANIFEST_TIMEOUT_MS = 15_000;
 
 function manifestUrl(remoteUrl: string): string {
+  if (isManifestDocumentUrl(remoteUrl)) return remoteUrl;
   return remoteUrl.endsWith("/") ? `${remoteUrl}mf-manifest.json` : `${remoteUrl}/mf-manifest.json`;
 }
 
 function normalizeBaseUrl(remoteUrl: string): string {
   const withoutHash = remoteUrl.split("#")[0] ?? remoteUrl;
-  return withoutHash.replace(/\/(mf-manifest\.json|remoteEntry(?:\.[^/]+)?\.js)$/i, "");
+  return withoutHash.replace(
+    /\/(mf-manifest(?:\.[a-f0-9]{8,})?\.json|remoteEntry(?:\.[^/]+)?\.js)$/i,
+    "",
+  );
 }
 
 export function compareSharedIdentity(
@@ -60,8 +65,9 @@ export function describeSharedIdentityMismatch(
 export async function fetchRemoteIdentityManifest(
   remoteUrl: string,
 ): Promise<IdentityManifest | null> {
-  const base = normalizeBaseUrl(remoteUrl);
-  const url = manifestUrl(base);
+  const url = isManifestDocumentUrl(remoteUrl)
+    ? remoteUrl
+    : manifestUrl(normalizeBaseUrl(remoteUrl));
   const res = await fetch(url, { signal: AbortSignal.timeout(MANIFEST_TIMEOUT_MS) });
   if (!res.ok) return null;
   return (await res.json()) as IdentityManifest;
