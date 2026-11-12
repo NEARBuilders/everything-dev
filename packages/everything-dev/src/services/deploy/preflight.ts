@@ -6,10 +6,12 @@ import type { BosConfig, PublishConfig } from "../../types";
 import { fetchResponse } from "../../utils/http-client";
 import { getNetworkIdForAccount } from "../../utils/network";
 import { colors } from "../../utils/theme";
+import { checkCustodyBalance } from "../auth/custody-signer";
 import {
   checkPublishBalance,
   checkPublishKeyHealth,
   describeSigningStrategy,
+  hasLocalSigningKey,
   resolveSigningStrategy,
   type SigningStrategy,
 } from "../auth/near-signer";
@@ -34,6 +36,15 @@ import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from
  * `plan.credential` instead of re-reading and re-validating the session file.
  */
 
+export type PublishMode = "session" | "key" | "custody";
+
+/** The resolved signing identity — the preflight guards validate each arm
+ * once (ticket #422); the train consumes the arm, never re-checks it. */
+export type PublishSigning =
+  | { mode: "session"; credential: SessionCredential }
+  | { mode: "custody"; custodyWallet: CustodyWalletRecord }
+  | { mode: "key"; strategy: SigningStrategy };
+
 export type PublishedConfigState = "fetched" | "missing" | "unreachable";
 
 export interface PublishPreflightPlan {
@@ -44,9 +55,7 @@ export interface PublishPreflightPlan {
   registryUrl: string;
   registryNamespace: string;
   targets: string[];
-  useWallet: boolean;
-  useCustody: boolean;
-  strategy?: SigningStrategy;
+  signing: PublishSigning;
   cdnOrigin: string | undefined;
   storageOrigin: string;
   storageApiKey?: string;
@@ -54,10 +63,6 @@ export interface PublishPreflightPlan {
   publishedConfig: Record<string, unknown> | null;
   /** Whether the preflight FastKV read succeeded, found nothing, or failed. */
   publishedConfigState: PublishedConfigState;
-  /** Validated by the custody guard — present iff useCustody. */
-  custodyWallet?: CustodyWalletRecord;
-  /** Validated by the session guard — present iff useWallet. */
-  credential?: SessionCredential;
 }
 
 export type PublishPreflight =
@@ -262,7 +267,6 @@ interface PreflightInput {
   packages: string;
   network?: "mainnet" | "testnet";
   privateKey?: string;
-  wallet?: boolean;
   registry?: string;
 }
 
@@ -289,30 +293,49 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
   // wallet/custody guards validate + capture their handles on the plan, and
   // CDN credential derivation consumes the raw credential as before.
   const sessionFile = readSessionHandle(configDir);
+
+  // Signing-mode selection, explicit beats implicit: --private-key, then the
+  // authored publish.auth, then a locally available key (env or
+  // ~/.near-credentials — existing setups keep working), then the login
+  // session (gasless relay under a delegate key the browser approved at login).
   const publishAuth: PublishConfig["auth"] = bosConfig.publish?.auth;
-  const governsWalletPublish = (publishAuth === "session" || input.wallet) && !input.privateKey;
-  let credential: SessionCredential | undefined;
-  if (governsWalletPublish) {
-    if (!sessionFile?.credential) {
-      return fail(
-        (input.wallet
-          ? "--wallet requires"
-          : 'the authored config sets publish.auth = "session", but') +
-          " no CLI session is stored in .bos/ for this project. Run bos login to create one.",
-      );
-    }
-    if (sessionFile.credential.accountId && sessionFile.credential.accountId !== account) {
-      return fail(
-        `The CLI session was created for ${sessionFile.credential.accountId}, but the configured ` +
-          `account is ${account}. Gasless wallet publish relays the FastKV write under the session's ` +
-          "NEAR account. Run bos login again under the matching account.",
-      );
-    }
-    credential = sessionFile.credential;
+  const sessionCredential = sessionFile?.credential ?? undefined;
+  const sessionUsable = Boolean(sessionCredential && sessionCredential.accountId === account);
+
+  let mode: PublishMode;
+  if (input.privateKey) {
+    mode = "key";
+  } else if (publishAuth) {
+    mode = publishAuth;
+  } else if (!sessionUsable) {
+    mode = "key";
+  } else {
+    mode = (await hasLocalSigningKey({ account, network })) ? "key" : "session";
   }
-  const useCustody = publishAuth === "custody" && !input.privateKey && !input.wallet;
-  let custodyWallet: CustodyWalletRecord | undefined;
-  if (useCustody) {
+
+  let pendingSigning: Exclude<PublishSigning, { mode: "key" }> | undefined;
+  if (mode === "session") {
+    if (!sessionCredential) {
+      return fail(
+        'the authored config sets publish.auth = "session", but no CLI session is stored in ' +
+          ".bos/ for this project. Run `bos login` to create one.",
+      );
+    }
+    if (!sessionUsable) {
+      return fail(
+        sessionCredential.accountId
+          ? `The CLI session was created for ${sessionCredential.accountId}, but the configured ` +
+              `account is ${account}. Gasless publish relays the FastKV write under the session's ` +
+              "NEAR account. Run `bos login` again under the matching account."
+          : "The CLI session has no NEAR account (a non-wallet login), so it cannot relay a publish " +
+              `for ${account}. Run \`bos login\` with the account's wallet, or sign with a key ` +
+              "(--private-key / NEAR_PRIVATE_KEY).",
+      );
+    }
+    pendingSigning = { mode: "session", credential: sessionCredential };
+  }
+
+  if (mode === "custody") {
     const wallet = sessionFile?.custodyWallet;
     if (!wallet) {
       return fail(
@@ -333,26 +356,45 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
           "Set the authored config's account to the custody wallet account.",
       );
     }
-    custodyWallet = wallet;
+    pendingSigning = { mode: "custody", custodyWallet: wallet };
   }
 
   if (input.dryRun) {
     return { kind: "dry-run", registryUrl };
   }
 
-  const useWallet = input.wallet === true;
-  let strategy: SigningStrategy | undefined;
-  if (useWallet) {
+  let signing: PublishSigning;
+  if (pendingSigning?.mode === "custody") {
+    const { custodyWallet } = pendingSigning;
+    // The custody wallet's gas balance gates the whole publish — checked
+    // here, before the build train, so an underfunded wallet fails in
+    // seconds with the funding link instead of after a full build/upload.
+    const balance = await checkCustodyBalance(custodyWallet);
+    if (!balance.ok) {
+      return fail(balance.message);
+    }
+    if (balance.unreachable) {
+      console.log(colors.dim(`  ${balance.message}`));
+    } else {
+      console.log(
+        `  Signing via ${colors.cyan(`OutLayer custody wallet ${custodyWallet.nearAccountId}`)}`,
+      );
+    }
+    signing = pendingSigning;
+  } else if (pendingSigning?.mode === "session") {
+    signing = pendingSigning;
     console.log(
-      `  Signing via ${colors.cyan("gasless NEP-366 delegate action (relayed by the platform relayer)")}`,
+      `  Signing via ${colors.cyan(`gasless delegate key for ${account} (relayed by the platform relayer)`)}`,
     );
   } else {
+    let strategy: SigningStrategy;
     try {
       strategy = await resolveSigningStrategy({ privateKey: input.privateKey, account, network });
       console.log(`  Signing via ${colors.cyan(describeSigningStrategy(strategy))}`);
     } catch (error) {
       return fail(error instanceof Error ? error.message : "Unknown error");
     }
+    signing = { mode: "key", strategy };
     // The publish key's on-chain health is checked before the build train so a
     // rotated or exhausted key fails in seconds with the repair hint instead
     // of surfacing after a full build as a broadcast that never appears
@@ -404,7 +446,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
       env: process.env as Record<string, string | undefined>,
       bosConfig,
       session: sessionFile?.credential ?? null,
-      custodyAccount: useCustody ? custodyWallet?.nearAccountId : undefined,
+      custodyAccount: signing.mode === "custody" ? signing.custodyWallet.nearAccountId : undefined,
       account,
       gateway,
       uploadsPlanned: input.build,
@@ -423,7 +465,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
     if (probeError) {
       return fail(
         `The bundle upload origin ${cdnDeploy.storageOrigin} is not a bundle-upload origin — ` +
-          `${probeError}. Check BOS_STORAGE_ORIGIN / the bos login session, then re-run.`,
+          `${probeError}. Check cdn.upload in the authored config / BOS_STORAGE_ORIGIN, then re-run.`,
       );
     }
   }
@@ -457,16 +499,12 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
       registryUrl,
       registryNamespace: getRegistryNamespaceForNetwork(network, input.registry),
       targets: selectWorkspaceTargets(input.packages, bosConfig),
-      useWallet,
-      useCustody,
-      strategy,
+      signing,
       cdnOrigin: cdnDeploy.cdnOrigin,
       storageOrigin: cdnDeploy.storageOrigin,
       storageApiKey: cdnDeploy.apiKey,
       publishedConfig,
       publishedConfigState,
-      ...(custodyWallet ? { custodyWallet } : {}),
-      ...(credential ? { credential } : {}),
     },
   };
 }

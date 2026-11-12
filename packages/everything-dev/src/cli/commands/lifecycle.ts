@@ -10,16 +10,14 @@ export const lifecycleRenderers: Record<string, ResultRenderer> = {
     if (result.warning) console.log(`  ${colors.yellow("⚠")} ${result.warning}`);
     if (result.deployKey) {
       console.log(
-        `  ${colors.dim("Deploy key:")} ${result.deployKey.account}/${result.deployKey.gateway} scope${result.publishKey ? "" : colors.dim(" — upload credentials for deploys")}`,
+        `  ${colors.dim("Deploy key:")} ${result.deployKey.account}/${result.deployKey.gateway} scope ${colors.dim("(also stored in .bos/session.json)")}`,
       );
       if (!process.stdout.isTTY) {
         process.stderr.write(
           `  ⚠ Non-interactive stdout: this API key will be captured in any log or pipe (GitHub Actions logs persist stdout).\n`,
         );
       }
-      process.stdout.write(
-        `  Set this as BOS_STORAGE_API_KEY in GitHub Actions or before calling deploy:\n`,
-      );
+      process.stdout.write(`  For CI (no browser), export it as BOS_STORAGE_API_KEY:\n`);
       process.stdout.write(`BOS_STORAGE_API_KEY=${result.deployKey.key}\n`);
     }
     if (result.publishKey) {

@@ -187,42 +187,8 @@ describe("device login client", () => {
     expect(mintBody.json.name).toContain("bos deploy");
   });
 
-  it("surfaces the auth service's deploy-key mint failure verbatim", async () => {
-    stubFetchSequence([
-      { match: "/api/auth/device/code", status: 200, body: deviceCodeResponse() },
-      {
-        match: "/api/auth/device/token",
-        status: 200,
-        body: { access_token: "session-token-1", token_type: "Bearer" },
-      },
-      {
-        match: "/api/auth/device-link/claim",
-        status: 200,
-        body: { success: true },
-        headers: { "set-cookie": `${CLAIMED_COOKIE}; Path=/; HttpOnly; SameSite=Lax` },
-      },
-      {
-        match: "/api/rpc/auth/createDeployKey",
-        status: 403,
-        body: {
-          error: {
-            code: "FORBIDDEN",
-            message:
-              "Deploy keys can only be minted for NEAR accounts linked to your login — link citynode.near first",
-          },
-        },
-      },
-    ]);
-
-    const login = await startDeviceLogin({
-      siteUrl: SITE,
-      deployKey: { account: "citynode.near", gateway: "citynode.app" },
-    });
-    await expect(login.waitForApproval()).rejects.toThrow(/linked to your login/);
-  });
-
-  it("parses the oRPC envelope error body so the server's FORBIDDEN detail surfaces (the bare-403 case)", async () => {
-    stubFetchSequence([
+  it("degrades a failed deploy-key mint to a plain session key with a warning, keeping the server's detail", async () => {
+    const { calls } = stubFetchSequence([
       { match: "/api/auth/device/code", status: 200, body: deviceCodeResponse() },
       {
         match: "/api/auth/device/token",
@@ -249,13 +215,27 @@ describe("device login client", () => {
           meta: [],
         },
       },
+      {
+        match: "/api/auth/api-key/create",
+        status: 200,
+        body: { id: "key-plain", key: "api_plain_key" },
+      },
+      {
+        match: "/api/auth/near/list-accounts",
+        status: 200,
+        body: { accounts: [], activeAccount: null },
+      },
     ]);
 
     const login = await startDeviceLogin({
       siteUrl: SITE,
       deployKey: { account: "citynode.near", gateway: "citynode.app" },
     });
-    await expect(login.waitForApproval()).rejects.toThrow(/link citynode.near first/);
+    const approval = await login.waitForApproval();
+
+    expect(approval.apiKey).toEqual({ key: "api_plain_key", id: "key-plain" });
+    expect(approval.deployKeyWarning).toContain("link citynode.near first");
+    expect(calls.some((call) => call.url.includes("/api/auth/api-key/create"))).toBe(true);
   });
 
   it("reuses the claimed session cookie for https sites too", async () => {
