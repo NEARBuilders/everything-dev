@@ -1,0 +1,5 @@
+---
+"everything-dev": patch
+---
+
+New export subpaths `everything-dev/deploy/rollback` (the rollback safety gate: `verifyRollbackSnapshot` pinned-remote SRI verification, `buildRollbackPayload` rolledBackFrom stamping) and `everything-dev/auth/near-signer` (`submitRegistryWrite` + signing strategies), the same implementations the CLI's rollback flow and deploy train use, so server-side consumers share one verification path. The api console gains `POST /hosting/rollback` (`hosting.rollback { account, gateway }` variables + optional `ROLLBACK_PRIVATE_KEY` secret): it republishes the config snapshot at a chosen block height with the CLI's full verification semantics — pinned-remote SRI checks, refuse rather than half-execute, pre-cutover snapshots refused as deliberately unrestorable (ADR 0040 §4) — and rides the config + a per-deploy audit record through one atomic `__fastdata_kv` write on the ADR 0040 wire. Own namespace only; `/deploys` rows on the runtime's own namespace gain a rollback button with confirmation and refusal surfacing. The instance half (restart against the rolled-back pin + drift marker) is fly-hosting ticket 08.
