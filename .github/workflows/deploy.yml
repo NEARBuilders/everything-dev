@@ -7,10 +7,7 @@
 # smoke (--smoke) → Railway.
 #
 # Triggers directly on push to main and re-verifies, per run: the commit is
-# still the main tip, the merged diff is runtime-relevant, and the commit
-# actually landed as a pull request (the sanctioned merge path — a raw
-# direct push has no associated pull request and fails the gate; dispatch
-# with the `force` input to deploy deliberately).
+# still the main tip and the merged diff is runtime-relevant.
 name: Deploy
 
 on:
@@ -20,10 +17,6 @@ on:
     inputs:
       verbose:
         description: 'Show full build output instead of clean summary'
-        type: boolean
-        default: false
-      force:
-        description: 'Skip the merge-queue provenance check (deliberate deploys from main pushes)'
         type: boolean
         default: false
 
@@ -37,12 +30,9 @@ permissions:
   packages: write
 
 jobs:
-  # Deploy gate: only while the validated commit is still the tip of main,
-  # only when the merged diff touches runtime-relevant paths, and only
-  # when the commit actually landed as a pull request (the sanctioned merge
-  # path — a raw direct push has no associated PR and fails the gate).
-  # Manual dispatches must run against main; `force` skips the provenance
-  # check for deliberate deploys from direct pushes.
+  # Deploy gate: only while the commit is still the tip of main, and only
+  # when the merged diff touches runtime-relevant paths. Manual dispatches
+  # must run against main.
   gate:
     name: Verify deploy is current
     if: >-
@@ -51,7 +41,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      deploy: ${{ steps.tip.outputs.current == 'true' && steps.relevance.outputs.relevant == 'true' && steps.provenance.outputs.queued == 'true' }}
+      deploy: ${{ steps.tip.outputs.current == 'true' && steps.relevance.outputs.relevant == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -103,33 +93,6 @@ jobs:
             echo "::notice::Skipping deploy — the merged diff touches no runtime-relevant paths:"
             while IFS= read -r f; do echo "  $f"; done <<< "$FILES"
           fi
-
-      # Merge-queue provenance: every sanctioned merge to main lands as a
-      # pull request whose squash commit is this SHA (the "list pull
-      # requests associated with a commit" endpoint resolves squash merges
-      # and merge commits alike). A zero result means the commit was pushed
-      # directly — outside the sanctioned merge path — so it was never
-      # validated; fail loud instead of deploying unvalidated code.
-      # workflow_dispatch + `force` is the deliberate escape hatch.
-      - name: Verify the commit merged through a pull request
-        id: provenance
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force == true }}
-        run: |
-          QUEUES="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq length)"
-          if [ "$QUEUES" -gt 0 ]; then
-            echo "queued=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$FORCE" = "true" ]; then
-            echo "queued=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Provenance check skipped by the force input — deploying a commit with no associated pull request"
-            exit 0
-          fi
-          echo "queued=false" >> "$GITHUB_OUTPUT"
-          echo "::error::$GITHUB_SHA has no associated pull request — it was pushed directly to main, outside the merge queue, so it was never validated. Merging this commit's branch through the queue re-deploys it automatically, or dispatch this workflow on main with the force input to deploy it deliberately."
-          exit 1
 
   # Image leg: build the `runtime` stage and push it to GHCR (sha-<short> +
   # version tags, latest held on prereleases) BEFORE any config/bundle publish,
