@@ -1,29 +1,53 @@
-# Root-only full-regression matrix — never synced to children (same class as
-# release.yml). The T2 tier of docs/agents/testing.md: consumed by the
+# Root-only full-regression matrix -- never synced to children (same class
+# as release.yml). The T2 tier of docs/agents/testing.md: consumed by the
 # release gate (release.yml: every npm publish is preceded by a green run)
 # and the nightly main-tip check (backcompat-nightly.yml). Per-PR CI does
-# not call this — the tiering contract keeps PRs on the vital plane and
+# not call this -- the tiering contract keeps PRs on the vital plane and
 # pays the matrix exactly where a release is decided.
+#
+# Two tiers of the same matrix, selected by the 'tier' input, run as
+# PARALLEL planes (wall = the slowest plane, not their sum):
+#
+#   nightly -- the full matrix: unit + dev + start + backcompat + framework.
+#   release -- the publish gate: unit + start + backcompat only. The dev
+#     and framework planes pin the 'bos dev' machinery (source-mode dev
+#     server, process death) -- dev-plane concerns app-code changes cannot
+#     break, whose user journeys the start plane's full suite already
+#     covers. The gate proves the production artifact (start) and the
+#     published-chain contract (backcompat); the nightly canaries the dev
+#     plane. ci.yml keeps workflow_dispatch triage jobs for every plane.
+#
+# Planes share one setup shape (install -> build template -> playwright)
+# and differ in what they additionally pay: 'start' builds the docker
+# fixture in-job (no prebuilt image on called runs -- the regression-image
+# job is a ci.yml dispatch-run optimization), 'framework' pays neither
+# playwright nor the template build (its stacks resolve every-plugin from
+# TS source, ADR 0018). Skipped planes (release tier) never fail the
+# called workflow.
+
 name: Full regression
 
 on:
   workflow_call:
+    inputs:
+      tier:
+        description: "release = unit + start + backcompat / nightly = full matrix incl. dev + framework"
+        required: false
+        type: string
+        default: "nightly"
 
 permissions:
   contents: read
 
 jobs:
-  regression:
-    name: Full regression (unit + dev + start + backcompat + framework)
+  start:
+    name: Start plane (http + browser, full suite)
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 45
     env:
       CI: true
       CORS_ORIGIN: http://localhost:4100
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
-      BOS_TEARDOWN_ADOPTION: "1"
-      BOS_FRAMEWORK_STACK_SLOTS: "2"
-      BOS_FRAMEWORK_READY_TIMEOUT_MINUTES: "4"
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -63,29 +87,219 @@ jobs:
         run: pnpm run test:regression:browser:install
 
       - name: Free disk space
-        # The start suites' in-job `docker build --target regression` fallback
-        # needs headroom for the container's fresh pnpm store, the full
-        # node_modules COPY into the regression stage, and the export layers.
+        # The start suites' in-job docker build needs headroom for the
+        # container's fresh pnpm store, the full node_modules COPY into the
+        # regression stage, and the export layers.
         run: |
           sudo rm -rf /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeProfiler /usr/local/share/boost || true
           sudo docker image prune -af || true
           df -h /
 
-      - name: Run the full regression matrix
-        run: |
-          pnpm run test:regression:unit
-          pnpm run test:regression:dev
-          pnpm run test:regression:start
-          pnpm run test:regression:backcompat
-          pnpm run test:regression:framework
+      - name: Run the start plane (http:start + browser start:ssr + start:csr)
+        run: pnpm run test:regression:start
 
       - name: Upload regression artifacts on failure or cancel
         if: ${{ !success() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
-          name: regression-full-artifacts
+          name: regression-start-artifacts
+          path: |
+            .bos/logs/**
+            playwright-report/**
+            test-results/**
+
+  unit-backcompat:
+    name: Unit + backcompat plane
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: true
+      CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
+        with:
+          go-version: "1.22"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin dist
+        run: pnpm run build template
+
+      - name: Run regression lib unit tests
+        # First in the plane: no browser needed, so it fails before the
+        # Playwright install below pays its cost.
+        run: pnpm run test:regression:unit
+
+      - name: Install Playwright chromium
+        run: pnpm run test:regression:browser:install
+
+      - name: Run the backcompat plane (http + browser)
+        run: pnpm run test:regression:backcompat
+
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-backcompat-artifacts
+          path: |
+            .bos/logs/**
+            playwright-report/**
+            test-results/**
+
+  dev:
+    name: Dev plane (dev server)
+    # Dev-plane canary, not a gate: pins the 'bos dev' machinery
+    # (source-mode dev server, --ssr boot) that app-code changes cannot
+    # break -- see the workflow header.
+    if: inputs.tier == 'nightly'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: true
+      CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
+        with:
+          go-version: "1.22"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin dist
+        run: pnpm run build template
+
+      - name: Install Playwright chromium
+        run: pnpm run test:regression:browser:install
+
+      - name: Run the dev plane (http:dev + browser dev:ssr + dev:csr)
+        run: pnpm run test:regression:dev
+
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-dev-artifacts
+          path: |
+            .bos/logs/**
+            playwright-report/**
+            test-results/**
+
+  framework:
+    name: Framework plane (process death)
+    # Dev-plane canary, not a gate: pins the CLI's lifecycle machinery
+    # (teardown, orphan adoption, port cleanup) under deliberate process
+    # death. Two stack slots: every test but one boots the confined
+    # death-contract fixture (~100MB of fake node services); the single
+    # full-stack boot (sigterm) adds ~2GB -- see ci.yml's regression-framework
+    # job for the resource-history rationale.
+    if: inputs.tier == 'nightly'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: true
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+      BOS_TEARDOWN_ADOPTION: "1"
+      BOS_FRAMEWORK_STACK_SLOTS: "2"
+      BOS_FRAMEWORK_READY_TIMEOUT_MINUTES: "4"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
+        with:
+          go-version: "1.22"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin dist
+        run: pnpm run build template
+
+      # No "Build every-plugin dist" step here: the suite boots only 'bos
+      # dev', which resolves every-plugin from TS source through tsx
+      # (ADR 0018) -- a fresh checkout boots the same. The setup body above
+      # already skips both the Playwright install and the template build.
+
+      - name: Run framework regression suite
+        run: pnpm run test:regression:framework
+
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-framework-artifacts
           path: |
             .bos/logs/**
             tests/regression/fixtures/death-contract/.bos/logs/**
-            playwright-report/**
-            test-results/**

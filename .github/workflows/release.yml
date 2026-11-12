@@ -112,14 +112,19 @@ jobs:
           done
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
 
-  # The release gate: the full regression matrix must be green before npm
-  # sees anything. Dispatched as a manual retry (workflow_dispatch), the rc
-  # detection runs the same way — a deliberate re-publish re-proves the tree.
+  # The release gate: the regression matrix must be green before npm sees
+  # anything. Tier 'release' = unit + start + backcompat — the production
+  # artifact and the published-chain contract. The dev and framework planes
+  # are nightly canaries (see regression-full.yml's header). Dispatched as a
+  # manual retry (workflow_dispatch), the rc detection runs the same way — a
+  # deliberate re-publish re-proves the tree.
   regression:
-    name: Release gate — full regression
+    name: Release gate — regression (unit + start + backcompat)
     needs: [gate]
     if: needs.gate.outputs.release == 'true' && needs.gate.outputs.rc == 'true'
     uses: ./.github/workflows/regression-full.yml
+    with:
+      tier: release
 
   release:
     name: Process Changesets

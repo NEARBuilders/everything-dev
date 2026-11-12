@@ -43,7 +43,14 @@ The matrix runs exactly where a decision is made — never everywhere:
 |---|---|---|---|
 | **T0 local** | lefthook hooks (`lefthook.yml`, installed by `pnpm run prepare`) | pre-commit: Biome on staged files · pre-push: `typecheck` + `lint:effect` | seconds |
 | **T1 PR** | `ci.yml` on pull requests | lint/typecheck, path-gated unit suites, ui-only app-load smoke; slow stack suites skip | ~4 min |
-| **T2 gate** | `release.yml` before every npm publish · nightly on the main tip (`backcompat-nightly.yml`) via `regression-full.yml` | the full matrix: unit + dev + start + backcompat + framework regression | ~30–45 min |
+| **T2 gate** | `release.yml` before every npm publish | unit + start + backcompat regression (parallel planes — `tier: release`) | ~15–20 min |
+| **T2 nightly** | nightly on the main tip (`backcompat-nightly.yml`) via `regression-full.yml` (`tier: nightly`) | the full matrix: unit + dev + start + backcompat + framework, parallel planes | ~25 min |
+
+The gate proves the production artifact (start) and the published-chain
+contract (backcompat). The dev and framework planes pin the `bos dev`
+machinery (source-mode dev server, process death) — app-code changes cannot
+break them, and the start plane's full suite already covers their user
+journeys — so they canary nightly instead of gating every publish.
 
 The slow suites (HTTP stacks, sharded browser matrix, process-death framework
 regression) live in `ci.yml` as `workflow_dispatch`-only jobs for triage, and

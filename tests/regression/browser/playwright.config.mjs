@@ -52,6 +52,7 @@ export default defineConfig({
     stdout: "pipe",
     stderr: "pipe",
     env: webServerEnv,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
   },
   projects: [
     {

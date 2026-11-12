@@ -9,12 +9,12 @@ Workflows:
 - `CI` — lint, audit, typecheck, framework tests, and the vital-plane suites (pull requests only; slow regression suites are `workflow_dispatch`-only for triage)
 - `Deploy` — production deployment via `bos deploy` (build → bundle upload → FastKV publish → GHCR image push → Railway; triggered by push to `main`)
 - `Staging` — the same deployment against the staging environment (`--env staging`, triggered by push to the `staging` branch)
-- `Release` — changeset versioning and npm publish (triggered by push to `main`, canonical changesets flow); when a publish is imminent, the full regression matrix gates it first
-- `Full regression` — reusable matrix (`regression-full.yml`): unit + dev + start + backcompat + framework regression, serially, on one runner. Consumed by the Release gate and the nightly
-- `Backcompat nightly` — nightly main-tip proof: the registry sentinel plus the full regression matrix via `regression-full.yml`
+- `Release` — changeset versioning and npm publish (triggered by push to `main`, canonical changesets flow); when a publish is imminent, the regression gate (`tier: release` — unit + start + backcompat) gates it first
+- `Full regression` — reusable matrix (`regression-full.yml`): unit + dev + start + backcompat + framework regression as PARALLEL planes (wall = slowest plane), tiered by input — `tier: release` = unit + start + backcompat (the publish gate), `tier: nightly` = the full matrix (the nightly canaries the dev + framework planes)
+- `Backcompat nightly` — nightly main-tip proof: the registry sentinel plus the full regression matrix (`tier: nightly`) via `regression-full.yml`
 - `consumer-ci` / `consumer-deploy` / `consumer-staging` — reusable workflows for generated child repos (see [Consumer workflows](#consumer-workflows))
 
-Design: the test tiers run where a decision is made (docs/agents/testing.md) — T0 local lefthook hooks, T1 vital-plane CI on pull requests, T2 the full regression matrix before a release and nightly on the main tip. There is no `push: main` CI trigger and no merge queue. `Deploy` and `Release` trigger directly on push and gate themselves: they re-verify the commit is still the main tip (stale runs skip; the run for the new tip deploys/releases instead), and Deploy additionally verifies the commit landed as a pull request (PR provenance — a raw direct push has no associated PR and fails the gate; `workflow_dispatch` with the `force` input is the deliberate escape hatch).
+Design: the test tiers run where a decision is made (docs/agents/testing.md) — T0 local lefthook hooks, T1 vital-plane CI on pull requests, T2 the regression gate (unit + start + backcompat, `tier: release`) before a release and the full matrix nightly on the main tip (`tier: nightly` — parallel planes). There is no `push: main` CI trigger and no merge queue. `Deploy` and `Release` trigger directly on push and gate themselves: they re-verify the commit is still the main tip (stale runs skip; the run for the new tip deploys/releases instead), and Deploy additionally verifies the commit landed as a pull request (PR provenance — a raw direct push has no associated PR and fails the gate; `workflow_dispatch` with the `force` input is the deliberate escape hatch).
 
 The changesets version PR never runs the matrix: `detect-changes` fast-paths `changeset-release/*` PRs to an all-skipped run, so the required `CI gate` check goes green immediately (`package.json`-only diffs would otherwise trip every `detect-changes` arm). That plane is validated by release.yml instead — its regression gate runs the full matrix before any actual publish. The version PR merges via the manual merge button.
 
@@ -73,9 +73,10 @@ The changesets version PR never runs the matrix: `detect-changes` fast-paths `ch
                                            (a maintainer merge button click)
 4. Version Packages PR merges           →  no changesets remain
                                            ↓
-                                           Full regression gate
-                                           (regression-full.yml — the matrix
-                                           must be green before npm sees bytes)
+                                           Regression gate (tier: release)
+                                           (regression-full.yml — unit +
+                                           start + backcompat must be green
+                                           before npm sees bytes)
                                            ↓
                                            pnpm run release (scripts/publish-release-packages.ts)
                                            ↓

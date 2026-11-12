@@ -53,3 +53,5 @@ jobs:
   full-regression:
     name: Full regression (main tip — unit + dev + start + backcompat + framework)
     uses: ./.github/workflows/regression-full.yml
+    with:
+      tier: nightly
