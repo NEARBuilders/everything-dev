@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema, Semaphore } from "effect";
+import { Context, Effect, Layer, Ref, Schema, Semaphore } from "effect";
 import {
   BosConfigSchema,
   buildRuntimeConfigEffect,
@@ -23,7 +23,20 @@ export class SnapshotAdoptError extends Schema.TaggedError<SnapshotAdoptError>()
 
 export type SnapshotAdoptOutcome =
   | { status: "swapped"; deploymentDigest: string; digest?: string }
-  | { status: "unchanged" };
+  | { status: "unchanged" }
+  | { status: "held"; pendingRestart: string[] };
+
+/**
+ * Hosted coherence guard (fly-hosting 14): `BOS_HOLD_ON_BACKEND_CHANGE=1` —
+ * set by the hosting adapter's descriptor, default OFF so single-box/
+ * self-hosted behavior is unchanged — refuses to swap the serving snapshot
+ * while boot-frozen pins (api, auth, plugin backends) moved, because the swap
+ * cannot reload them. The generation then moves as a unit: the old instance
+ * keeps serving a coherent old UI+API pair until the reconciler (reading
+ * `pendingRestart` on /health and /.well-known/version) replaces it, and the
+ * replacement boots both together. Read at adopt time so tests can stub it.
+ */
+export const holdOnBackendChange = (): boolean => process.env.BOS_HOLD_ON_BACKEND_CHANGE === "1";
 
 const describeCause = (cause: unknown): string =>
   cause instanceof Error
@@ -128,14 +141,19 @@ const resolvePointerConfig = async (
  *
  * API plugins and auth are boot-frozen (MAP decision 3): the derived config
  * still carries them, but they are not reloaded — the swap adopts UI/SSR/
- * compose surfaces only.
+ * compose surfaces only. Under `BOS_HOLD_ON_BACKEND_CHANGE=1` (fly-hosting
+ * 14) an adopt whose pointer moved a boot-frozen pin refuses to swap at all —
+ * a new UI must not pair with the old API — and reports the held remotes as
+ * `pendingRestart` instead; the reconciler replaces the instance, which boots
+ * the whole generation together.
  */
 const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(function* (input: {
   snapshot: RuntimeSnapshot["Service"];
   publishedConfig: BosConfig;
   baseDir?: string;
+  pendingRestart?: Ref.Ref<readonly string[]>;
 }): Effect.fn.Return<
-  Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
+  Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" | "held" }>,
   SnapshotAdoptError
 > {
   const { snapshot, publishedConfig } = input;
@@ -152,15 +170,25 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
   const current = yield* snapshot.get;
   const nextDigest = deploymentDigest(nextConfig);
   if (nextDigest === current.deploymentDigest) {
+    yield* recordPendingRestart(input.pendingRestart, []);
     yield* persistBootSnapshot(resolvedPointer);
     return { status: "unchanged" };
+  }
+
+  const restartRemotes = bootFrozenRestartRemotes(current.pointer, publishedConfig);
+  if (restartRemotes.length > 0 && holdOnBackendChange()) {
+    yield* recordPendingRestart(input.pendingRestart, restartRemotes);
+    logger.warn(
+      `[SnapshotCoordinator] adoption held — boot-frozen slots moved pin (${restartRemotes.join(", ")}) and the swap cannot reload them; serving the current generation until restart`,
+    );
+    return { status: "held", pendingRestart: restartRemotes };
   }
 
   const nextState = createRuntimeSnapshotState({
     deploymentDigest: nextDigest,
     config: nextConfig,
     pointer: publishedConfig,
-    restartRequired: bootFrozenRestartRemotes(current.pointer, publishedConfig),
+    restartRequired: restartRemotes,
   });
   const composed = yield* composeUi(nextConfig, nextState.composeState).pipe(
     Effect.catch((cause) => adoptFailure("pre-warm compose failed", cause)),
@@ -184,10 +212,19 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
   }
 
   nextConfig.deploymentDigest = nextDigest;
+  yield* recordPendingRestart(input.pendingRestart, []);
   yield* snapshot.swap(nextState);
   yield* persistBootSnapshot(resolvedPointer);
   return { status: "swapped", deploymentDigest: nextDigest, digest: composed.digest };
 });
+
+/** The held-generation ledger mirrors the last adopt decision: the refused
+ * boot-frozen remotes on a hold, empty once a later adopt swaps or converges
+ * (the published backends then match what is serving). */
+const recordPendingRestart = (
+  ref: Ref.Ref<readonly string[]> | undefined,
+  remotes: readonly string[],
+) => (ref ? Ref.set(ref, remotes) : Effect.void);
 
 /** Concurrent adopts serialize: two pre-warms racing would both swap (last
  * writer wins) and double the transient SSR re-registration flapping. */
@@ -200,8 +237,9 @@ export const adoptPublishedPointer = Effect.fn("SnapshotCoordinator.adopt")(func
   snapshot: RuntimeSnapshot["Service"];
   publishedConfig: BosConfig;
   baseDir?: string;
+  pendingRestart?: Ref.Ref<readonly string[]>;
 }): Effect.fn.Return<
-  Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
+  Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" | "held" }>,
   SnapshotAdoptError
 > {
   return yield* adoptPermits.withPermits(1)(adoptTransaction(input));
@@ -210,6 +248,9 @@ export const adoptPublishedPointer = Effect.fn("SnapshotCoordinator.adopt")(func
 /**
  * Service seam over the transaction: resolves the published pointer against
  * the snapshot (the watch fiber's tick and admin re-adopts call this).
+ * `pendingRestart` is the coherence guard's ledger — the boot-frozen remotes
+ * of the last held adoption, read by /health and /.well-known/version so the
+ * reconciler knows a restart is owed (fly-hosting 14).
  */
 export class SnapshotCoordinator extends Context.Service<
   SnapshotCoordinator,
@@ -217,18 +258,26 @@ export class SnapshotCoordinator extends Context.Service<
     readonly adopt: (
       publishedConfig: BosConfig,
     ) => Effect.Effect<
-      Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
+      Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" | "held" }>,
       SnapshotAdoptError
     >;
+    readonly pendingRestart: Effect.Effect<readonly string[]>;
   }
 >()("host/SnapshotCoordinator") {
   static readonly layer = Layer.effect(
     SnapshotCoordinator,
     Effect.gen(function* () {
       const snapshot = yield* RuntimeSnapshot;
+      const pendingRestartRef = yield* Ref.make<readonly string[]>([]);
       return SnapshotCoordinator.of({
         adopt: (publishedConfig) =>
-          adoptPublishedPointer({ snapshot, publishedConfig, baseDir: process.cwd() }),
+          adoptPublishedPointer({
+            snapshot,
+            publishedConfig,
+            baseDir: process.cwd(),
+            pendingRestart: pendingRestartRef,
+          }),
+        pendingRestart: Ref.get(pendingRestartRef),
       });
     }),
   );
