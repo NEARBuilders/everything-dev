@@ -3,6 +3,7 @@ import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { Context, Effect, Layer } from "effect";
 import { DEV_ENTRY_FILENAME } from "../../build/artifact-names";
 import type { AnyPlugin } from "../../types";
+import { isManifestDocumentUrl } from "../../ui/manifest/contract";
 import { ModuleFederationError } from "../errors";
 import { type CoreSharedDepName, MF_CORE_SHARED_DEPS } from "../mf-config";
 import { getNormalizedRemoteName } from "./normalize";
@@ -176,7 +177,7 @@ export const ModuleFederationServiceDefault = Layer.effect(
           const remoteName = yield* resolveRemoteSelfName(pluginId, url);
           yield* Effect.logDebug(`[MF][${pluginId}] Registering as "${remoteName}"`);
 
-          const type = url.endsWith("/mf-manifest.json")
+          const type = isManifestDocumentUrl(url)
             ? ("manifest" as const)
             : url.endsWith(`/${DEV_ENTRY_FILENAME}`)
               ? ("script" as const)

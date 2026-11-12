@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { Data, Deferred, Effect, Option, Ref, Schedule, Schema, Stream } from "effect";
+import { MANIFEST_DOCUMENT_PATTERN } from "every-plugin/ui/manifest/contract";
 import { ShellEnv } from "../../env/project-env";
 import type { RuntimeConfig } from "../../types";
 import { fetchWithRetryEff } from "../../utils/http-client";
@@ -269,7 +270,7 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
 
     const baseUrl = remoteUrl
       .replace(/\/remoteEntry\.js$/, "")
-      .replace(/\/mf-manifest\.json$/, "")
+      .replace(MANIFEST_DOCUMENT_PATTERN, "")
       .replace(/\/$/, "");
     // The host slot is pinned like every other remote (deriveVersionManifestFields
     // stamps `digest`), and the registered manifest document must come from the

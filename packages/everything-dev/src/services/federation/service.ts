@@ -9,6 +9,7 @@ import {
   type PluginRuntimeConfig,
 } from "every-plugin";
 import { isEffectCriticalSharedDep } from "every-plugin/build/rspack";
+import { isManifestDocumentUrl, manifestBaseOf } from "every-plugin/ui/manifest/contract";
 import type { BosConfig, BosPluginRef } from "../../types";
 import { fetchRaw } from "../../utils/http-client";
 import { satisfiesConstraint } from "../../utils/semver";
@@ -26,16 +27,20 @@ export function patchManifestFetchForSsrPublicPath(mf: FederationInstance): void
   if ((mf as any).__everythingDevPatchedManifestFetch === true) return;
   (mf as any).__everythingDevPatchedManifestFetch = true;
 
+  // Normalizes any manifest document (fixed or hash-named) so the Node-side
+  // snapshot composes absolute URLs. A relative publicPath left in place gets
+  // the runtime's blind `https:` prefix in Node and the entry fetch dies on a
+  // DNS lookup of the file name.
   (mf as any).loaderHook.lifecycle.fetch.on((url: unknown, init: unknown) => {
-    if (typeof url !== "string" || !url.endsWith("/mf-manifest.json")) {
+    if (typeof url !== "string" || !isManifestDocumentUrl(url)) {
       return;
     }
     return fetchRaw(url as string, init as RequestInit, "15 seconds")
       .then((res) => res.json())
       .then((json: any) => {
+        const base = manifestBaseOf(url as string);
         json.metaData = json.metaData ?? {};
-        json.metaData.ssrPublicPath =
-          json.metaData.ssrPublicPath ?? url.replace(/\/mf-manifest\.json$/, "/");
+        json.metaData.ssrPublicPath = json.metaData.ssrPublicPath ?? base;
         if (json.metaData.publicPath === "auto" || json.metaData.publicPath === "") {
           json.metaData.publicPath = "/";
         }
@@ -170,7 +175,7 @@ export async function registerRemote(opts: {
 
   const inferType = (): "manifest" | "script" => {
     if (opts.type) return opts.type;
-    if (opts.entry.endsWith("/mf-manifest.json")) return "manifest";
+    if (isManifestDocumentUrl(opts.entry)) return "manifest";
     if (/\/remoteEntry(\.[a-f0-9]{8,})?\.js$/.test(opts.entry)) return "script";
     return typeof window === "undefined" ? "script" : "manifest";
   };

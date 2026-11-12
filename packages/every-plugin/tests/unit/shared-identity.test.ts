@@ -107,6 +107,20 @@ describe("fetchRemoteIdentityManifest", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("fetches hash-named manifest documents directly instead of nesting a fixed name", async () => {
+    const hashedUrl =
+      "https://cdn.example/bundles/a.near/g.app/auth/mf-manifest.0190fae63d7daaa5.json";
+    let requested: string | null = null;
+    globalThis.fetch = (async (input: unknown) => {
+      requested = String(input);
+      return new Response(JSON.stringify({ metaData: {}, shared: [] }), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    await fetchRemoteIdentityManifest(hashedUrl);
+    expect(requested).toBe(hashedUrl);
+    globalThis.fetch = originalFetch;
+  });
+
   it("returns null on non-OK responses", async () => {
     globalThis.fetch = (async () =>
       new Response("not found", {

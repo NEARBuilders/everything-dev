@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Data } from "effect";
+import { MANIFEST_DOCUMENT_PATTERN } from "every-plugin/ui/manifest/contract";
 import { fetchResponse } from "../../utils/http-client";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
 import { computeSri } from "../verify/engine";
@@ -102,9 +103,7 @@ async function computeSriHashOnce(url: string, options?: SriUrlOptions): Promise
 
 export function resolveEntryUrl(url: string): string {
   if (url.endsWith("/remoteEntry.js")) return url;
-  if (url.endsWith("/mf-manifest.json"))
-    return `${url.replace(/\/mf-manifest\.json$/, "")}/remoteEntry.js`;
-  return `${url.replace(/\/$/, "")}/remoteEntry.js`;
+  return `${url.replace(MANIFEST_DOCUMENT_PATTERN, "").replace(/\/$/, "")}/remoteEntry.js`;
 }
 
 export class SriVerificationError extends Data.TaggedError("SriVerificationError")<{

@@ -11,7 +11,11 @@
 
 import { z } from "zod";
 import type { ClientRuntimeConfig } from "../types";
-import { UI_REMOTE_ENTRY_FILENAME, UI_REMOTE_SERVER_ENTRY_FILENAME } from "./manifest";
+import {
+  MANIFEST_DOCUMENT_PATTERN,
+  UI_REMOTE_ENTRY_FILENAME,
+  UI_REMOTE_SERVER_ENTRY_FILENAME,
+} from "./manifest";
 import { getRuntimeConfig } from "./runtime";
 
 const LOCALHOST_SUFFIX = ".localhost";
@@ -303,9 +307,10 @@ export async function computeSubresourceIntegrity(url: string): Promise<string> 
 
 export function resolveClientEntryUrl(url: string): string {
   if (/\/remoteEntry(\.[a-f0-9]{8,})?\.js$/.test(url)) return url;
-  if (url.endsWith("/mf-manifest.json"))
-    return `${url.replace(/\/mf-manifest\.json$/, "")}/${UI_REMOTE_ENTRY_FILENAME}`;
-  return `${url.replace(/\/$/, "")}/${UI_REMOTE_ENTRY_FILENAME}`;
+  const withoutQuery = url.split(/[?#]/)[0] ?? url;
+  return `${withoutQuery
+    .replace(MANIFEST_DOCUMENT_PATTERN, "")
+    .replace(/\/$/, "")}/${UI_REMOTE_ENTRY_FILENAME}`;
 }
 
 export function resolveServerEntryUrl(url: string): string {
@@ -313,10 +318,9 @@ export function resolveServerEntryUrl(url: string): string {
 }
 
 export function normalizeBundleBaseUrl(url: string): string {
-  return url
-    .trim()
+  return (url.trim().split(/[?#]/)[0] ?? url)
     .replace(/\/remoteEntry(\.server)?(\.[a-f0-9]{8,})?\.js$/, "")
-    .replace(/\/mf-manifest\.json$/, "");
+    .replace(MANIFEST_DOCUMENT_PATTERN, "");
 }
 
 export async function computeUiEntryIntegrity(baseUrl: string): Promise<string> {
