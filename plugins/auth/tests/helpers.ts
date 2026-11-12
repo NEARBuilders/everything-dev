@@ -12,13 +12,13 @@ import type { AuthPermissionStatements } from "../src/auth-config";
 import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
 import { type ContractType, contract, type InferInput, type InferOutput } from "../src/contract";
 import * as schema from "../src/db/schema";
+import { createAdminOrganizationHandlers } from "../src/handlers/admin-organizations";
 import { createAdminUsersHandlers } from "../src/handlers/admin-users";
 import { createApiKeyHandlers } from "../src/handlers/api-keys";
 import { createInvitationHandlers } from "../src/handlers/invitations";
 import { createMemberHandlers } from "../src/handlers/members";
 import { createNearHandlers } from "../src/handlers/near";
 import { createOnboardingHandlers } from "../src/handlers/onboarding";
-import { createOrganizationRequestHandlers } from "../src/handlers/organization-requests";
 import { createOrganizationHandlers } from "../src/handlers/organizations";
 import { createPasskeyHandlers } from "../src/handlers/passkeys";
 import { createSessionHandlers } from "../src/handlers/session";
@@ -28,6 +28,7 @@ import { createOnboardingCodeCipher } from "../src/onboarding-code-cipher";
 import { createOrganizationMembershipPolicy } from "../src/organization-membership-policy";
 import type { PluginServices } from "../src/service-types";
 import { buildAuthServicesLayer } from "../src/service-wiring";
+import { createRateLimiter } from "../src/services/rate-limit";
 
 const TEST_DB_URL = "pglite::memory:";
 
@@ -120,6 +121,7 @@ export async function createTestServices(
     membershipPolicy,
     onboardingCodeCipher,
     permissionRegistry: TEST_REGISTRY,
+    rateLimiter: createRateLimiter(configOverrides?.abuseControl?.rateLimits),
   };
 
   return { services, driver };
@@ -220,10 +222,6 @@ export async function createTestOrg(
   };
 
   const memberId = result.members[0]?.id ?? "";
-  await services.db
-    .update(schema.organization)
-    .set({ status: "active" })
-    .where(eq(schema.organization.id, result.id));
 
   return { id: result.id, name: result.name, slug: result.slug, memberId };
 }
@@ -300,12 +298,12 @@ export function createTestHandlers(services: PluginServices) {
     session: wrap(createSessionHandlers(builder)),
     organizations: wrap(createOrganizationHandlers(builder, requireAuth)),
     passkeys: wrap(createPasskeyHandlers(builder, requireAuth)),
-    organizationRequests: wrap(createOrganizationRequestHandlers(builder, requireAuth)),
     members: wrap(createMemberHandlers(builder, requireAuth)),
     invitations: wrap(createInvitationHandlers(builder, requireAuth)),
     apiKeys: wrap(createApiKeyHandlers(builder, requireAuth)),
     teams: wrap(createTeamHandlers(builder, requireAuth)),
     adminUsers: wrap(createAdminUsersHandlers(builder, requireAuth)),
+    adminOrganizations: wrap(createAdminOrganizationHandlers(builder, requireAuth)),
     near: wrap(createNearHandlers(builder, requireAuth)),
     onboarding: wrap(createOnboardingHandlers(builder, requireAuth)),
   };

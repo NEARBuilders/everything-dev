@@ -12,6 +12,7 @@ import type {
 } from "../../types";
 import { BosConfigSchema } from "../../types";
 import { parseBosRef } from "../../utils/bos-ref";
+import { type Manifest, resolvePlatformManifest } from "../platform/manifest";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
 import { readWorkspaceCatalog, resolveSourceDir } from "./init-source";
 import {
@@ -33,6 +34,7 @@ import {
 } from "./load";
 import type { BosEnv } from "./merge";
 import { mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
+import { stampInheritedRemotes } from "./release-composition";
 import { buildRuntimeConfig, buildRuntimePluginsForConfig } from "./runtime";
 import { collectUnknownKeys } from "./unknown-keys";
 
@@ -116,6 +118,12 @@ interface SessionParts {
   unknownAuthoredKeys?: string[];
   catalog: Record<string, string> | null;
   repository: string | undefined;
+  /** The resolved release manifest for a platform-pinned runtime (record-first,
+   * once per session) — null when unpinned, unresolvable, or no manifest
+   * publishes. */
+  releaseManifest?: Manifest | null;
+  /** Consumer-plane stamping outcome for pinned runtimes (ADR 0034). */
+  releaseComposition?: { stamped?: string[]; omitted?: string[] };
   env: BosEnv;
   warnings: string[];
 }
@@ -234,7 +242,14 @@ async function walkExtends(
   });
 
   await options.visit?.({ ref, config, baseDir: nodeBaseDir, sourceDir, isLeaf: false });
-  return mergeBosConfigWithExtends(parent, config);
+  const merged = mergeBosConfigWithExtends(parent, config);
+  // A TS descriptor's starter is the authoring-only level string — it never
+  // enters resolved configs (#565). A JSON parent's starter *block*
+  // (ParentStarterConfig) is publish metadata and must survive the merge.
+  if (typeof (merged as Record<string, unknown>).starter === "string") {
+    delete (merged as Record<string, unknown>).starter;
+  }
+  return merged;
 }
 
 function canResolveExtendsRef(parentRef: string, baseDir: string | undefined): boolean {
@@ -306,6 +321,11 @@ export class ResolutionSession {
   readonly unknownAuthoredKeys: readonly string[];
   readonly catalog: Record<string, string> | null;
   readonly repository: string | undefined;
+  readonly releaseManifest: Manifest | null;
+  readonly releaseComposition: {
+    readonly stamped: readonly string[];
+    readonly omitted: readonly string[];
+  };
 
   #env: BosEnv;
   #warnings: string[];
@@ -320,6 +340,11 @@ export class ResolutionSession {
     this.unknownAuthoredKeys = parts.unknownAuthoredKeys ?? [];
     this.catalog = parts.catalog;
     this.repository = parts.repository;
+    this.releaseManifest = parts.releaseManifest ?? null;
+    this.releaseComposition = {
+      stamped: parts.releaseComposition?.stamped ?? [],
+      omitted: parts.releaseComposition?.omitted ?? [],
+    };
     this.#env = parts.env;
     this.#warnings = parts.warnings;
   }
@@ -423,6 +448,36 @@ export async function openResolution(
 
         let overlayMerged = mergedRaw;
         let devOverlay: Record<string, unknown> | undefined;
+        // Release stamping (ADR 0034 consumer boot): a release-authored
+        // runtime composes the authored release's recorded remotes — production,
+        // local dev, and type generation inherit the same bytes instead of
+        // the parent's live config pointer. Runs before the dev overlay so
+        // the overlay still wins on conflict. Only an authored release
+        // resolves the stamp: an unauthored runtime follows the parent's live
+        // pointer exactly as before. An authored-but-unresolvable manifest
+        // fails loud right here (the record-first contract names the key)
+        // instead of skewing later.
+        const releaseManifest: Manifest | null =
+          rawConfig && typeof rawConfig.release === "string"
+            ? ((
+                await resolvePlatformManifest({
+                  configDir: dispatch.root,
+                  localConfig: rawConfig as Record<string, unknown>,
+                })
+              )?.manifest ?? null)
+            : null;
+        let releaseComposition: NonNullable<SessionParts["releaseComposition"]> = {};
+        if (releaseManifest) {
+          const tree = structuredClone(mergedRaw) as Record<string, unknown>;
+          const stamp = stampInheritedRemotes({
+            config: tree,
+            authoredConfig: rawConfig as Record<string, unknown>,
+            remotes: releaseManifest.remotes,
+            mode: "consumer",
+          });
+          releaseComposition = { stamped: stamp.stamped, omitted: stamp.omitted };
+          overlayMerged = tree as BosConfigInput;
+        }
         if (env === "development" && !dispatch.remote) {
           const overlayPath = join(dirname(dispatch.entry), DEV_OVERLAY_FILENAME);
           if ((await resolvedIo.readFileOrNull(overlayPath)) !== null) {
@@ -464,6 +519,8 @@ export async function openResolution(
           unknownAuthoredKeys,
           catalog: collectCatalogs ? Object.assign({}, ...[...catalogs].reverse()) : null,
           repository,
+          releaseManifest,
+          releaseComposition,
         } satisfies Omit<SessionParts, "env" | "warnings">;
       } catch (error) {
         if (dispatch.remote && isConfigNotFound(error)) {

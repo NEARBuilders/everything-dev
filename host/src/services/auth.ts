@@ -110,8 +110,8 @@ export function createSessionMiddleware(plugins: PluginResult) {
 
     if (!authClientFactory) {
       c.set("authContext", null);
-      c.set("user", null);
-      c.set("session", null);
+      c.set("user", undefined);
+      c.set("session", undefined);
       await next();
       return;
     }
@@ -129,8 +129,8 @@ export function createSessionMiddleware(plugins: PluginResult) {
         `[Auth] Session resolution failed: ${error instanceof Error ? error.message : String(error)}`,
       );
       c.set("authContext", null);
-      c.set("user", null);
-      c.set("session", null);
+      c.set("user", undefined);
+      c.set("session", undefined);
     }
 
     await next();

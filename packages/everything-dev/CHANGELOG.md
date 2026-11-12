@@ -1,5 +1,780 @@
 # everything-dev
 
+## 2.0.0-rc.44
+
+### Patch Changes
+
+- 07765ba: auth: admin member management no longer depends on the admin's own organization membership (#876 follow-up)
+
+  `adminAddMember` forwarded the caller's headers into Better Auth's `addMember`, which checks the
+  caller's **organization** permissions — so a platform admin who was not a member of the target
+  organization (the whole point of an admin route) got FORBIDDEN. The mutation is now a direct write,
+  like every other mutation in `AdminOrganizationsService`: it enforces the organization membership
+  limit through the plugin's membership policy and refuses duplicate memberships. The integration
+  suite now covers adding a member to an organization the admin does not belong to — the case the
+  previous tests masked by creating every fixture organization owned by the admin.
+
+  Two smaller consistency fixes ride along:
+
+  - `adminUpdateMemberRole` refuses to demote an organization's **only owner** to a non-owner role,
+    matching `adminRemoveMember`'s existing last-owner guard.
+  - `getOrganizationForAdmin` guards with the standard `requireAdmin` middleware instead of a
+    hand-rolled role check, matching the admin routes' pattern.
+
+  `crossSubDomainCookies` (#668) also gained config-time warnings for the two ways a shared cookie
+  domain fails silently at the browser: a `domain` that does not cover the app's own `baseUrl` host
+  (browsers drop the cookie outright, breaking sign-in) and localhost/loopback base URLs (browsers
+  refuse `Domain` attributes there). The auth plugin README now documents the full multi-app recipe —
+  shared cookie domain + shared `BETTER_AUTH_SECRET` + shared `postgres://` `AUTH_DATABASE_URL` —
+  mirroring the ADR 0027 decomposition.
+
+- a19b559: Auth plugin surfaces cross-subdomain cookie configuration (#668). New authored variable under `auth.variables`: `crossSubDomainCookies: { enabled, domain }`, mapped to Better Auth's `advanced.crossSubDomainCookies`. When enabled, session cookies carry `Domain=<domain>` so a multi-app family on sibling subdomains (`app.example.com`, `activity.example.com`) shares one session — by config alone, no local auth code. `domain` must be a dot-prefixed registrable domain (`.example.com`) when enabled; without it Better Auth falls back to the base URL's root domain. Absent or disabled config leaves cookies host-scoped (behavior unchanged). Sharing a cookie domain requires every app on it to run the same `BETTER_AUTH_SECRET` — the sealed cookie is decrypted with it — plus sibling `trustedOrigins` entries.
+- ed70afd: auth: stop creating duplicate personal organizations when metadata or slug drifts off the canonical form (#877)
+
+  `findPersonalOrganization` matched only the byte-exact pair `slug = userId AND metadata = '{"isPersonal":true}'`,
+  while the lenient `isPersonalOrganization()` predicate accepted either signal. An organization whose metadata
+  was non-canonical JSON (pretty-printed, extra keys) or whose slug had been renamed was invisible to the finder,
+  so the `user.create` hook silently created a second personal organization on the next signup/session — observed
+  in production as users with multiple personal orgs plus dangling `user.last_active_organization_id` /
+  `session.active_organization_id` pointers.
+
+  The finder now resolves the personal organization with the lenient signals:
+
+  - `slug = userId` (unchanged), or
+  - metadata containing a top-level `"isPersonal": true` flag **and** the user holds a membership in that organization.
+
+  Matches are deterministic (`created_at asc, id asc`, limit 1), so historical duplicates converge on the oldest row
+  instead of generating new ones. `ensurePersonalOrganization` still writes the canonical metadata string on create;
+  nothing about creation changes.
+
+  Two deliberate hardenings beyond the literal issue proposal:
+
+  - The metadata signal is matched with a text pattern, not `metadata::jsonb->>'isPersonal'`. The column is
+    `text` and better-auth stores raw strings when callers pass non-object metadata, so a bare cast would throw
+    on malformed rows — inside the `user.create` hook, that breaks every signup on the deployment.
+  - The metadata branch is bound to the user through a membership check. An unbounded `metadata isPersonal OR slug`
+    predicate would let any user's lookup match any other user's personal-flagged organization.
+
+  The orphan sweep keeps its strict canonical-only deletion query on purpose: widening it to the lenient signals
+  would delete non-canonical organizations that may hold user data.
+
+- 9da8ed9: Boot the pinned host, not the parent's newest bytes (#874): the orchestrator
+  resolves the host slot's `digest` and registers the manifest from the pin's
+  immutable coordinates — a root publish can no longer move the host bytes a
+  pinned child boots. `mf check` probes the same pin. When a pinned host's
+  shared singletons still cannot resolve in the image, the boot fails with the
+  skew named — image version, pin, and `bos upgrade && bos deploy` — instead of
+  a bare package error.
+- 350beba: Revert the regression harness's file-backed pglite substitution: the dev stack
+  opens the auth database from two processes (the auth service and the auth-plugin
+  instance composed into the api/host), and a per-secret shared data dir turned
+  that topology into ADR 0044's silent-corruption case — the suite died on
+  system-catalog reads past EOF (`pg_attribute`, "unexpected data beyond EOF").
+  The harness is restored to in-memory pglite, whose per-process databases made
+  the dual-open harmless. App fixtures for regression specs still seed over HTTP;
+  a file-backed mode needs a single-writer story first (seed through the running
+  stack, not pre-spawn against shared files).
+- Updated dependencies [59cfe70]
+  - every-plugin@3.0.0-rc.18
+
+## 2.0.0-rc.43
+
+### Minor Changes
+
+- 31b655d: `bos clean` — the local-only rule's exit valve (ADR 0047, #844)
+
+  One command that removes regenerable `.bos` state and refuses the artifacts that are truth or identity:
+
+  - **Removes**: `logs/` (except files touched within the last hour — a live session is appending), `bundles/` (regression container staging), `regression/` (seeds + image staging), `generated/`, `bundle-cache/`, `snapshot/`, `sync-backup/`, `import-backup/`, `compose-retired/`, `manifest.json` (release-manifest cache), `bos.resolved-config.json`, `build-cache.json`.
+  - **Never touches**: `db/` (PGlite data), `session.json` (credentials — that's `bos logout`), `infra-state.json` (machine port prefs), `deploy-state.json` (cleaning the skip-unchanged accelerator would silently cost full re-uploads). The guarded set is reported as `kept` with its reason.
+  - `--dry-run` reports per-category bytes without deleting; `--config-dir` targets another checkout.
+  - Route `POST /clean` in the CLI contract; the partition (`planClean`/`executeClean` in `services/clean.ts`) is the unit-tested contract surface.
+
+- a1ea884: Handler-seam cleanup around the #844 sweep
+
+  - `bos upgrade --json` / the result contract gains a `cancelled` status: declining the interactive plan (`Write? no`, or ctrl-c) reports a cancelled result through the normal pipeline instead of calling `process.exit` from inside an Effect generator. Exit code stays 0; the renderer prints "Upgrade cancelled — nothing was written".
+  - The dead `cli/snapshot.ts` and `cli/upgrade.ts` re-export shims are deleted — importers (handler, the upgrade plan, five tests) resolve `services/scaffold/{snapshot,upgrade}` directly.
+  - The `typesGen` handler moves out of `handlers/upgrade.ts` (~705 → ~515 lines) into its own `handlers/types-gen.ts` — pure move, registered identically in the plugin router.
+
+- 210c88a: One committed artifact — the lock absorbs the sync baseline (ADR 0047, #844)
+
+  - `bos.lock.json` gains an optional `template.sync` section (`{ syncedAt, files }`): the template sync baseline, absorbed from `.bos/sync-snapshot.json`. The annotation is carried forward by every writer (`bos lock`, the deploy train's persist leg), never produced by `lockfileOf`, and never enters the pointer or lockfile digest.
+  - `bos sync`/`bos upgrade` now conflict when a locally-modified template file has no recorded baseline — the previous fallback classified it `updated` and let the template win silently. The error names the remedies: `bos lock` + commit, or one `--force` (backed up).
+  - `bos upgrade`'s migration phase absorbs a legacy `.bos/sync-snapshot.json` into the lock and deletes the file (reported under migrated files). Lock-less repos keep the legacy file, now local-only.
+  - The template `.gitignore` drops the `.bos` negations — `.bos/` is local-only runtime state; the single committed artifact is `bos.lock.json`.
+
+- 2fb981b: Regression harness runs on wiped file-backed pglite dirs — seed-phase integration
+
+  `.env.test`'s in-memory pglite marker now substitutes per-workspace pglite dirs
+  under `.bos/regression/db` (absolute paths; start-stack wipes the root per run),
+  because an in-memory database cannot be seeded — nothing exists before its
+  service process creates it, so the pre-spawn seed phase (#866) had nothing to
+  address. A wiped dir keeps in-memory's isolation while opening the pre-spawn
+  window: **apps that declare a `seed` block get it applied on every regression
+  boot automatically**, which is also the migration path off direct-DB seed
+  helpers and the postgres service containers they force. Explicit database URLs
+  (postgres or custom pglite dirs) still pass through untouched, and dev-root
+  URLs stay refused.
+
+- 560c2fd: auth: remove organization approval — it's application business logic, not auth (#857)
+
+  Organizations are now created **active**; the auth plugin never sets or enforces a
+  pending/rejected status, and no middleware gates on organization status.
+  Self-service activation flows (create organization → create onboarding code →
+  redeem, invite, join) now succeed end-to-end for a fresh user with no
+  platform-admin step.
+
+  **Breaking — removed surfaces:**
+
+  - `listOrganizationRequests` / `reviewOrganization` auth routes (the platform-admin
+    review queue) and the organization-approval gates in every default middleware,
+    the session context, and the invitation/onboarding flows.
+  - `requestedBy` / `rejectionReason` fields on the organization contract output.
+    The `status` field stays (pass-through data). The DB columns (`requested_by`,
+    `rejection_reason`) remain in place, unused, so no migration is required.
+
+  **Migration for deployed consumers:** existing `pending`/`rejected` organizations
+  become fully operable the moment this ships (the session context stops filtering
+  them and no middleware asserts status). If approval was a product requirement for
+  your app, implement it app-side before exposing org-scoped writes — org status in
+  metadata, your own middleware, your own admin surface. To retire stale rows, flip
+  `status` to `active` in an app-managed migration (the columns are app-owned data
+  now).
+
+- 14f5e0c: Call-only plugin entries (#848): a `plugins.<key>` attachment can now consume a deployed app's API as a typed oRPC client — `plugins.feedback.getProjectBySlug({ slug })` from any plugin's `createRouter`/Effect services — without federation-loading the remote bundle, composing its routes, or handing it secrets or a database. The entry is a regular plugin entry with two locators: `proxy` (the traffic endpoint — the live app origin whose `/api/rpc` serves; the attachment-level proxy field gains its runtime) and `contract` (a pure `bos://account/gateway[#target]` types locator whose targeted entry's stamped production — the artifact CDN — serves the sha256-verified contract types). The two origins differ in production, which is why one URL cannot play both roles. Detection is structural (proxy present, no `extends`/`path`/URL fields — declaring both fails loud), so there is no discriminator field. The host forwards `/api/rpc/{key}/*` to the proxy endpoint through the same dispatch seam as composed plugins with `x-api-key` server-side; typegen fetches types from the contract origin; readiness probes the endpoint's rpc ping (manifest-200/rpc-401 was false confidence); health surfaces the attachments as `plugins.rpc`; the runtime map marks them call-only.
+- 71f65d2: Ship `useScrollToHash` from the `everything-dev/ui` surface: a ref-setter hook that scrolls to a section once it mounts while the current location hash matches its id, closing the gap where hash links like `/dashboard/node#payouts` never scroll because the router's hash scroll runs once on navigation, before the target section renders from a client query (#820). Pass the bare hash id (no `#`); the hook scrolls once per hash visit, ignores other hashes, and re-scrolls when the hash returns after leaving — child apps carrying local copies of this helper can import the framework one and delete their own.
+- 982a2fa: Seed phase: automatic seeding on dev boot with a seeded marker, auth-owner admin bootstrap first (#865)
+
+  Consumer apps hand-roll seed scripts and run them by hand; a fresh checkout boots empty and
+  nothing tells the developer the environment is unseeded. Seeding is now a platform capability —
+  declared in config, checked automatically, run when needed:
+
+  - **Authored `seed` block** — `seed: { version, auth: { ownerAdmin }, steps }` in `bos.app.ts`
+    (or the dev overlay). Steps are workspace-relative idempotent scripts (upserts by contract),
+    the general surface for app data. The descriptor/resolved schemas, conversion pick lists,
+    canonical key ordering, and the scaffold emitter all carry the block; publish canonicalization
+    strips it (workspace-relative steps never reach FastKV).
+  - **`bos dev` seeds before serving** — when the marker (one `bos_seed_state` row in the api
+    database) doesn't match `seed.version`, the boot runs the phase pre-spawn: it migrates every
+    local workspace from disk first (fresh checkouts have no tables until the services'
+    migrate-on-boot fires — and services hold their PGlite data dirs open for their lifetime, so
+    nothing can run after them, ADR 0044), then provisions, then runs steps in order, first failure
+    aborting the boot loudly. Second boot does nothing; a version bump re-runs.
+  - **Owner-admin bootstrap first** — `seed.auth.ownerAdmin` (`true` derives the NEAR account from
+    the top-level `account`, or name one explicitly) writes the SIWN row shape (`user` role `admin`
+    - `near_account` + `account`) into the auth database, so the configured owner signs in with
+      platform-admin rights immediately — `/near/verify` resolves the pre-provisioned `near_account`
+      and issues a session for the admin user instead of minting a duplicate.
+  - **Production: explicit only** — `bos seed --env production` requires `postgres://` URLs,
+    env-provided owner credentials (`SEED_OWNER_ADMIN_NEAR_ACCOUNT` / `SEED_OWNER_ADMIN_EMAIL`,
+    never config defaults), and a confirmation prompt; non-interactive stdin must pass `--yes`
+    explicitly rather than hanging on a prompt. The deploy train never seeds.
+  - **DevEx guards** — the phase refuses to run while a dev stack is live for the project (the
+    shared pid registry is checked when pglite URLs are in play — a cross-process seed would
+    block on the PGlite file lock indefinitely, ADR 0044); a seeded boot pays only the marker
+    read (migrations run only when the phase will actually seed); `SEED_STEP_TIMEOUT_MS` bounds
+    each step (SIGTERM → SIGKILL, default off).
+  - Route `POST /seed` in the CLI contract; the runner (`services/seed/runner.ts`) and the marker
+    semantics are the unit-tested contract surface (`tests/unit/seed-phase.test.ts`,
+    `tests/unit/seed-config.test.ts`) with the auth-schema provisioning canaried against the real
+    plugin migrations in `tests/integration/seed-phase.test.ts`. Docs: `docs/seed-phase.md`.
+
+- 5aa85a4: `bos upgrade` shows its plan before writing — per-file consent instead of refuse-or-force (#844)
+
+  On a TTY, `bos upgrade` now stops and shows what it is about to do before doing it:
+
+  - **The version plan**: resolved release, package deltas (`from → to`), changelog link.
+  - **The file plan**: every file the sync will write — template updates, new files, and conflicts (labeled "local edits — template wins (backup kept)") — as a multi-select, **defaulting to overwrite all**: space toggles, enter confirms.
+  - **Write?** — nothing lands until the confirm. Cancelling leaves the tree untouched.
+  - **Post-upgrade clean** (default on): runs `bos clean` after a successful upgrade with the sync/import backups preserved — they are the review surface for the files just overwritten. Surfaced as a note in the result.
+
+  Under the hood:
+
+  - `bos sync`/`upgradeTemplate` gain `overwrite: string[]` — the approved write set. When present it is an exhaustive filter over updated/added/conflicted: selected files are written (backed up), deselected conflicts are preserved (never an abort), and a preserved file **keeps its old baseline** — so the skip never launders a local fork into the new normal: the next upgrade re-asks (the three-way comparison conflicts again when the template has moved), instead of today's silent template-win.
+  - The selection rides the train's re-exec boundary (`--overwrite a,b,c` to the migration child), so the migration phase's sync applies the same approved set.
+  - `--force` keeps its meaning (overwrite everything, no prompts) and non-TTY runs (CI, scripts) keep the classic refuse-on-conflict behavior. The preflight abort names the interactive plan as the remedy.
+  - `--overwrite a,b,c` also works hand-written; `--clean-after` runs the post-step non-interactively.
+
+- 2e1ece5: The #642 revival — integrity back in the federation pipeline (ADR 0046 ticket 03): the MF fetch hook installs inside `createPluginRuntime` (the host's `__mfInstance` probe is gone), the registry keys by the resolved hashed artifact URLs — `resolvedIntegrityMap` derives them (entry, ssr entry, files-map entries) from the pin's resolution and rides the runtime config as `integrityMap` — and a lazily-fetched file whose served bytes drifted from the pin fails with the tagged `IntegrityMismatch` naming expected and actual, refusing the plugin load instead of a webpack TypeError. The SRI primitive collapses into the engine (`computeSri`) — the only `createHash("sha384")` site outside the storage boundary is the engine's. Migrated call sites: SnapshotWatch's entry verification, tenant override verification (blocking and stale-while-revalidate modes preserved), the SSR-entry gate in federation.server, ui-compose's manifest fetch (compose parity stays), and the local dist hashing in `diff.ts`.
+- 2e1ece5: The chain walker (ADR 0046 ticket 02): `verifyChain(config, { depth })` walks the distribution spine at pointer (pinned manifest documents), entries (+ the pinned remoteEntry/ssr bytes), or files (+ every file in each manifest's files map) depth — one engine call per hop, one report shape (the `bos verify` result, generalized with per-entry legs and an `ok` verdict). Consumers collapse onto it: `bos verify` gains a `--depth` flag (default `files`, report unchanged), the smoke gate walks the booted identity in-image at entries depth as a pre-promotion leg, the SnapshotWatch adopt transaction verifies the full extends-merged candidate composition instead of the ui slot alone, and `verifyRollbackSnapshot` delegates at pointer depth with the canonical report wording.
+- 2e1ece5: Digest identity consolidation (ADR 0046 ticket 04): one module (`everything-dev/fingerprint`) owns every composition-plane identity, and the recorded fingerprint seam is closed. `deploymentFingerprint`/`pointerFingerprint` are renamed `deploymentDigest`/`pointerDigest`, and the deployment digest now derives from the pointer inputs — the pin coordinates resolution stamps onto every resolved slot (`digest` field) — plus the resolved entry coordinates, so a pointer-only republish (identical entry bytes, changed files map) moves it: the host's adopt comparison now notices such publishes instead of serving stale pins until restart, and the client soft-refresh signal moves with it. The vocabulary cutover renames every wire field the old word survived in — lockfile + boot snapshot (`fingerprint` → `pointerDigest`, schemaVersion 1 → 2; old files fail the strict parse naming the field and regenerate on the next `bos lock` / first adopt), deploy records and their summaries, the CLI contract results, the client payload (`deploymentFingerprint` → `deploymentDigest`), and `/.well-known/version` (now `deploymentDigest` + `pointerDigest`). The endpoint split also fixes the ops split-brain detector's cross-plane comparison — published pointer digest vs the host's served pointer digest (previously compared against the serving-generation digest, which never matches). The compose variant fingerprint is renamed `variantCacheKey` — it hashes dev mtimes, a cache key, not an identity. The module's own subpath retires with the word: `everything-dev/fingerprint` is removed and replaced by `everything-dev/digest` (hard removal — importers update at the upgrade).
+- 2e1ece5: The Verifier engine (ADR 0046 ticket 01): one fetch → sha384 → compare implementation behind the `Verifier` `Context.Service`, the `Verified<T>` branded artifact type, the yieldable `IntegrityMismatch` / `ProvenanceUnknown` / `SignatureInvalid` error taxonomy, and process-lifetime verified-document caching where the cache is the last-known-good. `bos verify`, `resolveRemoteVersion`, and `fetchVerifiedManifest` now ride the engine — report and CLI surfaces are unchanged.
+- 2e1ece5: Manifest attribution (ADR 0046 ticket 05): the deploy train signs each slot's version manifest with the runtime's existing publish identity — the explicit publish key (`resolveSigningKey`, near-kit) or the custody wallet (OutLayer `signMessage`, `format: "raw"`) — and the chain walker verifies the signature against a key record published in the on-chain config: `publish.verification: { publicKey } | "off"` (absent ≡ off, the rollout default; unsigned manifests verify as today and old readers strip the field). The payload is the canonical key-sorted serialization the version-id derivation already uses (`signaturePayloadOf`; the `signature` field never enters the version id, like `builtAt`), so signer and verifier agree on the bytes regardless of the stored document's whitespace. The verifying key rides in the signature block, letting the walker distinguish _wrong signature_ from _signed by an unregistered key_ — both are the engine's tagged `SignatureInvalid`, a distinct leg in the verify report (`VerifyRemoteResult.signature`) that fails the chain hard: `bos verify` exits nonzero with an attribution column, and the smoke/adopt legs refuse the composition while the SRI legs still report. A signing identity that doesn't match the key record fails the train before anything uploads — rotation is a config publish, never a silent key swap.
+
+### Patch Changes
+
+- e139d6e: The `.bos/logs` pruner sees every writer's names; sync backups are bounded (part of #844)
+
+  - `pruneDatedLogs` now matches the pre-#476 PID-less `dev-<ts>.log` legacy format, the PID-less `dev-latest.log`, and the regression stack's `framework-<port>.log` / `regression-<mode>.log` wrappers — on a long-lived checkout 192 of 205 log files were invisible to the pruner. The <24h live-session guard, the newest-20 keep, and the 7-day age cap are unchanged and now apply uniformly across all classes.
+  - `bos sync`/`bos upgrade` prune `.bos/sync-backup/` to the newest 10 timestamped dirs after each backup — upgrade sediment no longer accumulates forever.
+  - `docs/agents/how-it-fits.md` stops claiming logs have no rotation (it landed in #596/#603) and documents the pruner's actual coverage.
+
+- e82f0bd: Strip `createRpcClient` to a bare typed oRPC client: `createRpcClient(hostUrl, path = "/api/rpc")`. The wrapper's transport opinions (429 retry, connection-error toast, `credentials: "include"`, SSR header merging, browser memoization) move into the UI seam (`everything-dev` `ui/api.ts` `createApiClient`/`createPluginApiClient`), where they already belonged — server consumers now get a plain Promise-native client with no hidden globals. Transport customization (headers, timeouts, retries, test doubles) is `RPCLink`'s native surface; Effect callers lift calls with `Effect.tryPromise` and own timeout/retry/cache in their service layer.
+- Updated dependencies [e82f0bd]
+- Updated dependencies [2e1ece5]
+- Updated dependencies [2e1ece5]
+  - every-plugin@3.0.0-rc.17
+
+## 2.0.0-rc.42
+
+### Patch Changes
+
+- 9b5dd56: Emit declaration files for the compose, snapshot, and lockfile entrypoints — the exports map pointed their `types` at dist files the dts build never produced (chunk emission ships JS without declarations), so every generated child failed `tsc --noEmit` with TS7016 on `everything-dev/ui/compose`. The build now fails loud when any exports subpath resolves to a missing dist types file, so this class of regression cannot ship again.
+- dedaf60: De-scale the router's default pending boundary so navigations no longer blank the page: the default pending component renders a compact centered spinner instead of a full-viewport "Loading..." takeover, and `defaultPendingMs` moves from 100ms to 333ms so brief navigations keep the previous page visible with the root progress bar carrying the signal. Pairs with the login route rendering instantly from the hydrated session cache instead of blocking on a session fetch.
+
+## 2.0.0-rc.41
+
+### Minor Changes
+
+- e685c4c: Immutable version directories — parent republishes can no longer rot pinned slots (#826)
+
+  Workspace deploys now dual-write every dist file into a content-addressed `versions/<dirId>/…` directory beside the existing flat slot-root layout, and the version manifest declares its directory via a new `dir` field. Pin resolution prefixes artifact coordinates (`entryUrl`, `browserManifestUrl`, `ssrEntryUrl`) with the manifest's directory, so a child pinned to an older slot keeps loading the old deploy's entry **and** its expose chunk, chunks, and manifests from the same frozen directory — a parent republish that overwrites the fixed-name files at the slot root no longer produces mixed builds (`__webpack_modules__[r] is not a function`). Legacy manifests without `dir` resolve exactly as before.
+
+  - `versionDirPath(files)` derives the directory from the dist's file map (content-addressed: identical bytes → identical directory → unchanged redeploys skip the copy entirely via the previous pin's `dir`)
+  - The upload service treats `versions/**` as write-once: an upload whose bytes differ from the stored object fails with a new `CONFLICT` (409) error, mirroring the platform "version is burned" rule; identical bytes stay an idempotent skip
+  - Serving classification treats everything under `versions/` as immutable (cache-control `immutable`), independent of filename hashing
+  - Staged (in-image) dists ignore the directory — the staged namespace materializes flat, so staged resolution passes `{ ignoreDir: true }`
+
+- 0e2e7f9: Right-sized deploys: ui-only trains skip Railway, drift alarm (`bos verify`), restart advisory
+
+  - **Ui-only deploys stop restarting the host** (#826 follow-up): the train diffs the published config against the live one, and when the change touches only SnapshotWatch-adopted surfaces (the ui slot, plugin ui overrides) the Railway leg skips — the soft-refresh banner carries the adoption instead of a restart. `--force-railway` overrides; any backend/host/config change keeps the full train; uncertainty reads cold.
+  - **`bos verify`** — the drift alarm: for every published pin, SRI-verify the version manifest and hash every file it names against the served bytes (the manual curl+sha384 sweep, automated). Rot fails the command naming the file; being behind the parent's live release is advisory. Child deploys run it post-publish, non-blocking, with the report on the job summary.
+  - **Restart advisory**: when a snapshot adopt moves a boot-frozen slot's pin (api/auth/plugin backends — the swap cannot adopt them), the host surfaces `restartRequired` at `/.well-known/version` and `/health` instead of silently serving the previous generation.
+  - **Ui-only CI runs the smoke spec**: a diff confined to `ui/` replaces the full sharded browser regression matrix with the app-load spec (boot + hydration + runtime-config shape).
+
+### Patch Changes
+
+- ad8414f: Mount guards are ordinary beforeLoads supplied by the composing framework, replacing gate kinds. The mount registry now carries shape metadata only (`guarded`, `implemented`) and `constructTree` takes `guards` keyed by mount id — construction fails loudly when a guarded mount has none. The default wiring guards `authenticated` with `requireSession` and `admin` with `requireAdmin`, so a client-rendered full page load resolves the session through the query cache instead of reading a signed-in visitor as signed out (#818): full loads of authed pages no longer bounce through `/login`, and admin pages keep the `?redirect=` return path. Banned users now bounce at the mount, and signed-in non-admins on admin mounts land on `/dashboard`. The engine's invented `HostContext`/`GateUser` types are gone — it has no auth semantics.
+- Updated dependencies [e685c4c]
+- Updated dependencies [ad8414f]
+  - every-plugin@3.0.0-rc.16
+
+## 2.0.0-rc.40
+
+### Minor Changes
+
+- 1b0feda: Per-workspace migration journals (ADR 0045) — the journal's identity follows the workspace's identity, the same rule the data model already follows.
+
+  `getMigrationStorage` now resolves `drizzle.__drizzle_migrations_<slug>` by default (the planned phase-2 flag flip). "Every row in my journal is mine" holds by construction, which makes #805's ahead-of-build guard sound again: unknown rows in a workspace's own journal genuinely mean a newer build migrated that database, and boot fails closed with the hashes, timestamps, and remediation (`BOS_ALLOW_SCHEMA_AHEAD=1` allows once). With the shared journal the guard could not work — rows carried no workspace attribution, so every shared-DB workspace saw its siblings' rows and refused boot (the outage the previous patch mitigated by downgrading the guard to advisory).
+
+  - **Boot adoption**: on first boot with an empty per-workspace journal, the runner copies this workspace's known hashes out of the legacy shared journal under the workspace's advisory lock — attribution by construction, idempotent, duplicate-DDL tolerant. The legacy table is never modified, so pre-ADR rollbacks keep working (old builds read the legacy journal and apply nothing).
+  - **Workspace-scoped advisory locks**: the migration runner and the driver's `CREATE SCHEMA` guard serialize on `<journal-schema>.<journal-table>` for the workspace's own journal — cross-workspace boots no longer contend (disjoint schemas; the ADR 0019 catalog race needs same-name objects), same-workspace concurrency still serializes.
+  - **Zero interface change**: `databaseLayer(tag, url, { pluginId, schema, migrations, namespace })` is untouched; drizzle-kit configs, Studio, and CLI bindings already routed through the journal resolver and follow automatically. `{ isolated: false }` remains an explicit override to the legacy shared coords.
+  - Journal `created_at` is coerced at the read seam (node-postgres delivers bigint as a string; `new Date("1730…").toISOString()` was the `RangeError` that turned the guard's clean failure into `unknown failure`).
+
+### Patch Changes
+
+- d30ae8f: Auth production-safety family (#803/#804/#805):
+
+  - **Fail closed in production when `AUTH_DATABASE_URL` is unset.** The auth
+    plugin's secrets schema no longer silently defaults a deployed host to a
+    fresh, empty PGlite data dir — production boots without the URL now refuse
+    with an error naming the variable and the fix. The zero-config default
+    stays for local dev; `AUTH_ALLOW_PGLITE_DEFAULT=1` accepts it deliberately.
+  - **Fail closed when the shared auth DB's migration journal is ahead of the
+    plugin's known set.** `runMigrations` compares the journal against the
+    build's known hashes before migrating: unknown rows (a newer plugin build
+    migrated this DB) fail the boot with the unknown hashes, timestamps, and
+    remediation instead of silently writing on top of an unseen schema.
+    `BOS_ALLOW_SCHEMA_AHEAD=1` permits a deliberate rollout.
+  - Preflight no longer recommends clearing `AUTH_DATABASE_URL` without a
+    production caveat.
+
+- cb8710a: The auth plugin derives `isProduction` from the served origin's protocol
+  (`https:` ⇒ production) instead of `NODE_ENV` (#635): the published bundle
+  bakes `NODE_ENV` at build time, so localhost ran with production cookie
+  settings — secure cookies plus the 5-minute cookie cache — and sessions
+  silently dropped on plain http after about five minutes. Production behavior
+  is unchanged.
+- 32df683: Boot snapshots now stage for extends-chain children (#800): the authored
+  `app.<plugin>.ui` descriptor's `name` is optional, matching the release-scoped
+  stamper's canonical `{ production, digest }` form — the schema requirement was
+  silenty disabling snapshot staging for every child inheriting platform auth
+  (the stage failure surfaced as a dim `Note:` while deploys "succeeded" with no
+  staged generation). Resolution never consumed the authored name (the runtime
+  container name derives from the plugin workspace), so nothing downstream
+  changes. A deterministic staging failure now also prints as a yellow warning
+  naming the consequence ("restarts will resolve from the live registry")
+  instead of a dim note.
+- a580ea5: Contract/error-surface fixes (#678, #798): the auth `getContext` contract now
+  declares the host-injected `nearAccountId` (nullable, optional), so plugin
+  ContextSchemas derived from the contract see it without a local widening and
+  output validation doesn't strip it; and `unwrapDatabaseError` stringifies
+  non-Error causes without ever throwing — a null-prototype cause (a rewrapped
+  fiber failure) used to raise `TypeError: Cannot convert object to primitive
+value` from the message getter, masking the real database error everywhere it
+  was read.
+- c061bb7: Interactive `bos deploy` bundle-upload resolution (#666): the upload origin now
+  defaults to the platform upload service (`https://upload.everything.dev`) when
+  the effective CDN is the platform CDN, instead of reusing the `bos login`
+  session's app-site URL (which 404s uploads after a full build). The preflight
+  probe distinguishes an app host from the upload service via the guarded
+  `POST /api/storage/bundles` route and fails fast with the fix. Local/private
+  origins (test harnesses, deliberate local stacks) skip the upload-route probe.
+- 1b0feda: Fix the production plugin-boot outage from the #811 ahead-of-build journal guard: every shared-DB workspace (api + all plugins falling back to `API_DATABASE_URL`) failed to load with `unknown failure` on every boot.
+
+  **Root cause (two stacked bugs):**
+
+  1. The guard treated any `drizzle.__drizzle_migrations` row the build doesn't know as "a newer build migrated this DB" and failed boot. But the journal is intentionally shared by every workspace on one database (data tables are `plugin_<slug>`-schema isolated; the journal is not), and journal rows carry no workspace attribution — so sibling plugins' rows always look "unknown", and the guard fired 100% of the time for every shared workspace. auth (dedicated DB) and the non-DB plugins were the only survivors.
+  2. The guard's error formatter crashed before it could fail cleanly: journal `created_at` is `bigint`, node-postgres delivers int8 as a **string**, and `new Date("1730...").toISOString()` throws `RangeError: Invalid time value` — the "unknown failure" every plugin surfaced. Dev never caught it because pglite typing differs.
+
+  **Fix:** `readJournalRowsIn` now coerces `created_at` at the read seam (string/number → finite number, else `null`), and the unknown-row check is **advisory** (logged warning with hashes + timestamps, boot proceeds) until per-workspace journals land and the check becomes sound. `BOS_ALLOW_SCHEMA_AHEAD` is removed — it shipped with #811 and has no meaning under the advisory check.
+
+- 262fd23: Rate-limit hardening for the signed-out symptom (#634): `GET
+/api/auth/get-session` is exempt from the general `/api/*` bucket — a 429 on
+  the session read is what made the UI present "signed out" — while the
+  mutation tier is unchanged. `docs/self-deploy.md` documents `RATE_LIMIT_MAX`
+  / `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MUTATION_MAX` as instance tunables.
+  (The limit raise to 2000 and trusted-proxy keying already shipped; the
+  client-side false-empty flashes are #683.)
+- e0d2aef: Router pending defaults (#683, trivial slice): the default pending boundary
+  renders a spinner instead of bare "Loading..." text, and `defaultPendingMs`
+  drops to 100ms (from the router's 1000ms default) on both the client and SSR
+  routers — cold authed navigations no longer sit blank for up to a second, and
+  children no longer need to re-declare `pendingMs` + `pendingComponent` per
+  layout. The session-cache unification (double fetch, false-empty flashes)
+  remains a separate design discussion under #683.
+- b470469: Template/upgrade script hygiene (#799, #802): the child root `test` script's
+  plugins loop is guarded with `[ -d plugins ]` (matching the typecheck script),
+  so plugin-less children no longer exit 1 with all suites green; and `bos
+upgrade` retires the dead `dev:postgres` / `dev:postgres:down` /
+  `dev:postgres:reset` scripts left in children scaffolded before ADR 0038
+  retired docker-compose.
+- Updated dependencies [b4f2821]
+- Updated dependencies [6084c5b]
+  - better-near-auth@2.0.0-rc.8
+
+## 2.0.0-rc.39
+
+### Minor Changes
+
+- 7363c4e: Per-identity PGlite data dirs — multiple in-process plugins no longer share one data dir (fixes #787). The zero-config default is now `pglite:.bos/db/<slug>` (slug = the workspace's migration slug, e.g. `pglite:.bos/db/api`, `pglite:.bos/db/auth`, `pglite:.bos/db/agent_connect`): multiple live PGlite instances on one data dir don't coordinate and silently corrupt committed data — heap/index divergence made `SELECT` see empty tables while `INSERT` failed with duplicate-key on empty tables (first SIWN sign-in broke). Changes: (1) `pgliteDefaultUrlForSlug(slug)` replaces the single shared default everywhere (`resolveDatabaseUrl`, bindings, conventional env templates, deploy smoke); `PGLITE_DEFAULT_URL` remains as the layout base/legacy-pin literal, `PGLITE_DEV_DATABASE_URL` is removed (use `pgliteDefaultUrlForSlug(normalizeDatabaseSlug(secret))`). (2) `createDatabaseDriver`'s pglite branch refuses a second concurrent open of one data dir in-process (decoded-absolute guard key — relative, `file://`, and bare spellings of one dir all collide), throwing with a remediation message; sequential close→reopen stays legal, in-memory stays exempt; `file://` URLs are now decoded before `mkdirSync` (the raw URL created a literal `file:` junk directory). (3) `bos dev`'s one-time repair splits `.env` pins that share the legacy `pglite:.bos/db` literal into per-identity subdirs (idempotent; only the exact legacy literal; a rewrite is skipped if its target dir is occupied by a pin that stays). (4) `bos dev` preflight fails any remaining composition where two or more `*_DATABASE_URL` secrets resolve to the same pglite dir (in-memory exempt). (5) The regression-env dev-data guard refuses any `pglite:.bos/db` URL including per-slug subdirs. Scaffolded plugin defaults, dev overlays, and templates pin per-identity dirs; ADR 0044 records the decision and supersedes ADR 0038's shared-dir topology. Real data sharing is unchanged on `postgres://` (plugin secrets fall back to `API_DATABASE_URL` with `plugin_<slug>` schema isolation).
+
+### Patch Changes
+
+- def20e4: Export the db support types the migration-runner signatures reference — `DriftReport`, `MigrationReport`, `MigrationDatabase`, `RunMigrationsOptions`, `LoadMigrationsOptions` are now re-exported from `everything-dev/db` alongside the functions that consume them, so external consumers (the sync-owned plugin `src/db/layer.ts` template and any child workspace calling `runMigrations`/`detectDrift` directly) typecheck without local structural copies.
+
+  Fixes #789.
+
+- c2a2926: Dev-boot composition audit stops flagging coherent rc.38 children (surfaced by the opencrosspost.com boot — three divergence lines whose named repairs could never clear them):
+
+  - Subpath singletons (`everything-dev/ui/auth`, `everything-dev/ui/i18n`) resolve through their base package's installed version when probed locally. The subpath has no own package.json or catalog row, so every child's ui/auth-ui remotes — whose bundles embed the subpath in their shared maps — printed `everything-dev/ui/auth@unknown` divergences forever, and the audit's own repair instructions (`bos deploy --packages ui` / `bos upgrade`) were no-ops for the actual half of the comparison.
+  - The auth mirror (`plugins.auth`, added by config.ts mirroring `app.auth` as the plugin runtime's compose surface) no longer reports "missing from the release composition — it composes live, unpinned bytes" when the manifest records `app.auth`: the mirror composes app.auth's pinned bytes, and a recorded `app.auth` covers it. A mirror over an unrecorded `app.auth` is still a genuine provisioned line.
+
+- 52370a9: Deleting `.bos/logs` mid-run no longer wedges the dev orchestrator in an ENOENT rejection loop. The dev log file sink now recreates the directory on a missing-dir write failure and retries once; when the path still can't be written (e.g. `.bos/logs` replaced by a file), entries degrade to drop-silently with a single warning instead of failing per line, and a later recovery resets the state. The writer's promise chain internalizes failures, so the fire-and-forget `logger.write` call site can never surface an unhandled rejection — which was the loop edge: each failed write rejected, the rejection handler logged through the (console-patched) bridge back into the pipeline, and every ingested line enqueued another failing write. The orchestrator's `unhandledRejection`/`uncaughtException` handlers now use the real console captured at module load, so rejection reporting can never re-enter the pipeline through `patchConsole`.
+
+  Fixes #791.
+
+- 81ba11a: `bos dev` no longer registers ports it never owned. The teardown port registry is populated from the resolved runtime config, so remote extends-chain entries (auth/ui/plugins served from `https://` URLs) contributed their derived implicit ports (443/80) — every shutdown then probed them, reporting a false "Port N still bound after teardown" attributed via lsof to an unrelated process (Chrome's network service on 443). Registration now mirrors the planner's allocation gating: only `source: "local"` services are registered, which also stops `bos kill` from refusing to unregister with "ports still bound after kill: 443" and keeps `claimedPorts()` clean.
+
+  Fixes #790.
+
+- Updated dependencies [7363c4e]
+  - better-near-auth@2.0.0-rc.7
+
+## 2.0.0-rc.38
+
+### Minor Changes
+
+- e633d93: The approved boot snapshot's wire schema ships as the `everything-dev/snapshot` subpath (ADR 0041): a persisted, verified serving state — runtime ref, authorizing manifest tag, pointer fingerprint, the resolved published config, the pinned-remote mirror, and the deploy-record key — written on adopt so a restart can serve the approved composition during a registry/CDN outage. Schema and path helpers only; the coordinator and boot-path wiring follow in the boot-snapshot sprint's next tickets.
+- bde5817: `bos lock` — freeze the resolved composition into `bos.lock.json` (ADR 0042). The command resolves the authored config through the full extends chain + release stamping (the same resolution session the deploy train uses) and writes the lockfile atomically; `bos lock --check` re-resolves and exits 1 on drift for CI. The runtime map gains lockfile provenance: when a lockfile exists, the generated map carries its fingerprint, release, and resolved-at, and names every source/backend whose serving digest differs from the frozen one (`lockfile.drift`) — the explainer can no longer drift silently from the frozen composition. `everything-dev/lockfile` gains `readLockfileIfExists` and the shared `writeLockfile` producer seam.
+- c797040: `bos promote <block-height>` — activate a recorded deployment without rebuilding (ADR 0042 ticket 05, absorbing the unified-rollback plan): the same SRI-verified, boot-checked, pointer-restoring republish as `bos rollback --version`, framed as promotion — no rolledBackFrom brand on the payload, an already-live target is an idempotent no-op rather than a refusal, and the version is required (promotion targets a record, not "previous"). The lockfile consumption rides the train's ticket-04 leg: the promoted composition is frozen into bos.lock.json atomically after confirm, and the deployment record named its digest all along. The Railway image leg stays in CI's deploy workflow (the CLI holds no Railway credential); the config/pointer/lockfile plane is complete from here.
+- e633d93: The composition lockfile's wire schema ships as the `everything-dev/lockfile` subpath (ADR 0042): `bos.lock.json` freezes one runtime's exact composition — the pinned descriptors and bare plugin refs in walk order, optional shared-singleton and contract records, and a fingerprint that equals the pointer fingerprint of the frozen config and recomputes from the stored record alone. Schema and path helpers only; the `bos lock` producer and boot consumer follow in the composition-lockfile sprint's next tickets.
+- fc552a6: Registry starts consume `bos.lock.json` (ADR 0042 ticket 03): when a lockfile is present for the booting runtime, its frozen remote coordinates are the boot's authority — missing pins are stamped from the frozen descriptors and drifted coordinates are overridden, with every stamp and disagreement reported as a loud warning in the start summary. The boot never fails because of the lockfile — enforcement lives in CI via `bos lock --check`. The `everything-dev/lockfile` surface gains `applyCompositionLockfile` (pure application: stamping, drift reporting, runtime-ref guard).
+- f015cb3: The deploy train freezes the composition it publishes (ADR 0042 ticket 04): every publish composes `bos.lock.json` from the exact publish payload and writes it atomically (healed on already-published idempotent runs), and the per-deploy audit record (`deploys/<ts>.json`) names the lockfile's content digest and fingerprint — a deployment record now answers "what exact composition was live". `everything-dev/lockfile` gains `digestOfLockfile` and the sync `writeLockfileSync` (the train's publish path is sync-fs). The registry's fingerprint module consolidates both identity hashes: `pointerFingerprint` remains THE composition identity (lockfile, deploy records, watch change-detection); `deploymentFingerprint` (the serving-generation payload hash, moved here from the host) is documented as derived from the same remotes after entry resolution — their semantic merge stays a recorded seam, since both sides of every existing comparison must move together.
+- 7e8575d: The two-plane boot, staging leg (ADR 0043): the deploy train now writes the approved boot snapshot for the composition it just confirmed live — stamped with the release thin tag (when the release leg ran) and the lockfile's content digest — so restarts of the published runtime boot from the staged state instead of resolving. Non-fatal like every provenance leg. `everything-dev/snapshot`'s `bootSnapshotOf`/`BootSnapshotSchema` gain the optional `lockfileDigest` staging stamp (the identity tying an approved generation to the deployment record that named it — enforcement deferred; the strict-reader downgrade window is accepted per the ADR 0040 posture). The ADR names the contract: the control plane (registry + train + CI) produces and activates; the application runtime starts from a digest-verified artifact, converges through the watch, and stays fail-loud for fresh activations. Remote-tier staging rides the hosting adapter later (recorded seam).
+
+### Patch Changes
+
+- 741fe1a: Registry starts gain the approved-snapshot boot rung (ADR 0041): every verified generation is persisted (`.bos/snapshot/<account>/<gateway>.json`, `BOS_SNAPSHOT_DIR` overrides the root) by the host's snapshot coordinator on adopt — and by `bos start` itself when it resolves the registry cold — so a restart during a registry/CDN outage boots from the last verified composition, with a loud warning in the start summary; the pointer watch adopts the published config the moment the registry returns. A definitive "no config published" still fails loud; a corrupt or fingerprint-mismatched snapshot refuses instead of serving; `BOS_SNAPSHOT_BOOT=never` disables the rung. The `everything-dev/snapshot` subpath gains `readBootSnapshot`, `verifiedBootSnapshot`, and `BootSnapshotIntegrityError`.
+- fefd0a0: The host's /health carries composition provenance for the approved-snapshot boot rung (ADR 0041): a `snapshot` block reports whether the process booted from the persisted snapshot, whether the pointer watch has adopted a published generation since boot, and whether the boot is still degraded (snapshot-sourced, not yet adopted). The overall status stays "ready" — degradation is provenance, not readiness — and the marker clears the moment the watch adopts. `bos start` stamps the host process with the marker env only when it actually served the snapshot.
+- af52791: Publish confirmation now treats a failed on-chain execution as the designed success state: the registry namespace is codeless, so publishes execute with `CodeDoesNotExist` and the transaction classifier maps near-kit's typed errors (execution failure → included, consumed nonce or missing publish key → terminal with a `bos login --key` repair hint, chain-unknown → grace window) instead of regexing messages. The content read-back also outranks the transaction probe — a "dropped at broadcast" verdict can only be emitted after the registry content check failed to verify in the same iteration, never before a verify.
+- 4d16ba1: Publish confirmation now queries the submitted transaction's status: rejected or dropped transactions fail fast with their on-chain fate instead of a generic "registry serves a different value" timeout, and a transaction that will never apply is retried once with identical content (fresh nonce) before the deploy fails.
+- 4d16ba1: The release deploy's post-publish smoke now decodes the `manifest.json` pointer through the thin-tag schema (`version`) instead of the pre-cutover field name (`frameworkVersion`), so release trains after the registry wire cutover verify the published pointer instead of always failing with "release pointer serves nothing" and rolling back a good config.
+- ebbaaf2: `bos deploy --wallet` now parses (the deploy schema was missing the `wallet` field that publish and rollback already had — the gasless NEP-366 relay path was unreachable from the deploy command). The signing stack also honors `NEAR_RPC_URL`: near-kit's default mainnet RPC (free.rpc.fastnear.com) currently accepts signed broadcasts and silently drops them post-acceptance, so publishes can pin the signing stack to an endpoint with a real transaction pool (set `NEAR_RPC_URL=https://rpc.mainnet.near.org`).
+- 2f7902c: Stop the init/sync copy from carrying `*.gen.ts` artifacts into child projects, and make contract-type generation degrade to the `.bos/generated/auth` stubs when auth resolution fails instead of skipping the write. Together these fix child typechecks failing with `TS2307: Cannot find module '.../auth/src/auth-export.ts'` when a stale root-authored `plugins/_template` gen file leaked into the scaffold and a transient auth-registry outage prevented regeneration.
+- 64763ca: The deploy preflight verifies the signing key's on-chain health before the build train runs: the key must exist on the publisher account and be scoped to `__fastdata_kv` on the registry namespace with enough remaining allowance for one publish (300 Tgas prepaid). A rotated or exhausted key now fails in seconds with the exact on-chain repair command (`near account add-key …`) instead of surfacing after a full build as a broadcast that never appears on-chain. The confirmation classifier also recognizes the chain's real not-found shape (`UNKNOWN_TRANSACTION`), so a dropped broadcast again reaches the terminal verdict and its one identical resubmit instead of timing out generically.
+- abb3596: The deploy preflight checks the publish account's balance before building: a publish whose account cannot cover the gas prepayment now fails in seconds with the exact amounts and a top-up hint, instead of dying hours later as a silent "dropped at broadcast". Broadcasts surface the pool's admission verdict (`NotEnoughBalance`, stale nonce) at submit time instead of fire-and-forget, registry writes attach 30 Tgas instead of 300 Tgas (shrinking the prepayment lock 10×), and the function-call key allowance floor follows.
+
+## 2.0.0-rc.37
+
+### Minor Changes
+
+- 602545a: Registry wire cutover (ticket 10): `manifest.json` thin tag + `versions/<v>.json` records, strict no-alias resolution
+
+  The registry wire cuts over atomically with this release. **Old CLIs fail loud until `bos upgrade`** — a child below the cutover floor resolves nothing and is told to upgrade.
+
+  **New keys** (the old `platform.json`, `platform-versions/`, and `manifests/` keys are abandoned in place — FastKV is immutable, never written again):
+
+  - `apps/<account>/<gateway>/manifest.json` — the thin tag: `{ schemaVersion, version, digest }`; the digest pins the record's exact bytes
+  - `apps/<account>/<gateway>/versions/<v>.json` — the full manifest, immutable
+  - `apps/<account>/<gateway>/deploys/<ts>.json` — the per-deploy audit record
+
+  **Strict no-alias cutover**: resolution speaks only the new format. An extends target still publishing the pre-cutover composition is rejected loud: "the runtime you extend publishes a pre-cutover composition — it must redeploy on ≥ 2.0.0-rc.37". No dual-read, no legacy parser in the core. The resolution machine verifies the thin tag's digest against the fetched record's bytes — a mismatch is an `integrityFailure`, never a silent pass.
+
+  **Manifest + config wire**: the manifest's `slots:`/`pin:` maps are now `remotes:`/`digest:`; stamped config entries carry `digest:` (republishes scrub legacy `pin:` stamps). The compat floor never sits below the cutover release — pre-cutover children cannot parse the wire.
+
+  **Operator notes**:
+
+  - Run `bos upgrade` on any child before (or immediately after) the parent's first post-cutover deploy; until then the child fails loud with exactly that instruction.
+  - The release train writes the version record + flips the thin tag in one atomic FastKV write; publish confirmation now verifies both legs byte-equal before the publish counts.
+  - `bos manifest` (`--check`) replaces the retired `bos platform manifest` surface.
+  - The compat window's non-release freshness gate now compares against the published version record the tag names (the full manifest no longer rides the pointer).
+
+### Patch Changes
+
+- 7b0a5c6: `bos platform manifest` is removed — the command is **`bos manifest`** (no alias; `--check` semantics unchanged). The mf-check compat section and its result field are labeled `manifest`, and the local manifest cache moved from `.bos/platform-manifest.json` to `.bos/manifest.json` (the stale file is deleted on the next `bos upgrade`).
+- e600338: The authored config's `platform:` pin field is renamed to `release:` — run `bos upgrade` to migrate; the upgrade rewrites the key surgically and stamps the current chain release.
+
+  `bos upgrade` no longer dies on the pin it exists to move: the release is chosen fresh from the registry (never from the offline cache), the target release's version record is verified before anything mutates, and a child authored against a release whose record is absent upgrades anyway — the stranded-pin state is repaired, not refused.
+
+  The upgrade install now handles pnpm's supply-chain holdback: a stale lockfile entry naming a fresh framework release is repaired automatically (exclude posture reconciled, lockfile regenerated, one retry) instead of failing with the raw `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` dump.
+
+  Fixes the version-record read double-prefixing its registry key (`apps/a/g/apps/a/g/...`), which made every pinned release unresolvable while its record sat published — the stranded-pin incident.
+
+- 1c26350: Fix the scaffolded child api template (`.github/templates/api/`): the slim shell declared only the `API_DATABASE_URL` secret while `plugin.dev.ts` also wrote `BETTER_AUTH_SECRET` (a secrets-vault concern only the platform root's api consumes), and the shell's `initialize` passed the connection string where `DatabaseLive` expects the plugin config object. Fresh `bos init` children with an api override now typecheck against the live root's published contracts — surfaced by the init.full integration gate after ticket 04 repointed its parent to the production root (the previously stale deployed auth contract had been self-skipping that assertion).
+
+## 2.0.0-rc.36
+
+### Minor Changes
+
+- 2d6be1f: Consumers collapse onto the registry primitive. The `everything-dev/fastkv`
+  subpath export is removed (no shim, strict cutover policy) — import
+  `everything-dev/registry` instead; `fetchDeployManifests`,
+  `fetchBosConfigFromFastKv`, and the transport helpers remain reachable from the
+  root export, and `fastkv.ts` now delegates to the client + key model so absent
+  and unreachable registry reads are finally distinct (`RegistryError` propagates
+  where every previous fetcher collapsed into "No config found" — that message is
+  preserved for absent reads). The pre-cutover wire keys
+  (`platform.json`, `platform-versions/<v>.json`, `manifests/<ts>.json`) are
+  derived in exactly one file (`registry/pointer.ts`); the deploy train's inline
+  derivations and the legacy `getPlatformManifestKey`/`getPlatformVersionSlotKey`
+  helpers are gone. The post-publish smoke on release trains reads the pointer
+  and fails the leg — rollback engages — when it doesn't serve the version just
+  published.
+
+### Patch Changes
+
+- ead04cb: The release-pointer reads fetch the runtime-prefixed wire key exactly once.
+  `readPlatformPointer` / `readPlatformVersionSlot` passed a full key into
+  `fetchRegistryKey` (which wraps with `apps/<account>/<gateway>/`), so every
+  pointer and version-slot read resolved a double-prefixed key that can never
+  exist and returned null — the Nov-03 release-train deploy failed its smoke
+  leg on this ("release pointer serves nothing") and rolled back, and the
+  version-slot immutability check silently passed, burning the rc.35 slot.
+  Pointer keys are now derived from their relative forms in one place
+  (`registry/pointer.ts`), the release leg's pointer flip verifies as a
+  confirmed leg of the publish-confirmation machine (retry-until-deadline
+  through the pre-cutover transport, the wire key named on timeout), and
+  unit tests pin the exact read URLs so the seam gap that hid this cannot
+  reopen.
+
+## 2.0.0-rc.35
+
+### Minor Changes
+
+- 548ba57: The registry primitive's consumer surface: a new `everything-dev/registry` export
+  (the typed key model, the one transport, the resolution machine behind
+  `RegistryClient`), and `plugins/registry` becomes the typed consumer surface —
+  discovery/claims/metadata re-pointed onto the client, new `getManifest` and
+  `resolveRuntime` routes, and the client composed in-process via `servicesTag`
+  (host/api/plugins consume it without HTTP). The tsdown entry for the new subpath
+  ships with the export, so production-conditions builds (containers, plugin bundles)
+  resolve it the same way development does.
+
+## 2.0.0-rc.34
+
+### Minor Changes
+
+- 7aee23f: The registry resolution state machine and the cache stand-in layer: `resolveRelease`
+  (`Pinned | Latest → Resolved | Unresolved`) with the digest chain (thin-tag digest
+  verified against the fetched record's bytes), a structured `Unresolved` reason
+  (`absent | unreachable | integrityFailure`) carrying the dead-end diagnostic — what
+  the tag serves, the chain walked, and the terminus's last write — and the #546 cache
+  stand-in (`hit | stale | miss`) that serves unreachable reads only. The pinned
+  resolution scans the extends chain's immutable version records, so a root release
+  never strands a child pin (#574). `resolvePlatformManifest` survives as the machine's
+  compatibility adapter with exact old semantics.
+
+## 2.0.0-rc.33
+
+### Patch Changes
+
+- 28ae09b: Upgrade coherence: exact-pinned release catalogs, fail-loud install drift, a drizzle-config sync guarantee, and the retired postinstall typegen scrubs from child roots.
+
+  - The platform release manifest freezes its catalog to the exact versions the release was built with (workspace package versions for framework rows, lockfile resolutions for range rows; unknowable rows keep their authored range). Children install these rows verbatim, so `pnpm install --force` during `bos upgrade` can no longer float a framework package past the release its platform pin names — the mixed tree that synced rc.30 template bytes (calling the since-removed `drizzleCredentialsFor`) against rc.31 packages and failed every build. Both publish homes (FastKV + in-image) compose through the same `resolveExactCatalog`, keeping the byte-identity invariant.
+  - `bos upgrade` fails loud before the migration phase when the installed framework version escapes the release target, naming the drifted rows and the remedy; legacy range rows only violate when the installed version escapes the range, so pre-exact trees keep upgrading.
+  - Template sync now maps `plugins/<key>/drizzle.config.ts` for plugins that carry a config without `src/db` (config-only plugins were stranded on stale template bytes), and a guardrail test pins every plugin copy byte-identical to the api template.
+  - `migrateChildRootPackageJson` deletes the retired `postinstall: bos types gen` script by value on the next migration — it ran before the child's local workspace packages were built and crashed with a stack trace on every fresh install; `bos dev`/`build`/`typecheck` regenerate types.
+
+## 2.0.0-rc.32
+
+### Patch Changes
+
+- 74e9cbe: Release-train sequence hardening: Deploy's preflight npm gate now waits for the Release workflow's publish instead of refusing in the same-push race window (bounded 15-min poll, cache-busted version endpoint, registry outage still warns without blocking); the changesets version PR fast-paths its CI even through the merge queue when the batch diff is release-mechanical (`scripts/version-only-diff.mjs` — version/internal-range package.json lines, changelogs, `.changeset/**`, lockfile, generated catalog baseline); the Release workflow engages auto-merge on the version PR for zero-touch releases (the `hold-release` label parks a big scope in the same release), and its concurrency drains superseded runs so the bot-branch force-push race self-heals.
+
+## 2.0.0-rc.31
+
+### Minor Changes
+
+- 68642d2: Upgrade/audit correctness for pinned children — the opencrosspost rc.30 regression class:
+
+  - **The release-plane audit's "what does this runtime compose" probe now reads the pnpm-workspace.yaml catalog.** It previously read only the legacy `package.json#workspaces.catalog` location and fell back to root `node_modules/<pkg>` (absent under the isolated linker), reporting every shared singleton as `@unknown` — a coherent pinned plane rendered as a wall of false divergences ("app.ui was built against react@19.3.1, this runtime composes react@unknown").
+  - **Honest provisioned/uncomposed slot reporting.** A manifest slot the merged config does not compose (a child declaring its own `plugins` domain wholesale-replaces the inherited one) is now an informational "not composed by this config" note — no longer the unactionable "run bos upgrade to inherit". The genuinely-provisioned case (a config slot the pinned manifest lacks, composing live unpinned bytes) is now detected and reports "run bos upgrade to re-pin and claim it".
+  - **Correct repair commands for owned slots.** Slot paths are not publish keys: `app.<key>[.ui]` slots now name `bos deploy --packages <key>` (they were never publishable via `bos plugin publish`), and `plugins.<id>[.ui]` name `bos plugin publish <id>`.
+  - **`bos upgrade` realigns owned slots itself.** After a framework version delta, the migration phase audits the freshly resolved plane and republishes owned slots still built against the old chain through the scoped deploy train (`bos deploy --packages …`), best-effort — no stored publish session (or a failed republish) degrades to the printed hand-repair instruction without failing the upgrade. `--no-realign` opts out.
+  - **No more interactive `pnpm approve` on fresh installs.** `bos init` and `bos upgrade` run `pnpm approve --all` after installing, persisting the pnpm ≥12.11 permissions policy (dep-shipped agent skills, build scripts) into pnpm-workspace.yaml so every later install is prompt-free. Best-effort: older pnpm without the command is a no-op.
+  - **`--json` output is machine-parseable.** The CLI banner no longer prints on `--json` invocations — it corrupted stdout for anything piping `bos upgrade --check --json`.
+  - **Chain-composed plugins receive the platform root secret.** The host's plugin secrets assembly unions the declared secret list with `BETTER_AUTH_SECRET` from the environment — every plugin's secrets schema requires it (the vault derives the runtime KEK from it), but a published `app.auth` fragment carries only the slot's own operational secrets, so a consumer composing the production auth slot failed its schema validation with the per-run generated secret unreachable.
+  - **The consumer rc gate** (`fresh-init-dev`): the release a consumer resolves must scaffold a fresh child the way `bos init` really does — pin and catalog from the published platform manifest, framework packages resolved through the extends chain — install prompt-free, resolve its pin against the extends chain, and boot under `bos dev` cleanly (no release-plane divergence block, no shutdown noise, graceful quit), with strict zero-divergence assertions. Local-only for now (skipped in CI, child linked to the local framework): the shipped rc.30 bytes still carry the consumer-facing defects above and the root's live config composes plugin slots the rc.30 release manifest does not record — flip the skip back to CI-only once a release ships the fixes and records the live slots.
+
+- 812b98a: Flatten the db surface: `agent-connect` moves onto the standard `databaseLayer` seam, and `everything-dev/db` becomes a curated, audited interface.
+
+  - `plugins/agent-connect`'s hand-rolled db trio (`src/db/index.ts` / `layer.ts` / `migrate.ts`) — a verbatim copy of `databaseLayer`'s boot sequence that was never sync-managed and rotted (its stale comment claimed `bos sync` copied it) — is replaced by the standard 36-line seam every other plugin uses. `DatabaseLive(config)` now takes the initialize input; behavior (namespaced `plugin_<slug>` schema, journal, drift handling) is unchanged.
+  - `everything-dev/db` drops `export *` (9 modules, ~47 exports) for an explicit curated list: workspace-config resolution (`resolveDatabaseUrl`, `workspaceIdentityFromModuleUrl`, `PGLITE_DEFAULT_URL`), the layer seam (`databaseLayer`, `loadMigrations`, `runMigrations`, `detectDrift`, `DatabaseError`, `LoadedMigrations`, `Migration`, `MigrationStorage`), the test kit (`createDatabaseDriver`, `getMigrationStorage`, `pluginMigrationSlug`, `pluginSchemaName`), and `suppressPgQueryQueueDeprecation` for the host. Removed exports had no external consumers; the superseded `isRetryableMigrationError` is deleted.
+  - The pglite defaults (`pglite:.bos/db`, `pglite::memory:`) are single-sourced in `packages/everything-dev/src/db/defaults.json` — the framework's own consumers (`binding.ts`, `services/infra.ts`, deploy smoke, regression env) read it instead of repeating literals. Scaffolded plugin defaults and init templates deliberately keep frozen copies: a database location is pinned at init, it must not silently follow a framework upgrade.
+
+### Patch Changes
+
+- 812b98a: Drizzle-kit configs are static `dialect: "postgresql"` — remove `drizzleCredentialsFor`. drizzle-kit 0.31 has no `pglite` dialect (its config schema validates against `postgresql|mysql|sqlite|turso|singlestore|gel`), so the URL-scheme-driven dialect switch produced configs that failed drizzle-kit's own validation and never typechecked against `defineConfig`. Every workspace `drizzle.config.ts` now hardcodes `dialect: "postgresql"` and passes the resolved `*_DATABASE_URL` through as-is — any plain `postgres://` DSN works unmodified. The zero-config `pglite:.bos/db` default remains a runtime-driver concern only (boot migrations); `db:push`/`db:studio`/`db:migrate` require a configured postgres URL and fail loudly at connect time otherwise.
+
+## 2.0.0-rc.30
+
+### Patch Changes
+
+- 31fa1a4: CI economy overhaul: the `main` ruleset now routes every merge through the GitHub merge queue (one full-suite run per batch against the real merged tree, required check `CI gate`), CI no longer re-runs on push to `main`, and the changesets version PR fast-paths to an all-skipped green run instead of paying the full regression matrix over a package.json-only diff. Deploy and Release trigger directly on push and gate themselves (tip guard, runtime-relevance diff, merge-queue provenance with a `workflow_dispatch --force` escape hatch), and the never-run `test:regression:backcompat` tier runs on a nightly schedule (`backcompat-nightly.yml`).
+- 284000d: The release plane moves to consumer boot: every `bos dev`, host boot, tenant resolution, and type generation run of a platform-pinned runtime now stamps its inherited config slots (`app.*` **and** `plugins.*`) with the pinned release's recorded `{ production, pin }`, instead of extending-merging the parent's live config pointer — production, local dev, and compile-time contracts resolve the same co-versioned bytes, so a parent's rc.N+1 publish no longer skews a pinned child's composition (the rc.27-pinned child whose auth bundle moved underneath it). The stamp core moves to `services/resolution/release-plane.ts` (one implementation; the deploy payload seam unchanged — `allowCreate` keeps #679 semantics); post-release provisioned slots are omitted and surfaced for the dev audit rather than silently live-followed; pre-`slots` releases degrade to exactly today's behavior, and per-session release resolution is shared between the plane and the dev upgrade notice.
+- a140fba: The dev chain audit closes the loop: a successful `bos dev` boot fetches each composed remote slot's version-manifest and compares its embedded **strict singletons** (critical names per the shared-dep specs — `every-plugin`, `effect`, `@orpc/*`, the UI flips) against the versions this runtime actually composes; divergences print one line per slot with the ownership-correct repair — inherited → `run bos upgrade`, owned → `run bos plugin publish <key>`, and slots provisioned upstream after the pinned release print "run bos upgrade to inherit". The audit never blocks boot and reads no npm. It is the user-visible face of the compat machinery: same strict-singleton law as the training gate (critical ⇒ exact), slot payloads, and boot guard, so one mismatch reads the same in the train and on screen.
+
+## 2.0.0-rc.29
+
+### Patch Changes
+
+- 84b5028: Surface the upgrade path at child dev boot: when the resolved chain head is a newer release than the runtime's authored `platform` pin, `bos dev` prints the lag with the `bos upgrade` repair — instead of waiting for a load-time skew to explain it. FastKV's pointer only advances when a release leg completes, so the notice never fires mid-train; a lagging pin always means the new chain is already servable.
+- 5d581d5: Gate non-release deploys against the live compat window: when the platform pointer stays put, the upload leg now refuses bundles whose embedded singleton versions diverge from the published release manifest's `sharedDeps` — a chain that moved mid-version (a catalog bump without a version bump) previously landed skew on every pinned child while every in-train version stamp agreed. Failed legs surface the offending rows with the release-train remediation; the release leg itself is unchanged (it repins the window with the chain).
+- baff734: Keep the v2 migration's catalog baseline in lockstep by construction: the baseline moves to `everything-dev/src/services/scaffold/upgrade-audit/steps/v2-catalog.ts` (verbatim mirror of the parent workspace catalog), regenerated by `pnpm run sync-catalog` alongside the parent catalog rows with a write self-check, so release-train version bumps no longer re-stale it. The mirror itself is refreshed (every-plugin 3.0.0-rc.15, everything-dev 2.0.0-rc.28, better-near-auth 2.0.0-rc.6), `migrate-pnpm` imports it privately, and the drift error names the exact rows to copy or delete.
+
+## 2.0.0-rc.28
+
+### Minor Changes
+
+- e8fc814: New plugin: the Agent Connect control plane — every signed-in user gets an owner-controlled agent account on the NEAR Intents Agent API (https://api.agentsonintents.com). The owner signs the rules once with their wallet; agents hold revocable `ngt_` grant tokens that only act inside the owner-signed policy. The plugin consumes `@near-intents-agent-api/sdk` (catalog-pinned, the only protocol dependency — route outputs are the SDK's own types, never re-declared) and adds only platform concerns: session ownership via the auth context, the sealed grant-token vault (HKDF-SHA256 → AES-256-GCM, never sent to a browser), the pre-send intent ledger (persist before send; prepare routes accept an optional client idempotency key — same key replays the stored intent or resends the stored request, cross-type reuse conflicts), submit and status polling share one reconciliation path (a later success applies the same local effects as an immediate one), and the oRPC surface (`agent/create`, `agent/list`, `agent/{id}`, `agent/intents/prepare|submit|status`, `agent/{id}/grants`) which exposes the domain to REST and MCP through the host's OpenAPI mounts. Owner intents follow the BFF split — prepare returns `intent.payload` + preview, the browser signs via better-near-auth's `signAgentIntent`, submit carries the wallet's output. Dormant until `NEAR_INTENTS_AGENT_API_KEY` is configured; own `plugin_agent_connect` schema (`AGENT_CONNECT_DATABASE_URL`, pglite default); `AGENT_CONNECT_ENCRYPTION_KEY` isolates the vault key.
+- 8c916ff: Second catalog leg: react/react-dom 19.3.1 (strict singletons — floating children realign via `bos upgrade`), effect 4.0.0-rc.118 with the vendored clone retagged and the unstable/http subpaths promoted to effect/http/\*, alchemy 2.0.0-beta.83 (beta.84 removed the Docker/Util surface), module-federation 2.9.2, tanstack query 5.104.5 / table 9.3.1 / form 1.33.5 / intent 0.5.6, zod 4.6.7, yaml 2.9.1, drizzle patches.
+- 680ea78: PGlite is the only local database — docker-compose is retired (ADR 0038). The zero-config dev default is now a persistent, file-backed PGlite data dir (`pglite:.bos/db`, per workspace process), so concurrent local projects can never collide on DB ports and data survives restarts without any `.env`. `bos dev` migrates leftovers once: compose-era `postgres://everythingdev:…@localhost:543x/…` URLs in `.env` are rewritten to the pglite defaults and a scaffold-shaped `docker-compose.yml` is relocated to `.bos/compose-retired/`. `db:*` commands work against pglite (drizzle-kit pglite dialect selected by URL scheme); the CLI/scaffold drop the compose template, `dev:postgres*` scripts, post-init docker prompt, and preflight auto-start; regression tests and the deploy smoke run on pglite (`TEST_DATABASE=postgres` + an external URL remains the parity escape hatch). Production `postgres://` URLs are unchanged.
+
+### Patch Changes
+
+- 282ede6: Auth plugin surfaces rate-limit and client-IP configuration (#688). New authored variables under `auth.variables`: `rateLimit: { enabled, window (seconds), max, storage: "memory" | "database" }` and `ipAddress: { ipAddressHeaders, trustedProxies }`. A new `rate_limit` table backs `storage: "database"` — the multi-replica option, since in-memory buckets are per instance (migration applied on boot). `trustedProxies` is strictly opt-in: Better Auth walks the forwarded chain right-to-left and takes the first untrusted address, so list your proxies' own addresses, never a range that also covers clients (#338). Deployments behind appending proxies (Cloudflare + Railway) should name a single trusted header (`cf-connecting-ip`, `x-real-ip`) — the default `x-forwarded-for` cannot resolve a client IP through an untrusted comma-chain, which is why the boot WARN fell back to a shared per-path bucket. Absent configuration leaves Better Auth's defaults unchanged; `BETTER_AUTH_RATE_LIMIT_DISABLED=1` still wins. The root runtime's canonical posture in `bos.app.ts` is `ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] }` with no `rateLimit` — library defaults stand; the root is Cloudflare-proxied, children inherit it through `extends`, and each deployment can override.
+- 8c916ff: Bump the platform catalog: better-auth 1.7.7 → 1.7.14 (with @better-auth/\*), @orpc suite 2.0.0-beta.35 → 2.0.0-beta.45 (`PublisherResumeOptions` takes `ttl` in milliseconds instead of `seconds`), @tanstack/react-router 1.170.32 → 1.170.46 (router-core 1.171.39, router-plugin 1.168.48, router-generator 1.167.46), and the Effect toolchain trio in lockstep (@effect/tsgo 0.63.0, oxlint 1.90.0, oxlint-tsgolint 7.0.2005). The pnpm pin moves to 12.16.1.
+
+  Overrides now reference the catalog through pnpm's `catalog:` protocol so shared-dep pins cannot drift from the catalog (#659/#682); `bos upgrade` reconciles child overrides, propagates the pnpm pin forward-only to existing v2 children, and regenerates the framework `minimumReleaseAgeExclude` rows from the catalog with `minimumReleaseAgeExcludePrune` enabled — the list replaces instead of accumulating. The v1→v2 migration's `V2_CATALOG` baseline is drift-guarded against the parent catalog (row-for-row, both directions), closing #650's outdated-catalog vector.
+
+- 680ea78: Concurrent `bos dev` sessions in one config dir no longer crash artifact generation: `.bos/bos.resolved-config.json` is now written atomically (tmp + rename) so a sibling session never reads a torn file, and the contract-bridge stale sweep removes gen files with `rmSync(…, { force: true })` so a file vanishing between the existence check and the removal no longer fails the boot with `ENOENT … lstat`.
+- 024e9c7: Release-scoped slot stamping no longer skips a slot the child only configures. A child that sets `auth: { variables, secrets }` (or a remote-only `api: { variables, secrets }`) had that slot counted as authored, so the deploy train left it unpinned and the auth server (or api) kept following the parent's live config pointer — under a host and auth UI pinned to the child's release. A slot now counts as authored only when it names a code source (`production`, `development`, `pin`, `extends`, `proxy`, a bare plugin ref, or `ui: false`); configuration-only entries get the release's `production` + `pin` stamped with their `variables`/`secrets` kept. Affected children pick this up on their next deploy after upgrading.
+- 2f72431: Auth plugin onboard page: a rescan by someone who has left the community now says they're no longer a member instead of "You're in". The page checks a fresh organization list against the redeemed organization ID, clears a stale active organization, and shows a retryable error if the check fails. The redeem's refusal for a member who left now carries `data.action: "rejoin-organization"`. Child apps can configure the joined screen through the `onboard` auth variable: `links.next`/`links.home` (with an `{organizationId}` placeholder) and `links.explore` for the success and error panels (defaults stay `/build`, `/dashboard`, `/explore`; `next: false` hides the build link), plus `community.url`, an app endpoint that returns the joined community's page and channels for a "Visit {community}" button and channel links.
+- 86eb1df: SSR session resolution is tri-state and never round-trips the public edge on the hot path (#689). The host's per-request in-process `getContext` resolution now distinguishes **unresolved** (no auth plugin, or resolution failed → `undefined`) from **authoritative sign-out** (getContext succeeded with no session → `null`). The SSR query-cache seeding follows: authoritative null seeds the cache (the same explicit signed-out entry sign-out writes), undefined leaves it empty so the guard's fetch still runs — closing the #527 failure mode where a wedged auth resolution redirected signed-in users to /login without ever fetching. A server-side session-fetch failure degrades to a signed-out render instead of failing the whole document: an edge rate-limit or block page can no longer 500 every SSR page for every visitor.
+- 25aab41: Keep the v2 catalog baseline in lockstep with the parent workspace catalog: add the `@near-intents-agent-api/sdk` row to `V2_CATALOG` so v1→v2 child migrations no longer strip it, and point the lockstep drift error at the exact parent rows to copy or delete in `migrate-pnpm.ts`.
+- Updated dependencies [e8fc814]
+- Updated dependencies [8c916ff]
+- Updated dependencies [150b092]
+  - better-near-auth@2.0.0-rc.6
+  - every-plugin@3.0.0-rc.15
+
+## 2.0.0-rc.27
+
+### Patch Changes
+
+- ccaa284: Hotfix for the rc.26 slot-stamping incident: the deploy train now stamps only `app.*` slots (the base-runtime slots children never author — auth, host) from the release manifest's slots map. Plugin slots were being stamped into the child's leaf payload, which both expanded a declared-plugin child's composed plugin set to the whole parent set (violating the extends contract — a child's declared `plugins` object owns the entire plugin domain via a wholesale replace) and produced schema-invalid `plugins.<id>.ui` records (stamped ui entries carry no required `name`, and the wholesale replace never fills it) — blocking every child with authored plugins from deploying. Children pinned to rc.26 with authored `plugins` are CI-blocked until they run `bos upgrade`; live apps are unaffected (the boot-check refused the publish before any registry write).
+
+## 2.0.0-rc.26
+
+### Minor Changes
+
+- 471188b: Release-scoped extends inheritance + deploy-time composition gate — a platform-pinned child can no longer be skewed or degraded by the parent publishing a newer framework release. The release manifest records its own slot-pin map (`slots`, additive), and the deploy train re-points every inherited slot (e.g. `app.auth`) the child does not author at its pinned release's bytes instead of the parent's live config pointer; the same train now cross-checks the extends-merged shape on shared singletons (the boot guard's mirror) and runs the platform compat check against the child's own pin, failing the publish with the `bos upgrade` remediation named instead of shipping a broken composition.
+
+### Patch Changes
+
+- 8c19959: Unify the five hand-rolled semver comparators into one rc-aware module (utils/semver): the platform compat gate now orders prerelease versions (a child pinned below the release's prerelease compat floor or ahead of the published release is flagged instead of silently passing), exact shared-dep pins are enforced in the deploy truth gate, and a version with a longer prerelease no longer fails caret constraints it satisfies.
+
+## 2.0.0-rc.25
+
+### Patch Changes
+
+- 1e43560: Dev-boot readiness probes no longer wedge: `probeHttpOk` awaited `fetchRaw`'s nested `Effect.runPromise` from inside the probe fiber, which intermittently stalled the boot until the 90s probe deadline. The probe (and the host-manifest fetch) now run Effect-native with the same deadline and fail-loud semantics. Also: the dev session's graceful-shutdown force backstop is a forked `Effect.sleep` fiber (`forkDetach`) instead of a raw `setTimeout`, and a new unit suite (`tests/unit/dev-session-processes.test.ts`) drives the real `runDevSession` against real detached children and watcher grandchildren to lock the process-death contract at unit speed.
+
+  The Go framework regression suite boots the confined death-contract fixture (`tests/regression/fixtures/death-contract` — a minimal authored config whose five services are fake node servers) for every test but one, cutting the suite's boots from 60–120s of full-stack webpack each to ~4s (the orphan test went 213s → 4.6s); the remaining full-stack boot (`sigterm`) keeps proving the real rspack/rsbuild watcher shape dies. CI runs the suite with two stack slots instead of serial and a 12-minute timeout instead of 35 — the RAM-saturation failure class is gone.
+
+- ac9f906: Let a plugin entry set `ui: false` to drop the ui attached from the app it extends. A consumer of another app's plugin otherwise loads that app's whole UI on every page, and two core UI containers both named `ui` collide on the page (#636).
+
+## 2.0.0-rc.24
+
+### Patch Changes
+
+- 3e53023: The pre-publish gate validates the extends-merged boot shape; children deploy and roll back again
+
+  - Regression fix for the rc.23 gate (#625): it validated the canonicalized **leaf** payload against `BosConfigSchema`, whose `app` slots (`host`/`ui`/`api`) are required — but extends children legitimately author none of the host slot and inherit it at boot. Every child full deploy (and config-only publish) failed post-build with `app.host: Invalid input: expected object, received undefined`, publishing nothing. The new `verifyBootPayload` boot-check (`resolution/boot-check.ts`) re-runs the consumer's own walk-merge-parse — `walkExtendsChain` with the payload as the seeded leaf, env pinned to `resolvePublishedConfig`'s `PUBLISHED_CONFIG_ENV` — so the verdict is boot parity by construction: root payloads parse as-is with zero I/O; child payloads are judged on the merged shape their consumers will boot.
+  - The boot-check reports structured issues (`code`/`path`/`origin`/`message`) with best-effort origin attribution — a failing path present in the leaf is the leaf's; anything else came from the parent chain — and a chain-failure class for unreachable parents and circular extends, surfaced at preflight instead of as a post-publish smoke failure.
+  - `bos rollback` (and the smoke-failure rollback protocol) no longer crash on child snapshots: the historical `BosConfigSchema.parse(targetValue)` threw on host-less child leaves. The snapshot is now boot-checked (unskippable — the rollback command's own vetting covers pins/bytes, not boot-ability) and republished **verbatim**: the old parse's Zod strip mode silently dropped keys the schema didn't know, which broke a rollback's byte-faithful republication guarantee.
+
+## 2.0.0-rc.23
+
+### Patch Changes
+
+- cb5a821: Publish only boot-valid configs; root Railway leg pins the smoked digest
+
+  - The publish train validates the canonicalized payload against `BosConfigSchema` before the registry write: a canonicalization/schema drift now fails preflight instead of failing the post-publish smoke and rolling back production. Root cause of the 2026-10-25 outage where every deploy since #584 published, failed the smoke (`app.host.development — expected string`), and rolled back while the pushed image leaked to Railway.
+  - `HostConfigSchema.development` is optional: published configs strip workspace-relative `local:` targets (#584), so production reads no longer require it. The dev-boot port resolver already defaulted to localhost for a missing value.
+  - The root Railway leg repoints the service source to `ref@sha256:<digest>` after a green smoke when a workspace-scoped `RAILWAY_API_TOKEN` is present, so the dashboard-connected source can no longer follow a floating tag that Railway may redeploy outside the train (the image job moves that tag before the smoke gate runs). Project-token-only roots keep the plain redeploy and print a drift notice.
+
+- cb5a821: Upgrade derives its migration delta from durable state instead of carrying it on a flag
+
+  - `bos upgrade` no longer forwards the pre-upgrade framework version through the re-exec boundary (`--from <version>`). The migration-phase delta is derived from durable state — the authored `platform` pin vs the resolved release manifest — so the parent and the re-exec'd child compute the identical value, and the `--from` flag stays the v1→v2 train selector it was narrowed to in #505. This fixes the migration phase failing (`invalid_value` on `from` for every version-delta upgrade since that change): packages were applied but the template sync, platform-pin stamp, shared-deps sync, and types gen were skipped, leaving a half-upgraded tree.
+  - Half-upgraded trees self-heal: a pin that lags (or is absent) counts as pending migration work — rerun `bos upgrade` and the template sync, pin stamp, and shared-deps sync complete; `bos upgrade --check` reports the pending work instead of "up to date".
+  - `--migrations-only` (historically a guaranteed no-op without `--from`) is now the repair path: it completes any pending migration and stays a no-op on an aligned tree.
+
+## 2.0.0-rc.22
+
+### Minor Changes
+
+- a9d7f48: Enforce the i18n-seam guard (#496): the composition-fatal findings (unwired i18n runtime, unmounted provider, absent root) are promoted from warn to blocker, and `bos upgrade --from v1 --maintain i18n-seam` now **fails with `gate-blocked`** when a blocker remains after the step runs — a child core UI that ships no `@lingui/*` share-scope entries can no longer pass silently and only surface later as RUNTIME-012 at SSR composition. Dry-run previews the blockers as notes instead of failing. The maintain branch also now runs on v2 trees (previously the `already-upgraded` early-return made it unreachable on exactly the post-upgrade trees the guard targets).
+- 8a0671f: Published payloads never carry `local:` dev targets — children inherit consumable slots (#584)
+
+  Publish canonicalization strips `local:` development refs (app slots, auth/`auth.ui`, plugins and their ui sub-slots) from the published config. A `local:` target is workspace-relative — it resolves only in the repo that declares the workspace, and a child inheriting one could never spawn it. The authoring surface (`bos.app.ts`) keeps its own refs for the parent's own `bos dev`; `extends` now hands children only consumable targets, so a freshly scaffolded child with no local auth workspace runs `bos dev` and loads the auth plugin (server + UI) from its published bundle with no dev override. The runtime's existing production-fallback behavior (`resolveDevelopmentTarget`) is covered end to end by an integration test (runtime slot + dev-harness derivation + planner port allocation).
+
+- 1342ca5: Owed-work detection: the train derives release work from live state (#571)
+
+  New `detectOwedWork` reads two facts — npm registry (a publishable version npm does not serve yet) and the FastKV platform-manifest pointer (trailing the repo's framework version, or absent) — never git history. Unknown states (npm unreachable, FastKV read failure) read as not-owed and never block, matching the preflight npm gate's tolerance. The root's build leg now runs the detection: release deploys move version + floating image tags, non-release deploys push `sha-<short>` only (`conditionImageTags`) — version tags stay append-only, the property pinned children's digest derivation depends on. An owed-on-one-side-only state with a completed release cycle on record (the #568 silent-skip window) is drift: the train fails loudly naming both facts before the image pushes.
+
+- d5d0699: Promote the child-authored agent docs into the template (#597): `docs/agents/` gains `change-placement.md` (bug/missing-capability/pattern-improvement placement, branching-and-stacking rules), `how-it-fits.md` (the drawn runtime tour — authored → published → resolved → served, composition, generated types, `.bos` state surfaces), `testing.md` (testing doctrine and the parent/child coverage boundary), and `coding-standards.md` (write-once, type-safety-is-the-drift-killer, the workaround protocol, the comment `KEEP`/`TODO` policy, deletions-first tests). All four sync to children via the agent-sync globs at the next `bos upgrade`, and the generated child `AGENTS.md` now links them from its Style Requirements, upstream-change-protocol, and Testing sections. The `everything-dev-app` skill reconciles with the corrected child wording (`bos.app.ts`, `pnpm dlx`, the `bos deploy` train) and teaches branch stacking.
+- 1cb72f4: redeemOnboardingCode returns the organizationId
+
+  The redemption output now includes `organizationId` alongside `organizationName`, so children can link the freshly-joined member to the organization's public page without a second lookup. Restores a field the local template snapshot carried before the published contract dropped it.
+
+- f13be80: Release-scoped platform-manifest writes: immutable versioned slots, truth gate on every deploy (#573)
+
+  The train's platform-release-manifest leg is now release-scoped (`computeOwedWork` on the single pointer read — the preflight npm gate guarantees npm is published in-train, so the pointer is the release classifier):
+
+  - **Release deploys** write the immutable `platform-versions/<version>.json` slot plus the `platform.json` pointer flip in the same atomic write as the config — a red smoke rolls all of it back (the rollback restores the pointer from its own history in the same write).
+  - **Non-release deploys** write no manifest keys at all.
+  - **Immutable slots**: an SRI-identical republish succeeds idempotently; a divergent republish hard-fails with a "burned version" error — never reuse a version.
+  - **No skip path**: the pointer read failing fails the deploy loud (an unknown state must never silently classify a release as non-release — the #568 window class).
+  - **Truth gate on every production deploy**: the shared-singleton cross-check runs against the composed manifest on non-release deploys too — drifted shared deps block until the next rc.
+  - The preflight npm-gate message drops "re-run the Release workflow first" — the train owns the npm leg.
+
+  The train's decision threads to the image leg (`releaseLeg`), so version + floating image tags move on the release deploy only — one decision point, no duplicate detection reads.
+
+- b84c6e5: Runtime map gains the backend inventory — host, api, auth server, and plugin backends (#594 review)
+
+  The composition inventory now covers the serving side, not just the ui sources: the map's `backends` section lists the host (source-level — it ships no manifest asset), the api shell, the auth server, and every plugin backend with its workspace path (local) or composed `pluginVersion` + `contractSha256` (remote, from the published `plugin.manifest.json`). Same loud-degradation semantics as ui sources (strict in `bos types gen`, warn on boots, `BOS_MAP_ALLOW_UNRESOLVED=1` offline). The map also records the runtime's `platform` pin and `extends` chain, and the TS surface gains `RUNTIME_BACKENDS`. A parity test runs the real `constructTree` engine over fixture manifests and diffs the composed full-path sets — the static model cannot drift from the engine. Investigation workflows (ownership lookups, shadow detection, drift alarms, change placement) live in `docs/agents/runtime-map.md`.
+
+- b84c6e5: `bos types gen` emits the composition inventory — the runtime map (#594)
+
+  Every types-gen run now also generates the effective route tree: `.bos/generated/runtime-map.json` (machine/human inventory: sources, mounts, routes with owners + full paths, shadowed claims, unresolved sources) and `ui/src/lib/runtime-map.gen.ts` (typed `REMOTE_ROUTES` / `RemotePath` unions). It is a static model of `constructTree` — core-wins precedence applied, peer collisions thrown — so "does this app have /login? who owns /settings?" is answerable without reverse-engineering the runtime compose. Local manifests are freshly generated; remote ones fetch from the published `<ui>/manifest.gen.json`. `bos types gen` degrades strictly (an unresolvable remote fails the run — typecheck catches upstream renames); dev/build/train paths warn and continue. `BOS_MAP_ALLOW_UNRESOLVED=1` for offline work.
+
+- 59f1147: Slot-first platform-pin resolution — old pins resolvable forever (#574)
+
+  An exact `platform` pin resolves the immutable `platform-versions/<pin>.json` slot, scanning the extends chain; the moving `platform.json` pointer serves only unpinned ("latest") resolution. A root release never strands a child pin — slots are immutable and the pointer only moves forward, so the #546 stale-pin class is dead and the "pin not found, publish the release or clear the pin" dead path is deleted:
+
+  - a clean slot miss produces the actionable error ("the release's manifest leg never published it; re-run the release deploy") — the #568 npm-published/manifest-skipped race
+  - a slot read _failure_ (offline dev) may fall back to the fresh cache — the `.bos/platform-manifest.json` cache is now an offline-dev aid only, never stale-pin grace; TTL docs updated
+  - `bos platform manifest --check`, `bos mf check`, and the upgrade report surface pin provenance (resolved from slot vs pointer)
+
+### Patch Changes
+
+- b150f24: bos dev prunes dated logs — bounded `.bos/logs` sediment
+
+  Every `bos dev` boot wrote a dated `dev-<ts>-<pid>.log` (plus a per-pid `dev-latest-<pid>.log`) and nothing ever cleaned them up — 79 files after nine working days on a child. Each boot now prunes the dated logs: keep the newest 20, drop anything older than 7 days, and never touch files modified in the last 24 hours (a concurrent live session may still be appending). `dev-latest.log` and the regression stacks' non-dated logs are never pruned.
+
+- 7849639: Lossless descriptor round-trip: keep `starter` and remote-only `api` slots
+
+  Two fixes in the same guard class as the earlier remote-only auth attachment drop:
+
+  - The child's authoring-only `starter` level survives the save-path round-trip (`bos plugin add/remove`, `bos config registry use` no longer silently delete it from `bos.app.ts`); resolved configs still strip it, and JSON parents' starter _block_ metadata is untouched. (#565)
+  - A remote-only `app.api` entry (authored `variables`/`secrets`, no local workspace) survives `configInputToDescriptor` instead of being dropped — the `slot()` helper required `development` for all three slots; only host/ui are path-strict. (#566)
+
+- 4322bbe: Framework-package self-typecheck lands in CI (`typecheck:packages`) — the app-unit typecheck (`bos typecheck`) never covered `packages/*`, and the unguarded drift had gone red: real src errors fixed in everything-dev (Effect error-channel widens in db ops/dev flow/ops/init flow, the missing `formatUnknownError` import, `runtimeMapStrict` typed on the plain codegen wrapper, `BosConfigInput` accepted by `stripLocalDevelopmentTargets`), and service-layer test-hook files in every-plugin (missing vitest imports, `constructTree` resolver signatures, `.ts`-extension script imports now covered by the self-typecheck tsconfig).
+- 733b663: Children are tiered by Railway token scope; the pinned-child repoint becomes an opt-in advanced behavior. Railway authorizes CLI verbs by token scope: a project-scoped `RAILWAY_TOKEN` covers deploy commands (`redeploy`) but not the `serviceConnect` mutation behind `railway service source connect` — so every child deploy since rc.21 failed at the pin with "Unauthorized" _after_ the config published (citynode.app, 2026-10-24, #598). The child railway leg now degrades cleanly by what the repo holds: a project token gets a plain `redeploy --from-source` — and when the platform pin resolves without the workspace token, the leg prints a drift notice (the service source follows the pin only under the token that can repoint it, so post-`bos upgrade` drift is loud, not silent); a workspace-scoped `RAILWAY_API_TOKEN` + `RAILWAY_PROJECT_ID` / `RAILWAY_ENVIRONMENT_ID` opts into the pin-following repoint+redeploy (the project token is dropped from the railway subshell, since the CLI prefers `RAILWAY_TOKEN` when both are set — including set-but-empty GitHub passthroughs). Omitting the token entirely stays publish-only (the leg soft-skips). A project-scoped child token is the default posture: workspace tokens mutate any project in the workspace, so they are never the default child credential. The root tier is unchanged — it never repoints and keeps the advanced image-setting train (image → digest handover → smoke → Railway pin). `consumer-deploy.yml` and `consumer-staging.yml` pass the workspace token and targeting vars through (staging with staging-specific overrides); the reusable composite action `.github/actions/install-playwright` carries the probe-gated browser install for child CIs (also adopted by the parent's own browser suites). Interim to #526/ADR 0035 — the reconciler dissolves the child leg and the per-child token entirely.
+- a71ac28: Root template peer dep normalized to `catalog:` — drift-alarm parity (#545)
+
+  The root `package.json` template byte carried `peerDependencies.typescript: "^7.0.2"` (a literal), while the upgrade drift alarm flags any non-`catalog:` ref for an inherited-catalog package — every rc.18+ child's `bos upgrade --check` went red with zero real deltas. The template now uses `catalog:`, and a template↔alarm parity unit test guards the invariant: a dependency field naming a catalog-managed package must use the `catalog:` protocol (or a `workspace:` ref). Children self-heal on their next upgrade when the root migration writes the corrected bytes.
+
+- Updated dependencies [47d39ed]
+- Updated dependencies [4322bbe]
+- Updated dependencies [b3d6bec]
+- Updated dependencies [38fb0a2]
+  - better-near-auth@2.0.0-rc.5
+  - every-plugin@3.0.0-rc.14
+
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- 50ebfad: Share sonner across the ui graph (tolerant singleton) and surface server errors at the right sites
+
+  The mounted Toaster lives in the core ui's sonner instance; plugin remotes bundled private copies, so every `toast()` fired from plugin ui code — 16 call sites in the auth plugin alone, plus `plugins/ai` — was invisible in production. `sonner` now joins `UI_SHARED_DEPS` as a tolerant singleton: remotes resolve the core's instance (toasts render), keep a bundled fallback copy, and waive `requiredVersion`, so old-provider/new-remote mixes degrade to today's behavior instead of failing a share negotiation (zod's critical:false precedent; the boot gate only checks effect-critical names). The version pins move to the pnpm catalog (`sonner: 2.0.8`) for lockstep. Recorded in ADR 0037.
+
+  Alongside, the login surfaces stop swallowing server errors:
+
+  - the login page renders sign-in failures inline (one concise line + collapsed "Details" disclosure with the server detail) instead of toasting into the void or claiming "no passkey on this device" for a 503; a failed session load during an API outage gets a login-branded `errorComponent` with a retry instead of the document-wide root error
+  - the device pairing/approve/verify pages append the server detail under their existing error lines
+  - the CLI's device login unwraps the `Effect.tryPromise` wrapper (the cause of the cryptic "An error occurred in Effect.tryPromise" output), carries the host 503 `detail` in its "could not start" message, and `parseSiteErrorDetail` now extracts the host's `detail`/`detailFull` fields
+
+- Updated dependencies [50ebfad]
+  - every-plugin@3.0.0-rc.13
+
+## 2.0.0-rc.20
+
+### Minor Changes
+
+- 0afe2a5: The interactive dev renderer emits a machine-readable raw-mode-ready pin (`\x1b]bos;ready\x07`) once stdin raw mode is enabled and the key handler is attached. Regression harnesses driving the TUI under a pty can wait on that pin instead of guessing a settle window after the alt-screen mount — typed bytes (`q`, Ctrl-C) are guaranteed to reach the key path when it appears.
+- b9f96a7: Secrets vault v1: sealed runtime secrets behind the existing env resolution (plan 055 ticket 09).
+
+  - `bos secrets set NAME` (hidden TTY prompt), `bos secrets list` (names + set/missing status against the declared config — never values), `bos secrets remove NAME`.
+  - The api shell gains a per-deployment vault: `runtime_secrets` table (migration auto-applies on boot), routes at `/api/rpc/secrets/*` and `/api/secrets/*` (session or `x-api-key` auth), values sealed with the proven `createSealedBox` cipher under a per-runtime KEK (HKDF of the platform root secret with a runtime-scoped salt — no new env var, no key ceremony).
+  - Reserved-name contract: `BOS_*` and `PORT` are refused — the platform composes them into instance env (`identityEnv`), and operator secrets must never collide with the composed identity. Rules live in the new `everything-dev/hosting/secrets` subpath (store, CLI, and the delivery helper share one source).
+  - `SecretsStore.resolve` (unseal) exists at the service level for the reconciler's delivery leg but is deliberately not exposed as a route — the delivery credential is ticket 08's design decision.
+  - Dev-restart caveat: with zero-config dev's per-run root secret, stored secrets cannot be opened after a restart; resolution fails loudly with a re-set message. Deployed runtimes with a persisted root secret are unaffected.
+  - The stale `bos key generate` section is removed from the cli-reference skill (command was retired in the RC path consolidation).
+
+- c673102: `bos upgrade --from v1`: adopt the v2-upgrade audit tooling upstream (fixes #455). Audits a v1 child app for upgrade readiness (hardline mount-conformance gate, config surface, legacy imports) and applies the deterministic v2 transforms (authored descriptor, bun→pnpm catalog migration, consumerized refs, import rewrites, obsolete-file deletion, plugin dep declarations). State-aware: a tree with an authored `bos.app.ts` exits "already upgraded · v2" instead of reporting the v1-state blocker. Adds re-runnable post-upgrade maintenance steps via `--maintain port-route-guards|db-topology|i18n-seam|compose-seam`, bundles the `v1-to-v2-upgrade` intent skill, and emits `.bos/v2-upgrade-manifest.json` on audit.
+- 38c91dd: Zero-config dev: `bos dev` with no `.env` boots the full stack on ephemeral pglite — no compose, no ceremony.
+
+  - `bos dev` no longer creates `.env` from `.env.example`. When no `*_DATABASE_URL`/`*_REDIS_URL` is supplied (shell or `.env`), nothing conventional is generated: plugins fall back to their boot-schema pglite defaults, the DB preflight has nothing to probe, and compose stays down. `BETTER_AUTH_SECRET` is generated per-run (dev-only, not persisted — the boot log says so).
+  - The generated `.env.example` leaves substrate URLs empty with an opt-in hint; `.env` present with the URLs set → today's behavior exactly (preflight probes them, compose auto-starts).
+  - `plugins/auth` gains the same pglite default the other boot schemas already had (`AUTH_DATABASE_URL`), so auth boots without a URL in dev too.
+  - `bos start` warns when no database URL is set — in production that means ephemeral pglite and data will not survive restarts.
+
+### Patch Changes
+
+- 99e260e: Stop rewriting the authored `bos.app.ts` during sync/upgrade: template sync no
+  longer runs `personalizeConfig` in sync mode (it only wrote back the child's own
+  values while re-serializing the file — dropping hand formatting, comments, and
+  remote-only attachments like a published `auth` block), and the upgrade's
+  platform-pin stamp is now a surgical line edit that replaces only the
+  `platform: "…"` property, failing loud with the version to set by hand when no
+  safe anchor exists instead of re-serializing. Explicit composition commands
+  (`bos plugin add/remove`, `bos config registry use`) keep re-serializing, but
+  the descriptor round-trip no longer drops a remote-only `auth` attachment (no
+  local path) — previously the whole auth block with its variables was silently
+  deleted. `bos upgrade --check` now prints what drifted (platform, package and
+  catalog deltas) before exiting, and the `platform-drift` job was removed from
+  the reusable `consumer-ci` workflow — the drift alarm is manual only and never
+  a merge blocker.
+- 6b58155: Platform compat never lies (issue #546): workspace version manifests now record the shared-singleton versions each build embedded (`shared`), slot resolution stamps them onto UI slots, and the host's SSR composition guard refuses to load a split module graph with a named sources-and-versions error instead of the federation runtime's cryptic negotiation error. `bos mf check` gains a UI composition gate (sibling UI slots cross-checked), `bos platform manifest --check` reports pin drift as "parent platform is X, you pinned Y", deploy builds stamp `MF_BUILD_VERSION` so `buildInfo.buildVersion` advertises the true platform release, and the publish train refuses when uploaded bundles disagree with the release manifest's pins (stale install).
+- 642c806: Fix the deploy train's platform-manifest truth gate falsely rejecting deploys when a shared-singleton catalog pin is range-shaped: `every-plugin: ^3.0.0-rc.11` in the workspace catalog was compared string-for-string against the exact version recorded in each uploaded bundle's version manifest (`3.0.0-rc.11`), flagging every plugin workspace with "a stale install publishes a manifest that lies about the uploaded bytes" even though the install was current. The gate now compares semantically via the same `satisfiesConstraint` helper the boot-side compat gate uses — exact pins must match exactly, range pins must be satisfied by the built version (#563 follow-up).
+- Updated dependencies [6b58155]
+  - every-plugin@3.0.0-rc.12
+
+## 2.0.0-rc.19
+
+### Patch Changes
+
+- ee17b09: - `bos types gen` now generates manifest/route-tree artifacts for a local auth attachment's ui (`auth.ui`), keeping artifact generation hermetic for any child with a local plugin UI override. Fixes everything-dev#549
+  - The dev session now spawns a `plugin-ui:<id>` unit for a local ui override whose plugin backend is remote (e.g. a remote auth server with a local `auth.ui` workspace), so the host's SSR container becomes ready instead of timing out after 120 s. Fixes everything-dev#557
+  - The host compose now fails loud when a declared local ui source has no usable manifest or an identity mismatch, instead of silently dropping the slot with a warning. Remote sources keep their warn-and-drop isolation. Ships via the platform runtime image. Fixes everything-dev#556
+- Updated dependencies [ee17b09]
+  - every-plugin@3.0.0-rc.11
+
 ## 2.0.0-rc.18
 
 ### Major Changes

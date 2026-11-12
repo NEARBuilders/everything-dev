@@ -2,11 +2,34 @@ import { describe, expect, it } from "vitest";
 import {
   computeObjectIntegrity,
   createStorageLayerFromEnv,
+  isImmutableObjectPath,
   MemoryStorageClient,
   parseListObjectsV2,
   resolveStorageConfigFromEnv,
   STORAGE_LIST_MAX_KEYS,
 } from "../src/storage";
+
+describe("isImmutableObjectPath (#826)", () => {
+  it("classifies the versions subtree write-once", () => {
+    for (const path of [
+      "versions/0123456789abcdef.json",
+      "versions/0123456789abcdef/remoteEntry.8f3a.js",
+      "versions/0123456789abcdef/138.js",
+      "versions",
+    ]) {
+      expect(isImmutableObjectPath(path), path).toBe(true);
+    }
+    for (const path of [
+      "remoteEntry.8f3a.js",
+      "main.js",
+      "source/source.0123456789abcdef.tar.gz",
+      "versions-backup/main.js",
+      "dist/versions/main.js",
+    ]) {
+      expect(isImmutableObjectPath(path), path).toBe(false);
+    }
+  });
+});
 
 describe("upload storage", () => {
   it("reads a complete storage config from env", () => {

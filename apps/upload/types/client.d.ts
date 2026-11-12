@@ -139,6 +139,7 @@ export declare const IntegrityReportResultSchema: z.ZodObject<
         version: z.ZodString;
         builtAt: z.ZodOptional<z.ZodString>;
         gitSha: z.ZodOptional<z.ZodString>;
+        dir: z.ZodOptional<z.ZodString>;
         entry: z.ZodString;
         entryIntegrity: z.ZodString;
         ssr: z.ZodOptional<
@@ -162,6 +163,15 @@ export declare const IntegrityReportResultSchema: z.ZodObject<
         assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         shared: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         files: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        source: z.ZodOptional<
+          z.ZodObject<
+            {
+              file: z.ZodString;
+              integrity: z.ZodString;
+            },
+            z.core.$strip
+          >
+        >;
       },
       z.core.$strip
     >;

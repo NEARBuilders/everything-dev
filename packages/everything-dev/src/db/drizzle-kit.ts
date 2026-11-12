@@ -116,9 +116,7 @@ export default defineConfig({
   schema: "./drizzle/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
-  dbCredentials: {
-    url: "${binding.url}",
-  },
+  dbCredentials: { url: ${JSON.stringify(binding.url)} },
   migrations: {
     schema: "${binding.identity.journal.schema}",
     table: "${binding.identity.journal.table}",

@@ -11,8 +11,9 @@ export const BOS_CONFIG_ORDER = [
   "staging",
   "repository",
   "publish",
-  "platform",
+  "release",
   "ci",
+  "seed",
   "app",
   "plugins",
   "rolledBackFrom",
@@ -69,8 +70,8 @@ function cleanNullSentinels(obj: Record<string, unknown>): Record<string, unknow
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const bosConfigMerger = createDefu((obj: any, key: any, value: any): boolean | undefined => {
-  if (key === "pin") {
-    // the pin is an atomic unit — a child pin replaces the parent's whole
+  if (key === "digest") {
+    // the digest is an atomic unit — a child digest replaces the parent's whole
     // (per-key defu merging would half-mix manifest/integrity across runtimes)
     obj[key] = value;
     return true;
@@ -210,3 +211,68 @@ export function mergeAuthoredOverPublished(
 }
 
 export { bosConfigMerger };
+
+const isLocalRef = (value: unknown): boolean =>
+  typeof value === "string" && value.startsWith("local:");
+
+/** A config entry (app slot or plugin attachment) with its workspace-relative
+ * `local:` development targets removed — sub-slot `ui` included. */
+function stripLocalTargetsFromEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...entry };
+  if (isLocalRef(next.development)) delete next.development;
+  const ui = next.ui as Record<string, unknown> | undefined;
+  if (ui && typeof ui === "object" && isLocalRef(ui.development)) {
+    const strippedUi = { ...ui };
+    delete strippedUi.development;
+    next.ui = strippedUi;
+  }
+  return next;
+}
+
+/**
+ * Publish canonicalization (#584): a `local:` development target is
+ * workspace-relative and meaningful only in the repo that declares the
+ * workspace — a child inheriting one cannot spawn it. The authoring surface
+ * (the parent's own `bos.app.ts`) keeps them for the parent's own dev; the
+ * published payload carries only consumable targets, so `extends` never
+ * hands a child a `local:` ref. The runtime's production fallback
+ * (`resolveDevelopmentTarget`) resolves the slot from its published URL.
+ */
+export function stripLocalDevelopmentTargets<T extends object>(config: T): T {
+  const out = { ...config } as Record<string, unknown>;
+  const app = out.app as Record<string, Record<string, unknown>> | undefined;
+  if (app && typeof app === "object") {
+    const nextApp: Record<string, unknown> = { ...app };
+    for (const key of ["host", "ui", "api", "auth"] as const) {
+      const entry = app[key];
+      if (entry && typeof entry === "object") nextApp[key] = stripLocalTargetsFromEntry(entry);
+    }
+    out.app = nextApp;
+  }
+  const plugins = out.plugins as Record<string, unknown> | undefined;
+  if (plugins && typeof plugins === "object") {
+    const nextPlugins: Record<string, unknown> = { ...plugins };
+    for (const [id, raw] of Object.entries(plugins)) {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        nextPlugins[id] = stripLocalTargetsFromEntry(raw as Record<string, unknown>);
+      }
+    }
+    out.plugins = nextPlugins;
+  }
+  return out as T;
+}
+
+/**
+ * Publish canonicalization (#865): the seed block never publishes. Steps are
+ * workspace-relative script paths meaningful only in the repo that declares
+ * them, and the owner identity is a dev-auth provisioning concern — a child
+ * inheriting either through `extends` would run (or fail on) scripts it does
+ * not have. Production seeding reads the authored config locally via
+ * `bos seed`; the runtime never consumes this block.
+ */
+export function stripSeedConfig<T extends object>(config: T): T {
+  if (!("seed" in config)) return config;
+  const out = { ...config } as Record<string, unknown>;
+  delete out.seed;
+  return out as T;
+}

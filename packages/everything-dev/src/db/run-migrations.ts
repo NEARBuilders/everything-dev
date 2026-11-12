@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import process from "node:process";
 import { sql } from "drizzle-orm";
 import { Effect, Option, Schedule, Schema } from "effect";
 import {
@@ -125,6 +126,110 @@ async function readAppliedHashesIn(
 ): Promise<Set<string>> {
   const result = await executor.execute(sql`SELECT hash FROM ${ref}`);
   return new Set(normalizeRows<{ hash: string }>(result).map((r) => r.hash));
+}
+
+/** Read journal rows (hash + created_at) for the ahead-of-plugin check. */
+async function readJournalRowsIn(
+  executor: QueryExecutor,
+  ref: ReturnType<typeof sql.raw>,
+): Promise<Array<{ hash: string; createdAt: number | null }>> {
+  const result = await executor.execute(sql`SELECT hash, created_at FROM ${ref}`);
+  return normalizeRows<{ hash: string; created_at: number | string | null }>(result).map((row) => ({
+    hash: row.hash,
+    // node-postgres returns bigint (int8) as a string; a numeric string fed
+    // to `new Date(...)` is an Invalid Date and `.toISOString()` throws
+    // RangeError. Coerce at the read seam, never trust the driver typing.
+    createdAt:
+      row.created_at === null || row.created_at === undefined
+        ? null
+        : Number.isFinite(Number(row.created_at))
+          ? Number(row.created_at)
+          : null,
+  }));
+}
+
+function formatUnknownRows(rows: Array<{ hash: string; createdAt: number | null }>): string {
+  return rows
+    .map(
+      (row) =>
+        `${row.hash.slice(0, 12)}${row.createdAt !== null ? ` (${new Date(row.createdAt).toISOString()})` : ""}`,
+    )
+    .join(", ");
+}
+
+const LEGACY_JOURNAL = { schema: "drizzle", table: "__drizzle_migrations" } as const;
+
+interface AdoptionArgs {
+  journal: MigrationStorage;
+  knownHashes: Set<string>;
+  duplicateSqlStates: readonly string[];
+}
+
+/**
+ * One-time adoption (ADR 0045): copy this workspace's rows out of the shared
+ * legacy journal into its per-workspace journal. Only hashes this build knows
+ * are copied — attribution by construction — and the legacy table is never
+ * modified, so a rolled-back older build still finds its history there.
+ * Runs under the workspace's journal-scoped advisory lock, so concurrent
+ * boots of the same workspace serialize; the loser sees a non-empty journal
+ * and skips.
+ */
+async function adoptFromLegacyJournal(
+  db: MigrationDatabase,
+  args: AdoptionArgs,
+): Promise<string[]> {
+  const { journal, knownHashes, duplicateSqlStates } = args;
+  if (journal.schema === LEGACY_JOURNAL.schema && journal.table === LEGACY_JOURNAL.table) {
+    return [];
+  }
+
+  let legacyRows: Array<{ hash: string; createdAt: number | null }>;
+  try {
+    legacyRows = await readJournalRowsIn(
+      db,
+      sql.raw(`"${LEGACY_JOURNAL.schema}"."${LEGACY_JOURNAL.table}"`),
+    );
+  } catch {
+    return [];
+  }
+  const adoptable = legacyRows.filter((row) => knownHashes.has(row.hash));
+  if (adoptable.length === 0) return [];
+
+  const ref = journalRef(journal);
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${journal.schema}.${journal.table}`}, 0))`,
+    );
+    await applyWithSavepoint(
+      tx,
+      sql`CREATE SCHEMA IF NOT EXISTS ${sql.raw(`"${journal.schema}"`)}`,
+      "adopt-schema",
+      "sp_adopt_schema",
+      duplicateSqlStates,
+    );
+    await applyWithSavepoint(
+      tx,
+      sql`
+        CREATE TABLE IF NOT EXISTS ${ref} (
+          id SERIAL PRIMARY KEY,
+          hash text NOT NULL,
+          created_at bigint
+        )
+      `,
+      "adopt-table",
+      "sp_adopt_table",
+      duplicateSqlStates,
+    );
+    const existing = await readAppliedHashesIn(tx, ref);
+    if (existing.size > 0) return [];
+
+    for (const row of adoptable) {
+      await tx.execute(
+        sql`INSERT INTO ${ref} (hash, created_at) VALUES (${row.hash}, ${row.createdAt})`,
+      );
+    }
+    return adoptable.map((row) => row.hash);
+  });
 }
 
 export interface LoadMigrationsOptions {
@@ -379,9 +484,11 @@ async function runLockedTransaction(
 /**
  * Apply pending migrations to the target database.
  *
- * Namespace model: `opts.schemaName` (`plugin_<slug>`) scopes data tables; the
- * journal lives in `opts.journal` (default the shared `drizzle.__drizzle_migrations`).
- * Undefined `schemaName` means public-schema (api) or dedicated-DB (auth) topology.
+ * Namespace model (ADR 0045): `opts.schemaName` (`plugin_<slug>`) scopes data
+ * tables; the journal is per-workspace (`drizzle.__drizzle_migrations_<slug>`,
+ * from `getMigrationStorage`). One-time adoption migrates this workspace's
+ * known rows out of the legacy shared journal on first boot. Undefined
+ * `schemaName` means public-schema (api) or dedicated-DB (auth) topology.
  *
  * Concurrency: the run serializes on a journal-scoped Postgres advisory
  * transaction lock held per migration, so the dev double-boot (plugin
@@ -407,6 +514,57 @@ export function runMigrations(
     const journal = opts.journal ?? getMigrationStorage();
     const schemaName = opts.schemaName;
     const duplicateSqlStates = opts.duplicateSqlStates ?? DEFAULT_DUPLICATE_SQLSTATES;
+
+    // Ahead-of-build guard (issue #805, sound as of ADR 0045): rows in the
+    // workspace's OWN journal that this build doesn't know mean the database
+    // was migrated by a NEWER build. The behind direction is this call
+    // (migrate forward); the ahead direction is silent misbehavior waiting
+    // for the first rename migration — fail closed with the unknown hashes
+    // and the remediation. A missing journal (first boot) or an unreadable
+    // one degrades to "no ahead rows" — the locked run below creates the
+    // table. Shared-journal sibling rows never reach here: adoption copies
+    // only this workspace's hashes out of the legacy journal.
+    const knownHashes = new Set<string>();
+    for (const migration of sorted) {
+      knownHashes.add(migration.hash);
+      knownHashes.add(migration.hash.slice(0, 12));
+    }
+
+    const adopted = yield* Effect.tryPromise({
+      try: () => adoptFromLegacyJournal(db, { journal, knownHashes, duplicateSqlStates }),
+      catch: (cause) =>
+        cause instanceof DatabaseError
+          ? cause
+          : new DatabaseError({ stage: "migration", migrationTag: "journal-adoption", cause }),
+    });
+    if (adopted.length > 0) {
+      yield* Effect.logInfo(
+        `[Database] Adopted ${adopted.length} migration(s) from the shared legacy journal into ${journal.schema}.${journal.table}`,
+      );
+    }
+
+    const journaledRows = yield* Effect.tryPromise({
+      try: () => readJournalRowsIn(db, journalRef(journal)),
+      catch: (cause) =>
+        cause instanceof DatabaseError
+          ? cause
+          : new DatabaseError({ stage: "migration", migrationTag: "journal-read", cause }),
+    }).pipe(
+      Effect.catch(() => Effect.succeed([] as Array<{ hash: string; createdAt: number | null }>)),
+    );
+    const unknownRows = journaledRows.filter((row) => !knownHashes.has(row.hash));
+    if (unknownRows.length > 0 && process.env.BOS_ALLOW_SCHEMA_AHEAD !== "1") {
+      const unknown = formatUnknownRows(unknownRows);
+      return yield* new DatabaseError({
+        stage: "migration",
+        migrationTag: "journal-ahead",
+        cause: new Error(
+          `The migration journal ${journal.schema}.${journal.table} (workspace "${journal.slug}") contains ${unknownRows.length} migration(s) this build doesn't know: ${unknown}. ` +
+            "The database was migrated by a newer build — upgrade/redeploy this app to catch up before it can boot. " +
+            "Deliberate rollouts can set BOS_ALLOW_SCHEMA_AHEAD=1 to allow once.",
+        ),
+      });
+    }
 
     const { appliedTags, logs } = yield* Effect.retry(
       Effect.tryPromise({

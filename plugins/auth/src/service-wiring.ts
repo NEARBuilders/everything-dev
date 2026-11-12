@@ -7,7 +7,12 @@ import {
   OnboardingCodeCipherTag,
   PermissionRegistryTag,
   type PluginServices,
+  RateLimiterTag,
 } from "./service-types";
+import {
+  AdminOrganizationsService,
+  buildAdminOrganizationsService,
+} from "./services/admin-organizations";
 import { AdminUsersService, buildAdminUsersService } from "./services/admin-users";
 import { ApiKeysService, buildApiKeysService } from "./services/api-keys";
 import { buildInvitationsService, InvitationsService } from "./services/invitations";
@@ -32,6 +37,7 @@ export function buildAuthServicesLayer(services: PluginServices) {
     Layer.succeed(OnboardingCodeCipherTag, services.onboardingCodeCipher),
     Layer.succeed(MembershipPolicyTag, services.membershipPolicy),
     Layer.succeed(PermissionRegistryTag, services.permissionRegistry),
+    Layer.succeed(RateLimiterTag, services.rateLimiter),
     Layer.succeed(AuthServicesTag, services),
     Layer.succeed(
       OrganizationsService,
@@ -72,6 +78,22 @@ export function buildAuthServicesLayer(services: PluginServices) {
     ),
     Layer.succeed(PasskeysService, buildPasskeysService({ auth: services.auth })),
     Layer.succeed(ApiKeysService, buildApiKeysService({ auth: services.auth, db: services.db })),
-    Layer.succeed(AdminUsersService, buildAdminUsersService({ auth: services.auth })),
+    Layer.succeed(
+      AdminUsersService,
+      buildAdminUsersService({
+        auth: services.auth,
+        db: services.db,
+        apiKeyHeaders: services.apiKeyHeaders,
+      }),
+    ),
+    Layer.succeed(
+      AdminOrganizationsService,
+      buildAdminOrganizationsService({
+        auth: services.auth,
+        db: services.db,
+        membershipPolicy: services.membershipPolicy,
+        registry: services.permissionRegistry,
+      }),
+    ),
   );
 }

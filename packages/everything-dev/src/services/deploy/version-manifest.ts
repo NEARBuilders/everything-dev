@@ -1,6 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path, { join } from "node:path";
-import { type BuildEntryReport, BuildEntryReportSchema } from "every-plugin/build/artifact-names";
+import {
+  type BuildEntryReport,
+  BuildEntryReportSchema,
+  MF_MANIFEST_FILENAME,
+} from "every-plugin/build/artifact-names";
 import {
   composeVersionManifest,
   type SourceRef,
@@ -8,7 +12,14 @@ import {
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
 import { bundleUrlToStagedPath, resolveContained } from "../resolution/resolver";
-import { fetchVerifiedManifest, manifestDocumentUrl } from "./manifest-verify";
+import {
+  asDigest,
+  clearVerifiedCache,
+  mark,
+  type Verified,
+  verifyDocument,
+} from "../verify/engine";
+import { manifestDocumentUrl, reasonOf } from "./manifest-verify";
 
 /** Read a workspace dist's build-report.json (ticket 01's entry-name report). */
 export function readBuildReport(distRoot: string): BuildEntryReport | null {
@@ -35,12 +46,15 @@ export function composeWorkspaceVersionManifest(input: {
   integrityMap: Record<string, string>;
   /** full per-file SRI map of the dist — recorded for the next deploy's diff */
   files?: Record<string, string>;
+  /** slot-relative immutable version directory (`versions/<dirId>`, #826) —
+   * artifact coordinates resolve against it instead of the slot root */
+  dir?: string;
   /** source archive reference (publish.sourcePublish) — server-computed SRI */
   source?: SourceRef;
   /** the repo HEAD the build was produced from — best-effort, may be absent */
   gitSha?: string;
 }): WorkspaceVersionManifest | null {
-  const { report, ssrReport, integrityMap, files, source, gitSha } = input;
+  const { report, ssrReport, integrityMap, files, dir, source, gitSha } = input;
 
   const entryIntegrity = integrityMap[report.entry];
   if (!entryIntegrity) return null;
@@ -49,6 +63,7 @@ export function composeWorkspaceVersionManifest(input: {
   const ssrIntegrity = ssrEntry ? integrityMap[`ssr/${ssrEntry}`] : undefined;
 
   return composeVersionManifest({
+    ...(dir ? { dir } : {}),
     entry: report.entry,
     entryIntegrity,
     ...(ssrEntry && ssrIntegrity
@@ -65,6 +80,12 @@ export function composeWorkspaceVersionManifest(input: {
     ...(report.css && integrityMap[report.css]
       ? { assets: { css: integrityMap[report.css]! } }
       : {}),
+    // Shared-singleton semantics (#546): the web report's record is primary —
+    // the node env resolves the same workspace's node_modules, so the two
+    // agree; an ssr-only report still carries the record.
+    ...((report.shared ?? ssrReport?.shared)
+      ? { shared: (report.shared ?? ssrReport?.shared)! }
+      : {}),
     ...(files ? { files } : {}),
     ...(source ? { source } : {}),
     ...(gitSha ? { gitSha } : {}),
@@ -72,16 +93,17 @@ export function composeWorkspaceVersionManifest(input: {
 }
 
 /**
- * Version-manifest slot resolution (atomic-deploys 04): a config slot's
+ * Version-manifest resolution (atomic-deploys 04): a config remote's
  * `pin` ({ manifest, integrity }) resolves to the derived entry-level fields
- * every consumer needs. The cache is keyed by the full pin — the pinned
- * bytes are immutable, so a verified entry is cached for the process
- * lifetime and serves as last-known-good if the origin later fails; a fetch
- * or SRI failure with nothing cached propagates (a boot-time resolution
- * failure fails the deploy, which is the platform's rollback).
+ * every consumer needs. Verification and the process-lifetime
+ * last-known-good cache live in the verify engine; a fetch or SRI failure
+ * with nothing cached propagates (a boot-time resolution failure fails the
+ * deploy, which is the platform's rollback).
  */
 
-export interface ResolvedSlotVersion {
+export interface ResolvedRemoteVersion {
+  /** The remote's production base (slot root — unprefixed by the version dir). */
+  base: string;
   /** Absolute URL of the content-hashed container entry. */
   entryUrl: string;
   entryIntegrity: string;
@@ -90,6 +112,14 @@ export interface ResolvedSlotVersion {
   /** Absolute URL of the content-hashed SSR entry, when present. */
   ssrEntryUrl?: string;
   ssrIntegrity?: string;
+  /** Shared-singleton `name → version` the pinned build embedded (#546) —
+   * stamped onto UI remotes so the host's composition guard can detect a
+   * platform skew before loading. */
+  sharedVersions?: Record<string, string>;
+  /** Slot-relative immutable version directory the artifact coordinates
+   * resolve against (`versions/<dirId>`, #826) — undefined on legacy
+   * manifests, which resolve against the slot root. */
+  dir?: string;
   /** Full per-file digest map of the dist (object path → SRI), when the
    * pinned manifest carries one — the diff base for skip-unchanged uploads. */
   files?: Record<string, string>;
@@ -97,61 +127,84 @@ export interface ResolvedSlotVersion {
   source?: SourceRef;
 }
 
-export interface SlotPin {
-  /** versioned manifest filename, relative to the slot's production base */
+export interface RemoteDigest {
+  /** versioned manifest filename, relative to the remote's production base */
   manifest: string;
   /** the manifest document's own SRI */
   integrity: string;
 }
 
-const cache = new Map<string, ResolvedSlotVersion>();
-
-export function clearSlotVersionCache(): void {
-  cache.clear();
+export function clearRemoteVersionCache(): void {
+  clearVerifiedCache();
 }
 
-function slotVersionFromManifest(
+function remoteVersionFromManifest(
   base: string,
   manifest: WorkspaceVersionManifest,
-): ResolvedSlotVersion {
+  options?: { ignoreDir?: boolean },
+): ResolvedRemoteVersion {
   const trimmedBase = base.replace(/\/$/, "");
+  const fileBase =
+    manifest.dir && !options?.ignoreDir ? `${trimmedBase}/${manifest.dir}` : trimmedBase;
   return {
-    entryUrl: `${trimmedBase}/${manifest.entry}`,
+    base: trimmedBase,
+    entryUrl: `${fileBase}/${manifest.entry}`,
     entryIntegrity: manifest.entryIntegrity,
+    ...(manifest.dir ? { dir: manifest.dir } : {}),
     ...(manifest.browserManifest
-      ? { browserManifestUrl: `${trimmedBase}/${manifest.browserManifest.file}` }
+      ? { browserManifestUrl: `${fileBase}/${manifest.browserManifest.file}` }
       : {}),
     ...(manifest.ssr
       ? {
-          ssrEntryUrl: `${trimmedBase}/${manifest.ssr.entry}`,
+          ssrEntryUrl: `${fileBase}/${manifest.ssr.entry}`,
           ssrIntegrity: manifest.ssr.integrity,
         }
       : {}),
+    ...(manifest.shared ? { sharedVersions: manifest.shared } : {}),
     ...(manifest.files ? { files: manifest.files } : {}),
     ...(manifest.source ? { source: manifest.source } : {}),
   };
 }
 
+/** Every artifact URL the resolved pin attests, keyed by the URL the runtime
+ * actually fetches (the resolved hashed entry, the ssr entry, and each file
+ * in the pin's files map) → its SRI. Integrity-in-pipeline keying: register
+ * these and the loader verifies bytes at fetch time (#642's fork class —
+ * fixed-name keying beside hashed fetches — cannot reconstruct this map). */
+export function resolvedIntegrityMap(r: ResolvedRemoteVersion): Record<string, string> {
+  const map: Record<string, string> = {
+    [r.entryUrl]: r.entryIntegrity,
+  };
+  if (r.ssrEntryUrl && r.ssrIntegrity) {
+    map[r.ssrEntryUrl] = r.ssrIntegrity;
+  }
+  const fileBase = r.dir ? `${r.base.replace(/\/$/, "")}/${r.dir}` : r.base.replace(/\/$/, "");
+  for (const [file, integrity] of Object.entries(r.files ?? {})) {
+    map[`${fileBase}/${file.replace(/^\//, "")}`] = integrity;
+  }
+  return map;
+}
+
 /**
- * Staged-slot preference (ADR 0020/0021 self-contained tier): when a runtime
- * stages its own namespace under `BOS_BUNDLE_DIR`, a slot resolves from the
+ * Staged-remote preference (ADR 0020/0021 self-contained tier): when a runtime
+ * stages its own namespace under `BOS_BUNDLE_DIR`, a remote resolves from the
  * staged dist's own version manifest instead of the config's pin — pinned
  * manifest bytes that predate the image (deploy lag after a release bump)
  * cannot exist in the staged namespace, so their hashed files would 404 the
  * disk and fall through to the network, where the stale immutable bytes
  * still answer 200 and boot a foreign build. The staged manifest is trusted
- * (staged by the image build itself) and skipped entirely when the slot is
+ * (staged by the image build itself) and skipped entirely when the remote is
  * absent from the staged namespace or the pinned manifest is present (the
  * normal healthy case, which keeps the pin's SRI check).
  */
-function readStagedSlotVersion(base: string, pin: SlotPin): ResolvedSlotVersion | null {
+function readStagedRemoteVersion(base: string, digest: RemoteDigest): ResolvedRemoteVersion | null {
   const bundleDir = process.env.BOS_BUNDLE_DIR;
   if (!bundleDir) return null;
 
   const slotDir = bundleUrlToStagedPath(base, bundleDir);
   if (!slotDir || !existsSync(slotDir)) return null;
 
-  const pinnedManifestPath = resolveContained(slotDir, pin.manifest);
+  const pinnedManifestPath = resolveContained(slotDir, digest.manifest);
   if (!pinnedManifestPath || existsSync(pinnedManifestPath)) return null;
 
   const versionsDir = path.join(slotDir, "versions");
@@ -169,45 +222,56 @@ function readStagedSlotVersion(base: string, pin: SlotPin): ResolvedSlotVersion 
     const manifest = WorkspaceVersionManifestSchema.parse(
       JSON.parse(readFileSync(manifestPath, "utf8")),
     );
-    return slotVersionFromManifest(base, manifest);
+    // Staged dists materialize flat at the slot dir — `versions/<dirId>/` is
+    // a CDN-layout concept the disk does not carry, so the manifest's dir
+    // must not prefix the staged coordinates.
+    return remoteVersionFromManifest(base, manifest, { ignoreDir: true });
   } catch {
     return null;
   }
 }
 
-export async function resolveSlotVersion(input: {
-  base: string;
-  pin: SlotPin;
-  fetchImpl?: typeof fetch;
-}): Promise<ResolvedSlotVersion> {
-  const key = `${input.base}::${input.pin.manifest}::${input.pin.integrity}`;
-  // content-addressed: a verified pin is cached for the process lifetime and
-  // never refetched — the cache IS the last-known-good
-  const cached = cache.get(key);
-  if (cached) return cached;
-
-  const staged = readStagedSlotVersion(input.base, input.pin);
-  if (staged) {
-    cache.set(key, staged);
-    return staged;
+/**
+ * The container manifest document a pinned boot registers (#874): the pin's
+ * hashed browser manifest copy when the build emitted one — immutable in both
+ * the CDN layout and the staged flat layout — else the fixed name under the
+ * pin's immutable version directory (#826; CDN only — staged dists are flat
+ * on disk), else the fixed name at the slot root. The last tier is the
+ * legacy/dev shape, and the tier the #874 incident rode: reading the fixed
+ * name at the mutable slot root lets a later root publish move bytes the
+ * child's pin never named.
+ */
+export function pinnedManifestDocumentUrl(
+  fallbackUrl: string,
+  resolved: Pick<ResolvedRemoteVersion, "base" | "dir" | "browserManifestUrl">,
+): string {
+  if (resolved.browserManifestUrl) return resolved.browserManifestUrl;
+  if (resolved.dir && !process.env.BOS_BUNDLE_DIR) {
+    return `${resolved.base.replace(/\/$/, "")}/${resolved.dir}/${MF_MANIFEST_FILENAME}`;
   }
+  return fallbackUrl;
+}
 
-  const manifestUrl = manifestDocumentUrl(input.base, input.pin.manifest);
-  const verified = await fetchVerifiedManifest({
-    base: input.base,
-    pin: input.pin,
-    fetchImpl: input.fetchImpl,
-  });
-  if (!verified.ok) {
+export async function resolveRemoteVersion(input: {
+  base: string;
+  digest: RemoteDigest;
+  fetchImpl?: typeof fetch;
+}): Promise<Verified<ResolvedRemoteVersion>> {
+  const staged = readStagedRemoteVersion(input.base, input.digest);
+  if (staged) return mark(staged);
+
+  const manifestUrl = manifestDocumentUrl(input.base, input.digest.manifest);
+  try {
+    const manifest = await verifyDocument({
+      url: manifestUrl,
+      expected: asDigest(input.digest.integrity),
+      schema: WorkspaceVersionManifestSchema,
+      fetchImpl: input.fetchImpl,
+    });
+    return mark(remoteVersionFromManifest(input.base, manifest));
+  } catch (error) {
     throw new Error(
-      `[SRI] version manifest verification failed for ${manifestUrl}: ${verified.reason}`,
+      `[SRI] version manifest verification failed for ${manifestUrl}: ${reasonOf(error)}`,
     );
   }
-  const manifest: WorkspaceVersionManifest = WorkspaceVersionManifestSchema.parse(
-    JSON.parse(verified.text),
-  );
-
-  const resolved = slotVersionFromManifest(input.base, manifest);
-  cache.set(key, resolved);
-  return resolved;
 }

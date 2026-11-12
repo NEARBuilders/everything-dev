@@ -23,7 +23,7 @@ export default App({
   api: API({
     path: "api",
     variables: { gatewayDomains: "everything.dev,dev.everything.dev" },
-    secrets: ["API_DATABASE_URL"],
+    secrets: ["API_DATABASE_URL", "BETTER_AUTH_SECRET"],
   }),
   auth: Plugin("auth").path("plugins/auth", {
     name: "@everything-dev/auth-plugin",
@@ -38,6 +38,9 @@ export default App({
       "TWILIO_AUTH_TOKEN",
       "TWILIO_PHONE_NUMBER",
       "RESEND_API_KEY",
+      // Dev/test-only seeding seam (ADR 0038 addendum) — declared so the
+      // regression stacks' env reaches the plugin; never set in production.
+      "AUTH_BOOTSTRAP_ADMIN_API_KEY",
     ],
     variables: {
       organizationMembershipLimit: 1000,
@@ -45,11 +48,26 @@ export default App({
       passkey: { rpID: "everything.dev", rpName: "everything.dev" },
       socialProviders: { github: {}, google: {} },
       referral: { maskReferredUserEmail: true },
+      ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
       siwn: {
         recipients: {
           mainnet: "dev.everything.near",
           testnet: "dev.everything.testnet",
         },
+        // near-kit's default mainnet RPC (free.rpc.fastnear.com) accepted
+        // signed broadcasts and silently dropped them post-acceptance
+        // (2026-11-04 incident). Pin every on-chain WRITE this plugin makes —
+        // the relayer's submission, gas keys, sub-account rollbacks — to an
+        // endpoint with a real transaction pool. Children inherit this
+        // through extends.
+        rpcUrl: "https://rpc.mainnet.near.org",
+        // Reads (SIWN verification, view calls, availability checks) stay on
+        // the fast endpoint — the incident was broadcast drops, not bad
+        // reads, and rpc.mainnet.near.org answers a login's access-key query
+        // ~25x slower (~3.2s vs ~130ms), which put seconds on every
+        // named-account login. Combined with better-near-auth fetching the
+        // access key exactly once per verify.
+        readRpcUrl: "https://free.rpc.fastnear.com",
         // The permission surface is fully config-declared (ADR 0028) — the
         // plugin ships no defaults. This is the canonical posture for the
         // root runtime; child runtimes inherit it through extends and
@@ -95,6 +113,18 @@ export default App({
             },
           },
         },
+        // The NEP-366 relayer, ephemeral mode (the gas keypair is generated
+        // at boot and stored encrypted in the relayerKey table): publishes
+        // relay a scoped delegate action signed locally instead of
+        // broadcasting with raw key material, so deploy secrets carry no
+        // writer key and every write lands in the relayedTransaction audit
+        // table. Gas cap equals the CLI publish's prepaid gas (300 Tgas);
+        // the allowlist is the registry namespace itself.
+        relayer: {
+          whitelistedContracts: ["dev.everything.near"],
+          maxGasPerTransaction: "300000000000000",
+          maxDepositPerTransaction: "0",
+        },
       },
     },
   }),
@@ -124,6 +154,17 @@ export default App({
     docs: Plugin("docs").path("plugins/docs", {
       name: "@everything-dev/docs-plugin",
       ui: { name: "docs-ui", path: "plugins/docs/ui" },
+    }),
+    "agent-connect": Plugin("agent-connect").path("plugins/agent-connect", {
+      name: "@everything-dev/agent-connect-plugin",
+      variables: {
+        apiBaseUrl: "https://api.agentsonintents.com",
+      },
+      secrets: [
+        "NEAR_INTENTS_AGENT_API_KEY",
+        "AGENT_CONNECT_ENCRYPTION_KEY",
+        "AGENT_CONNECT_DATABASE_URL",
+      ],
     }),
   },
 });

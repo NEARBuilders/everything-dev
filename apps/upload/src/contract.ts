@@ -1,6 +1,12 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
-import { BAD_REQUEST, CONNECTION_ERROR, FORBIDDEN, UNAUTHORIZED } from "every-plugin/errors";
+import {
+  BAD_REQUEST,
+  CONFLICT,
+  CONNECTION_ERROR,
+  FORBIDDEN,
+  UNAUTHORIZED,
+} from "every-plugin/errors";
 import {
   IntegrityReportQuerySchema,
   IntegrityReportResultSchema,
@@ -21,12 +27,12 @@ export const contract = oc.router({
       path: "/storage/bundles",
       summary: "Upload workspace bundle files",
       description:
-        "Receives base64-encoded dist files for one workspace namespace, SRI-hashes each server-side, and stores them in the platform bundle storage. Files whose SRI matches the stored object's metadata are skipped as confirmed no-ops.",
+        "Receives base64-encoded dist files for one workspace namespace, SRI-hashes each server-side, and stores them in the platform bundle storage. Files whose SRI matches the stored object's metadata are skipped as confirmed no-ops. Objects under `versions/` are write-once (#826): a changed-bytes upload to an existing key fails with 409.",
       tags: ["Storage"],
     })
     .input(UploadBundleSchema)
     .output(UploadResponseSchema)
-    .errors({ UNAUTHORIZED, FORBIDDEN, BAD_REQUEST, CONNECTION_ERROR }),
+    .errors({ UNAUTHORIZED, FORBIDDEN, BAD_REQUEST, CONFLICT, CONNECTION_ERROR }),
 
   listBundles: oc
     .route({

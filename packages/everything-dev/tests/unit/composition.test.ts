@@ -1,0 +1,625 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  authoredRemoteKeys,
+  compositionSkewViolations,
+  runCompositionGate,
+  stampRemotesFromRelease,
+} from "../../src/services/deploy/composition";
+import { computeManifestSri } from "../../src/services/deploy/manifest-verify";
+import { composePlatformManifestPublishEntry } from "../../src/services/deploy/platform-manifest";
+import { clearRemoteVersionCache } from "../../src/services/deploy/version-manifest";
+import { type Manifest, ManifestSchema } from "../../src/services/platform/manifest";
+import { walkRemotes } from "../../src/services/remotes";
+import { versionManifestFetcher, versionManifestText } from "../helpers/version-manifests";
+
+/**
+ * The composition plane (ADR 0034 amendment — release-scoped extends
+ * inheritance): inherited base-runtime remotes re-point at a platform
+ * release, and the train gates the extends-merged shape on shared-singleton
+ * skew before publishing.
+ */
+
+const authBase = "https://cdn.test/bundles/root.near/root/auth/";
+const authUiBase = "https://cdn.test/bundles/root.near/root/auth-ui/";
+
+function manifestWithRemotes(remotes: unknown): Manifest {
+  return ManifestSchema.parse({
+    schemaVersion: 1,
+    kind: "everything-dev/platform-manifest",
+    frameworkVersion: "2.0.0-rc.24",
+    everyPluginVersion: "3.0.0-rc.14",
+    image: { ref: "ghcr.io/nearbuilders/everything-dev", tags: ["v2.0.0-rc.24"] },
+    catalog: {},
+    sharedDeps: {},
+    templateInventory: [],
+    compat: { minChild: "2.0.0-rc.23" },
+    ...(remotes ? { remotes } : {}),
+  });
+}
+
+let tmpRoot: string;
+
+beforeEach(() => {
+  clearRemoteVersionCache();
+  tmpRoot = mkdtempSync(join(tmpdir(), "composition-"));
+});
+
+afterEach(() => {
+  rmSync(tmpRoot, { recursive: true, force: true });
+  clearRemoteVersionCache();
+});
+
+describe("walkRemotes", () => {
+  it("visits canonical dotted paths, ui:false opt-outs, and bare plugin refs", () => {
+    const seen: Array<{ remote: string; entry: unknown; isPluginRef: boolean }> = [];
+    walkRemotes(
+      {
+        app: { ui: { x: 1 }, auth: { ui: false }, title: "not-an-entry" },
+        plugins: { votes: { y: 1 }, legacy: "bos://parent/p" },
+      },
+      (remote) => seen.push({ ...remote }),
+    );
+    expect(seen).toEqual([
+      { remote: "app.ui", entry: { x: 1 }, isPluginRef: false },
+      { remote: "app.auth", entry: { ui: false }, isPluginRef: false },
+      { remote: "app.auth.ui", entry: false, isPluginRef: false },
+      { remote: "plugins.votes", entry: { y: 1 }, isPluginRef: false },
+      { remote: "plugins.legacy", entry: "bos://parent/p", isPluginRef: true },
+    ]);
+  });
+});
+
+describe("stampRemotesFromRelease", () => {
+  it("stamps inherited remotes (auth + auth.ui) without touching authored remotes", () => {
+    const payload: Record<string, unknown> = {
+      account: "child.near",
+      app: {
+        ui: {
+          production: "https://child.test/ui/",
+          digest: { manifest: "mine.json", integrity: "sha384-mine" },
+        },
+      },
+    };
+    const outcome = stampRemotesFromRelease({
+      payload,
+      authoredConfig: structuredClone(payload),
+      manifest: manifestWithRemotes({
+        "app.auth": {
+          base: authBase,
+          digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+        },
+        "app.auth.ui": {
+          base: authUiBase,
+          digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth-ui" },
+        },
+        "app.ui": {
+          base: "https://attacker.test/",
+          digest: { manifest: "x.json", integrity: "sha384-x" },
+        },
+      }),
+    });
+
+    const app = payload.app as Record<string, Record<string, unknown>>;
+    expect(app.auth).toEqual({
+      production: authBase,
+      digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+      ui: {
+        production: authUiBase,
+        digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth-ui" },
+      },
+    });
+    expect(outcome.stamped).toEqual(["app.auth", "app.auth.ui"]);
+    expect(app.ui.production).toBe("https://child.test/ui/");
+    expect(app.ui.digest).toEqual({ manifest: "mine.json", integrity: "sha384-mine" });
+  });
+
+  it("stamps a configured-only remote (variables/secrets, no code source) and keeps its configuration", () => {
+    const authored = {
+      account: "child.near",
+      app: {
+        ui: { development: "local:ui" },
+        api: { development: "local:api", variables: { a: 1 } },
+        auth: {
+          variables: { siwn: { recipients: { mainnet: "child.sputnik-dao.near" } } },
+          secrets: ["BETTER_AUTH_SECRET"],
+        },
+      },
+    };
+    const payload = structuredClone(authored) as Record<string, unknown>;
+    const outcome = stampRemotesFromRelease({
+      payload,
+      authoredConfig: authored,
+      manifest: manifestWithRemotes({
+        "app.api": {
+          base: "https://cdn.test/api/",
+          digest: { manifest: "api.json", integrity: "sha384-api" },
+        },
+        "app.auth": {
+          base: authBase,
+          digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+        },
+        "app.auth.ui": {
+          base: authUiBase,
+          digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth-ui" },
+        },
+        "app.ui": {
+          base: "https://cdn.test/ui/",
+          digest: { manifest: "ui.json", integrity: "sha384-ui" },
+        },
+      }),
+    });
+
+    const app = payload.app as Record<string, Record<string, unknown>>;
+    expect(outcome.stamped).toEqual(["app.auth", "app.auth.ui"]);
+    expect(app.auth).toEqual({
+      variables: { siwn: { recipients: { mainnet: "child.sputnik-dao.near" } } },
+      secrets: ["BETTER_AUTH_SECRET"],
+      production: authBase,
+      digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+      ui: {
+        production: authUiBase,
+        digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth-ui" },
+      },
+    });
+    expect(app.ui).toEqual({ development: "local:ui" });
+    expect(app.api).toEqual({ development: "local:api", variables: { a: 1 } });
+  });
+
+  it("stamps a remote-only api (variables/secrets, no workspace) but not a proxied one", () => {
+    const apiRemote = {
+      "app.api": {
+        base: "https://cdn.test/api/",
+        digest: { manifest: "api.json", integrity: "sha384-api" },
+      },
+    };
+    const remoteOnly = { app: { api: { variables: { a: 1 }, secrets: ["S"] } } };
+    const remotePayload = structuredClone(remoteOnly) as Record<string, unknown>;
+    expect(
+      stampRemotesFromRelease({
+        payload: remotePayload,
+        authoredConfig: remoteOnly,
+        manifest: manifestWithRemotes(apiRemote),
+      }).stamped,
+    ).toEqual(["app.api"]);
+    expect((remotePayload.app as Record<string, unknown>).api).toEqual({
+      variables: { a: 1 },
+      secrets: ["S"],
+      production: "https://cdn.test/api/",
+      digest: { manifest: "api.json", integrity: "sha384-api" },
+    });
+
+    const proxied = { app: { api: { proxy: "https://api.child.test", variables: { a: 1 } } } };
+    expect(
+      stampRemotesFromRelease({
+        payload: structuredClone(proxied),
+        authoredConfig: proxied,
+        manifest: manifestWithRemotes(apiRemote),
+      }).stamped,
+    ).toEqual([]);
+  });
+
+  it("stamps nothing when the release carries no remotes map (pre-amendment releases)", () => {
+    const payload: Record<string, unknown> = { account: "child.near" };
+    const outcome = stampRemotesFromRelease({
+      payload,
+      authoredConfig: {},
+      manifest: manifestWithRemotes(undefined),
+    });
+    expect(outcome.stamped).toEqual([]);
+    expect(payload.app).toBeUndefined();
+  });
+
+  it("overrides stale stamps from a previous release-scoped deploy", () => {
+    const payload: Record<string, unknown> = {
+      app: {
+        auth: {
+          production: "https://old.test/auth/",
+          digest: { manifest: "versions/old.json", integrity: "sha384-old" },
+        },
+      },
+    };
+    stampRemotesFromRelease({
+      payload,
+      authoredConfig: {},
+      manifest: manifestWithRemotes({
+        "app.auth": {
+          base: authBase,
+          digest: { manifest: "versions/new.json", integrity: "sha384-new" },
+        },
+      }),
+    });
+    expect((payload.app as Record<string, Record<string, unknown>>).auth).toEqual({
+      production: authBase,
+      digest: { manifest: "versions/new.json", integrity: "sha384-new" },
+    });
+  });
+
+  it("a ui:false opt-out owns the plugin and ui remotes — no stamp resurrects the surface", () => {
+    const authored = {
+      plugins: { votes: { extends: "bos://root.near/root", ui: false } },
+    };
+    const outcome = stampRemotesFromRelease({
+      payload: structuredClone(authored),
+      authoredConfig: authored,
+      manifest: manifestWithRemotes({
+        "plugins.votes": {
+          base: "https://cdn.test/votes/",
+          digest: { manifest: "v.json", integrity: "sha384-v" },
+        },
+        "plugins.votes.ui": {
+          base: "https://cdn.test/votes-ui/",
+          digest: { manifest: "vu.json", integrity: "sha384-vu" },
+        },
+      }),
+    });
+    expect(outcome.stamped).toEqual([]);
+  });
+
+  it("a plugin authored without a ui key still owns the plugin domain — no stamps", () => {
+    const authored = {
+      plugins: { votes: { extends: "bos://root.near/root" } },
+    };
+    const outcome = stampRemotesFromRelease({
+      payload: structuredClone(authored),
+      authoredConfig: authored,
+      manifest: manifestWithRemotes({
+        "plugins.votes": {
+          base: "https://cdn.test/votes/",
+          digest: { manifest: "v.json", integrity: "sha384-v" },
+        },
+        "plugins.votes.ui": {
+          base: "https://cdn.test/votes-ui/",
+          digest: { manifest: "vu.json", integrity: "sha384-vu" },
+        },
+      }),
+    });
+    expect(outcome.stamped).toEqual([]);
+  });
+
+  it("never stamps plugin remotes — a child's declared plugin set owns the whole domain (the rc.26 incident)", () => {
+    const authored = {
+      account: "feedback.near",
+      app: { ui: { production: "https://feedback.test/ui/" } },
+      plugins: {
+        legion: { extends: "bos://root.near/root" },
+        storage: { extends: "bos://root.near/root" },
+      },
+    };
+    const payload = structuredClone(authored);
+    const outcome = stampRemotesFromRelease({
+      payload,
+      authoredConfig: authored,
+      manifest: manifestWithRemotes({
+        "app.auth": {
+          base: authBase,
+          digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+        },
+        "app.auth.ui": {
+          base: authUiBase,
+          digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth-ui" },
+        },
+        "plugins.ai": {
+          base: "https://cdn.test/ai/",
+          digest: { manifest: "ai.json", integrity: "sha384-ai" },
+        },
+        "plugins.ai.ui": {
+          base: "https://cdn.test/ai-ui/",
+          digest: { manifest: "ai-ui.json", integrity: "sha384-ai-ui" },
+        },
+        "plugins.votes": {
+          base: "https://cdn.test/votes/",
+          digest: { manifest: "votes.json", integrity: "sha384-votes" },
+        },
+      }),
+    });
+    expect(outcome.stamped).toEqual(["app.auth", "app.auth.ui"]);
+    // the child's plugin set is exactly what it declared — the parent's
+    // plugins must not appear (and never schema-invalidated ui stamps)
+    expect(payload.plugins).toEqual(authored.plugins);
+  });
+});
+
+describe("authoredRemoteKeys", () => {
+  it("counts app entries with their ui, and string plugin refs as fully owned", () => {
+    const paths = authoredRemoteKeys({
+      app: {
+        ui: { development: "local:ui" },
+        host: { production: "https://child.test/host/", ui: { name: "h" } },
+        api: { proxy: "https://api.child.test", ui: false },
+      },
+      plugins: { votes: { extends: "bos://parent/p" }, legacy: "bos://parent/p" },
+    });
+    expect(paths.has("app.ui")).toBe(true);
+    expect(paths.has("app.ui.ui")).toBe(false);
+    expect(paths.has("app.host")).toBe(true);
+    expect(paths.has("app.host.ui")).toBe(false);
+    expect(paths.has("app.api")).toBe(true);
+    expect(paths.has("app.api.ui")).toBe(true);
+    expect(paths.has("plugins.votes")).toBe(true);
+    expect(paths.has("plugins.votes.ui")).toBe(false);
+    expect(paths.has("plugins.legacy")).toBe(true);
+    expect(paths.has("plugins.legacy.ui")).toBe(true);
+  });
+
+  it("an entry that only configures an inherited remote does not author it", () => {
+    const paths = authoredRemoteKeys({
+      app: {
+        auth: {
+          variables: { a: 1 },
+          secrets: ["S"],
+          ui: { digest: { manifest: "m", integrity: "i" } },
+        },
+        api: { variables: { a: 1 } },
+      },
+    });
+    expect(paths.has("app.auth")).toBe(false);
+    expect(paths.has("app.auth.ui")).toBe(true);
+    expect(paths.has("app.api")).toBe(false);
+  });
+});
+
+describe("compositionSkewViolations", () => {
+  const uiText = versionManifestText({
+    react: "19.2.9",
+    "everything-dev/ui/auth": "2.0.0-rc.24",
+  });
+  const authUiSkewedText = versionManifestText({
+    react: "19.2.9",
+    "everything-dev/ui/auth": "2.0.0-rc.25",
+  });
+  const authUiAgreeText = versionManifestText({
+    react: "19.2.9",
+    "everything-dev/ui/auth": "2.0.0-rc.24",
+  });
+
+  function mergedWithUiSlots(authUiIntegrity: string): Record<string, unknown> {
+    return {
+      app: {
+        ui: {
+          production: "https://cdn.test/bundles/child.near/ui/",
+          digest: {
+            manifest: "versions/fedcba0987654321.json",
+            integrity: computeManifestSri(uiText),
+          },
+        },
+        auth: {
+          production: authBase,
+          digest: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+          ui: {
+            production: authUiBase,
+            digest: { manifest: "versions/0123456789abcdef.json", integrity: authUiIntegrity },
+          },
+        },
+      },
+    };
+  }
+
+  it("flags the skew the incident class produces — the host boot guard's mirror", async () => {
+    const merged = mergedWithUiSlots(computeManifestSri(authUiSkewedText));
+    const fetcher = versionManifestFetcher({
+      "https://cdn.test/bundles/child.near/ui/versions/fedcba0987654321.json": uiText,
+      [`${authUiBase}versions/0123456789abcdef.json`]: authUiSkewedText,
+    });
+
+    const violations = await compositionSkewViolations(merged, { fetchImpl: fetcher });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('Shared singleton "everything-dev/ui/auth"');
+    expect(violations[0]).toContain("2.0.0-rc.24");
+    expect(violations[0]).toContain("2.0.0-rc.25");
+    expect(violations[0]).toContain("bos upgrade");
+  });
+
+  it("a pin the leaf verification proved servable is skipped on a transient fetch failure", async () => {
+    const merged = mergedWithUiSlots(computeManifestSri(authUiSkewedText));
+    const fetcher = versionManifestFetcher({
+      "https://cdn.test/bundles/child.near/ui/versions/fedcba0987654321.json": uiText,
+    });
+
+    const violations = await compositionSkewViolations(merged, {
+      fetchImpl: fetcher,
+      verifiedRemotes: new Set(["app.auth.ui"]),
+    });
+    expect(violations).toEqual([]);
+  });
+
+  it("an unresolvable inherited remote (outside the verified set) is a violation, not a silent skip", async () => {
+    const merged = mergedWithUiSlots(computeManifestSri(authUiSkewedText));
+    const fetcher = versionManifestFetcher({
+      "https://cdn.test/bundles/child.near/ui/versions/fedcba0987654321.json": uiText,
+    });
+
+    const violations = await compositionSkewViolations(merged, { fetchImpl: fetcher });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain(
+      'Pinned UI remote "app.auth.ui" version manifest does not serve',
+    );
+    expect(violations[0]).toContain("redeploy the bundle");
+  });
+
+  it("silent when all sources agree", async () => {
+    const merged = mergedWithUiSlots(computeManifestSri(authUiAgreeText));
+    const fetcher = versionManifestFetcher({
+      "https://cdn.test/bundles/child.near/ui/versions/fedcba0987654321.json": uiText,
+      [`${authUiBase}versions/0123456789abcdef.json`]: authUiAgreeText,
+    });
+    expect(await compositionSkewViolations(merged, { fetchImpl: fetcher })).toEqual([]);
+  });
+
+  it("ignores non-UI remotes entirely", async () => {
+    const merged = {
+      app: {
+        api: {
+          production: "https://cdn.test/bundles/child.near/api/",
+          digest: { manifest: "broken.json", integrity: "sha384-nothing" },
+        },
+      },
+    };
+    expect(
+      await compositionSkewViolations(merged, { fetchImpl: versionManifestFetcher({}) }),
+    ).toEqual([]);
+  });
+});
+
+describe("runCompositionGate — compat leg", () => {
+  function scaffoldChild(platform: string, catalogReact: string): string {
+    mkdirSync(join(tmpRoot, "ui"), { recursive: true });
+    writeFileSync(
+      join(tmpRoot, "package.json"),
+      `${JSON.stringify({
+        name: "child",
+        dependencies: { "everything-dev": platform },
+      })}\n`,
+    );
+    writeFileSync(
+      join(tmpRoot, "pnpm-workspace.yaml"),
+      ["packages:", "  - ui", "", "catalog:", `  react: "${catalogReact}"`, ""].join("\n"),
+    );
+    return tmpRoot;
+  }
+
+  it("a pinned child aligned with its own release passes", async () => {
+    const configDir = scaffoldChild("2.0.0-rc.24", "19.2.9");
+    const report = await runCompositionGate({
+      configDir,
+      authoredConfig: { release: "2.0.0-rc.24" },
+      resolvedShape: {},
+      resolvedRelease: manifestWithRemotes(undefined),
+    });
+    expect(report.ok).toBe(true);
+  });
+
+  it("a lockfile drift (newer than the pinned release) is a red gate with the remediation", async () => {
+    const configDir = scaffoldChild("2.0.0-rc.25", "19.2.9");
+    const report = await runCompositionGate({
+      configDir,
+      authoredConfig: { release: "2.0.0-rc.24" },
+      resolvedShape: {},
+      resolvedRelease: manifestWithRemotes(undefined),
+    });
+    expect(report.ok).toBe(false);
+    const combined = report.violations.join("\n");
+    expect(combined).toContain("newer than this release");
+    expect(combined).toContain("bos upgrade");
+  });
+
+  it("an unpinned config skips the compat leg — the skew cross-check is its net", async () => {
+    const configDir = scaffoldChild("2.0.0-rc.25", "19.2.9");
+    const report = await runCompositionGate({
+      configDir,
+      authoredConfig: {},
+      resolvedShape: {},
+      resolvedRelease: manifestWithRemotes(undefined),
+    });
+    expect(report.ok).toBe(true);
+  });
+});
+
+describe("composePlatformManifestPublishEntry — release remotes", () => {
+  function scaffoldFrameworkRoot(): string {
+    mkdirSync(join(tmpRoot, "packages", "everything-dev"), { recursive: true });
+    mkdirSync(join(tmpRoot, "packages", "every-plugin"), { recursive: true });
+    writeFileSync(
+      join(tmpRoot, "packages", "everything-dev", "package.json"),
+      `${JSON.stringify({ name: "everything-dev", version: "2.0.0-rc.24" })}\n`,
+    );
+    writeFileSync(
+      join(tmpRoot, "packages", "every-plugin", "package.json"),
+      `${JSON.stringify({ name: "every-plugin", version: "3.0.0-rc.14" })}\n`,
+    );
+    writeFileSync(join(tmpRoot, "package.json"), "{}\n");
+    return tmpRoot;
+  }
+
+  const releasePayload = {
+    account: "root.near",
+    domain: "root",
+    app: {
+      ui: {
+        production: "https://cdn.test/bundles/root.near/root/ui/",
+        digest: { manifest: "versions/ui.json", integrity: "sha384-ui" },
+      },
+      api: {
+        production: "https://cdn.test/bundles/root.near/root/api/",
+        digest: { manifest: "versions/api.json", integrity: "sha384-api" },
+      },
+      auth: {
+        production: authBase,
+        digest: { manifest: "versions/auth.json", integrity: "sha384-auth" },
+        ui: {
+          production: authUiBase,
+          digest: { manifest: "versions/auth-ui.json", integrity: "sha384-auth-ui" },
+        },
+      },
+    },
+    plugins: {
+      votes: {
+        extends: "bos://root.near/root/votes",
+        production: "https://cdn.test/bundles/root.near/root/votes/",
+      },
+    },
+  };
+
+  it("records the release's pinned remotes in the manifest", () => {
+    const entry = composePlatformManifestPublishEntry({
+      configDir: scaffoldFrameworkRoot(),
+      account: "root.near",
+      gateway: "root",
+      publishPayload: releasePayload,
+    });
+    expect(entry).not.toBeNull();
+    const parsed = ManifestSchema.parse(JSON.parse(entry!.record.value));
+    expect(parsed.remotes).toMatchObject({
+      "app.auth": {
+        base: authBase,
+        digest: { manifest: "versions/auth.json", integrity: "sha384-auth" },
+      },
+      "app.auth.ui": {
+        base: authUiBase,
+        digest: { manifest: "versions/auth-ui.json", integrity: "sha384-auth-ui" },
+      },
+      "app.ui": {
+        base: "https://cdn.test/bundles/root.near/root/ui/",
+        digest: { manifest: "versions/ui.json", integrity: "sha384-ui" },
+      },
+      "app.api": { base: "https://cdn.test/bundles/root.near/root/api/" },
+    });
+    expect(parsed.remotes?.["plugins.votes"]).toBeUndefined();
+  });
+
+  it("is byte-stable across compositions (remote keys sorted)", () => {
+    const entry = composePlatformManifestPublishEntry({
+      configDir: scaffoldFrameworkRoot(),
+      account: "root.near",
+      gateway: "root",
+      publishPayload: releasePayload,
+    });
+    const reversed = {
+      ...releasePayload,
+      app: {
+        auth: releasePayload.app.auth,
+        api: releasePayload.app.api,
+        ui: releasePayload.app.ui,
+      },
+    };
+    const again = composePlatformManifestPublishEntry({
+      configDir: tmpRoot,
+      account: "root.near",
+      gateway: "root",
+      publishPayload: reversed,
+    });
+    expect(entry!.record.value).toBe(again!.record.value);
+  });
+
+  it("omits remotes entirely without a publish payload — old readers unaffected", () => {
+    const entry = composePlatformManifestPublishEntry({
+      configDir: scaffoldFrameworkRoot(),
+      account: "root.near",
+      gateway: "root",
+    });
+    const parsed = ManifestSchema.parse(JSON.parse(entry!.record.value));
+    expect(parsed.remotes).toBeUndefined();
+  });
+});

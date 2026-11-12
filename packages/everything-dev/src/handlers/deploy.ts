@@ -10,12 +10,13 @@ import type {
 import type { PublishTrainError, PublishTrainOk } from "../services/deploy/errors";
 import { isValidImageDigest } from "../services/deploy/image";
 import { runPostPublishLegs } from "../services/deploy/legs";
-import { summarizeSlotPins, verifyRollbackSnapshot } from "../services/deploy/rollback";
+import { summarizeRemoteDigests, verifyRollbackSnapshot } from "../services/deploy/rollback";
 import {
   fetchLiveConfig,
   fetchRollbackHistory,
   isSnapshotLive,
   publishRollbackSnapshot,
+  resolvePointerRestore,
 } from "../services/deploy/rollback-flow";
 import { type DeployTrainInput, DeployTrainService } from "../services/deploy/train";
 import { fetchDeployManifests } from "../services/registry/fastkv";
@@ -40,10 +41,17 @@ const mapTrainError = (error: PublishTrainError) =>
   Effect.succeed({ ...error.toResult(), status: "error" as const }) as Effect.Effect<TrainResult>;
 
 function unknownAuthoredKeysError(keys: readonly string[]): string {
+  if (keys.includes("platform")) {
+    return (
+      "unknown authored key `platform` — run `bos upgrade` to migrate your config to " +
+      "`release:` (the authored release field, ADR 0034); the upgrade rewrites the key " +
+      "surgically and stamps the current chain release"
+    );
+  }
   return (
     `The authored config has unknown keys: ${keys.join(", ")} — remove them from bos.app.ts. ` +
-    "ci.image in particular was retired (ADR 0034): children pin the runtime image via " +
-    'platform: "<version>" (the platform release manifest resolves the image ref and digest ' +
+    "ci.image in particular was retired (ADR 0034): children target the runtime image via " +
+    'release: "<version>" (the platform release manifest resolves the image ref and digest ' +
     "at deploy time); the root runtime derives its image from repository."
   );
 }
@@ -109,6 +117,41 @@ export function registerDeploy(builder: BosBuilder) {
       });
     }),
 
+    promote: builder.promote.effect(function* (_opts, input) {
+      const session = yield* ResolutionSessionService;
+      if (!session) {
+        return {
+          status: "error" as const,
+          registryUrl: "",
+          error: MISSING_CONFIG_MESSAGE,
+        } satisfies RollbackResult;
+      }
+
+      return yield* Effect.tryPromise({
+        try: () =>
+          rollbackBody(session, {
+            registry: input.registry,
+            limit: 20,
+            listOnly: false,
+            version: input.version,
+            previous: false,
+            force: input.force,
+            env: input.env,
+            dryRun: input.dryRun,
+            verbose: input.verbose,
+            network: input.network,
+            privateKey: input.privateKey,
+            wallet: input.wallet,
+            promote: true,
+          }),
+        catch: (error) => ({
+          status: "error" as const,
+          registryUrl: "",
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    }),
+
     deploy: builder.deploy.effect(function* (_opts, input) {
       const session = yield* ResolutionSessionService;
       const train = yield* DeployTrainService;
@@ -162,6 +205,11 @@ async function rollbackBody(
     network?: "mainnet" | "testnet";
     privateKey?: string;
     wallet: boolean;
+    /** Promote framing (ADR 0042 ticket 05): activate a recorded deployment
+     * without the rolledBackFrom brand; requires an explicit version, and an
+     * already-live target is a legitimate idempotent no-op rather than a
+     * refusal. */
+    promote?: boolean;
   },
 ): Promise<RollbackResult> {
   const { account, domain } = session.config ?? {};
@@ -201,7 +249,7 @@ async function rollbackBody(
     blockHeight: entry.blockHeight,
     blockTimestamp: new Date(Number(entry.blockTimestampNs.slice(0, 13))).toISOString(),
     ...(entry.txHash ? { txHash: entry.txHash } : {}),
-    summary: summarizeSlotPins(entry.value as BosConfigInput),
+    summary: summarizeRemoteDigests(entry.value as BosConfigInput),
   }));
 
   if (input.listOnly) {
@@ -229,14 +277,19 @@ async function rollbackBody(
       status: "error",
       registryUrl: "",
       history: historyEntries,
-      error: input.version
-        ? `No history entry matches "${input.version}" — pick a block height from the listing`
-        : "Specify --version <block-height> or --previous (interactive selection happens CLI-side)",
+      error: input.promote
+        ? "bos promote requires --version <block-height> — the deployment to activate"
+        : input.version
+          ? `No history entry matches "${input.version}" — pick a block height from the listing`
+          : "Specify --version <block-height> or --previous (interactive selection happens CLI-side)",
     };
   }
 
   const liveValue = await fetchLiveConfig({ account, domain, registry: input.registry });
-  if (liveValue !== undefined && isSnapshotLive(target.value, liveValue)) {
+  // Promote skips the identical-live refusal: activating the already-live
+  // deployment is a legitimate idempotent no-op (the train's
+  // already-published path handles it gracefully).
+  if (!input.promote && liveValue !== undefined && isSnapshotLive(target.value, liveValue)) {
     return {
       status: "error",
       registryUrl: "",
@@ -245,8 +298,8 @@ async function rollbackBody(
   }
 
   const verification = await verifyRollbackSnapshot(target.value as BosConfigInput);
-  const slotChecks = verification.slots.map((check) => ({
-    slot: check.slot,
+  const remoteChecks = verification.remotes.map((check) => ({
+    remote: check.remote,
     ok: check.ok,
     ...(check.reason ? { reason: check.reason } : {}),
   }));
@@ -254,8 +307,9 @@ async function rollbackBody(
     return {
       status: "error",
       registryUrl: "",
-      verification: slotChecks,
-      error: "Refusing to roll back — a pinned slot's bytes are gone or no longer match their SRI",
+      verification: remoteChecks,
+      error:
+        "Refusing to roll back — a pinned remote's bytes are gone or no longer match their SRI",
     };
   }
 
@@ -283,7 +337,11 @@ async function rollbackBody(
       verbose: input.verbose,
       dryRun: input.dryRun,
     },
-    { skipVerify: true },
+    {
+      skipVerify: true,
+      ...(input.promote ? { promote: true } : {}),
+      restorePlatformPointer: await resolvePointerRestore(account, domain, input.registry),
+    },
   );
   if (!rollback.ok) {
     return {
@@ -299,7 +357,7 @@ async function rollbackBody(
     registryUrl: rollback.registryUrl,
     txHash: rollback.txHash,
     history: historyEntries,
-    ...(slotChecks.length > 0 ? { verification: slotChecks } : {}),
+    ...(remoteChecks.length > 0 ? { verification: remoteChecks } : {}),
   };
 }
 
@@ -327,6 +385,7 @@ async function deployBody(
     imageDigest?: string;
     fullUpload: boolean;
     smoke: boolean;
+    forceRailway: boolean;
   },
 ): Promise<DeployResult> {
   if (input.statusList) {
@@ -431,8 +490,8 @@ async function deployBody(
   const configPublished = {
     registryUrl: result.registryUrl,
     txHash: result.txHash,
-    fingerprint: result.fingerprint,
-    slotPins: result.slotPins,
+    pointerDigest: result.pointerDigest,
+    remoteDigests: result.remoteDigests,
     built: result.built,
     skipped: result.skipped,
     deployResults: result.deployResults,
@@ -455,6 +514,10 @@ async function deployBody(
       ? (session.rawConfig as unknown as Record<string, unknown>)
       : undefined,
     repository: nextSession.config?.repository,
+    release: result.releaseLeg,
+    publishedFrameworkVersion: result.frameworkVersion,
+    diff: result.diff,
+    forceRailway: input.forceRailway,
   });
 
   if (legsOutcome.failure) {

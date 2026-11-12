@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { Data, Deferred, Effect, Option, Ref, Schedule, Schema, Stream } from "effect";
+import { MANIFEST_DOCUMENT_PATTERN } from "every-plugin/ui/manifest/contract";
 import { ShellEnv } from "../../env/project-env";
 import type { RuntimeConfig } from "../../types";
-import { fetchRaw } from "../../utils/http-client";
+import { fetchWithRetryEff } from "../../utils/http-client";
+import { pinnedManifestDocumentUrl, resolveRemoteVersion } from "../deploy/version-manifest";
 import { loadRemoteModule, registerRemote } from "../federation/service";
 import { readInImagePlatformManifest } from "../platform/manifest";
 import { stripAnsi } from "./logs";
@@ -20,12 +22,14 @@ export const markForceExitInFlight = () => {
   forceExitInFlight = true;
 };
 
+const realConsoleError = console.error.bind(console);
+
 process.on("unhandledRejection", (reason) => {
-  console.error("[Orchestrator] Unhandled rejection:", reason);
+  realConsoleError("[Orchestrator] Unhandled rejection:", reason);
 });
 
 process.on("uncaughtException", (err) => {
-  console.error("[Orchestrator] Uncaught exception:", err);
+  realConsoleError("[Orchestrator] Uncaught exception:", err);
   if (forceExitInFlight) process.exit(1);
 });
 
@@ -89,18 +93,14 @@ export interface ProcessState {
   uiPort?: number;
 }
 
-const probeHttpOk = (url: string, timeoutMs = 400) =>
-  Effect.tryPromise({
-    try: async () => {
-      try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-        return res.ok;
-      } catch {
-        return false;
-      }
-    },
-    catch: () => false,
-  });
+// Effect-native probe — no nested Effect.runPromise: fetchRaw's promise
+// bridge intermittently wedges when awaited from inside a running fiber
+// (the readiness fork), stalling the whole boot until the 90s deadline.
+const probeHttpOk = (url: string, timeoutMs = 400, method?: string) =>
+  fetchWithRetryEff(url, { timeout: timeoutMs, retries: 0, ...(method ? { method } : {}) }).pipe(
+    Effect.map((response) => response.ok),
+    Effect.orElseSucceed(() => false),
+  );
 
 const LOCAL_PROBE_DEADLINE_MS = 90_000;
 
@@ -234,7 +234,28 @@ export class LocalPathMissing extends Data.TaggedError("LocalPathMissing")<{ key
   }
 }
 
-const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallbacks) =>
+/** The load-failure marker the shared-singleton resolver throws with — its
+ * bare package error hides the drift story (#874), so the two plane
+ * identities and the remediation ride the same failure detail. */
+const SHARED_DEP_DRIFT_MARKER = "Could not resolve shared dependency";
+
+function hostSkewRemediation(
+  cause: unknown,
+  image: ReturnType<typeof readInImagePlatformManifest>,
+  digest: RuntimeConfig["host"]["digest"],
+  remoteUrl: string,
+): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  if (!message.includes(SHARED_DEP_DRIFT_MARKER)) return "";
+  return (
+    "\nHost release skew — the host bundle's shared singletons do not resolve in this image:\n" +
+    `  image: ${image?.frameworkVersion ?? "unknown"}\n` +
+    `  pin:   ${digest ? `${digest.manifest} at ${remoteUrl}` : `${remoteUrl} (unpinned)`}\n` +
+    "  fix:   bos upgrade && bos deploy — move the release pin and the image together"
+  );
+}
+
+export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallbacks) =>
   Effect.gen(function* () {
     const runtimeConfig = yield* DevRuntimeConfig;
     const remoteUrl = descriptor.remoteUrl;
@@ -249,9 +270,45 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
 
     const baseUrl = remoteUrl
       .replace(/\/remoteEntry\.js$/, "")
-      .replace(/\/mf-manifest\.json$/, "")
+      .replace(MANIFEST_DOCUMENT_PATTERN, "")
       .replace(/\/$/, "");
-    const manifestUrl = `${baseUrl}/mf-manifest.json`;
+    // The host slot is pinned like every other remote (deriveVersionManifestFields
+    // stamps `digest`), and the registered manifest document must come from the
+    // pin's immutable coordinates — the fixed name at the mutable slot root is
+    // the generation-skew tier (#874: a root publish moved bytes the child's
+    // pin never named, and the boot composed them anyway).
+    const slotRootManifestUrl = `${baseUrl}/mf-manifest.json`;
+    const hostPin = runtimeConfig.host.digest;
+    const imageManifest = readInImagePlatformManifest();
+    let manifestUrl = slotRootManifestUrl;
+    if (hostPin) {
+      const resolvedPin = yield* Effect.tryPromise({
+        try: () => resolveRemoteVersion({ base: remoteUrl, digest: hostPin }),
+        catch: (cause) =>
+          new OrchestratorError({
+            operation: "resolve host pin",
+            detail: `${hostPin.manifest} at ${remoteUrl} — ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+            cause,
+          }),
+      }).pipe(
+        // Development keeps the unpinned fallback: an unresolved pin degrades
+        // to the fixed name exactly as deriveVersionManifestFields tolerates
+        // there; published configs fail loud (the pin is the boot contract).
+        Effect.catchTag("OrchestratorError", (error) =>
+          runtimeConfig.env === "development"
+            ? Effect.logWarning(
+                `[host pin] ${hostPin.manifest} failed to resolve, continuing unpinned (development): ${error.detail}`,
+              ).pipe(Effect.as(null))
+            : Effect.fail(error),
+        ),
+      );
+      if (resolvedPin) {
+        manifestUrl = pinnedManifestDocumentUrl(slotRootManifestUrl, resolvedPin);
+        callbacks.onLog(descriptor.key, `Host pin ${hostPin.manifest} → ${manifestUrl}`);
+      }
+    }
 
     // The manifest IS the entry contract (ADR 0020 amendment: hashed
     // entrypoints, fixed-name `remoteEntry.js` retired — it 404s on the CDN).
@@ -259,47 +316,55 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     // silent fallback to remoteEntry.js turned any transient hiccup (a CDN
     // 403 challenge, a timeout) into a guaranteed loadRemote failure with no
     // named cause.
-    const entryUrl = yield* Effect.tryPromise({
-      try: async () => {
-        let res: Response;
-        try {
-          res = await fetchRaw(manifestUrl, undefined, MANIFEST_FETCH_DEADLINE);
-        } catch (e) {
-          throw new OrchestratorError({
-            operation: "fetch host manifest",
-            detail: `${manifestUrl} — ${e instanceof Error ? e.message : String(e)}`,
-            cause: e,
-          });
-        }
-        if (!res.ok) {
-          throw new OrchestratorError({
+    const entryUrl = yield* fetchWithRetryEff(manifestUrl, {
+      timeout: MANIFEST_FETCH_DEADLINE,
+      retries: 0,
+    }).pipe(
+      Effect.filterOrFail(
+        (res) => res.ok,
+        (res) =>
+          new OrchestratorError({
             operation: "fetch host manifest",
             detail: `${manifestUrl} — HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
-          });
-        }
-        const json = (await res.json()) as Record<string, unknown>;
-        if (
-          !json ||
-          typeof json !== "object" ||
-          !("metaData" in json) ||
-          !("exposes" in json) ||
-          !("shared" in json)
-        ) {
-          throw new OrchestratorError({
+          }),
+      ),
+      Effect.flatMap((res) =>
+        Effect.tryPromise({
+          try: () => res.json() as Promise<Record<string, unknown>>,
+          catch: (cause) =>
+            new OrchestratorError({
+              operation: "fetch host manifest",
+              detail: `${manifestUrl} — ${cause instanceof Error ? cause.message : String(cause)}`,
+              cause,
+            }),
+        }),
+      ),
+      Effect.filterOrFail(
+        (json) =>
+          !!json &&
+          typeof json === "object" &&
+          "metaData" in json &&
+          "exposes" in json &&
+          "shared" in json,
+        () =>
+          new OrchestratorError({
             operation: "fetch host manifest",
             detail: `${manifestUrl} — not a Module Federation manifest (missing metaData/exposes/shared)`,
-          });
-        }
-        return manifestUrl;
-      },
-      catch: (cause) =>
+          }),
+      ),
+      Effect.map(() => manifestUrl),
+      Effect.mapError((cause) =>
         cause instanceof OrchestratorError
           ? cause
           : new OrchestratorError({
               operation: "fetch host manifest",
-              detail: `${manifestUrl} — ${String(cause)}`,
+              detail: `${manifestUrl} — ${
+                cause instanceof Error && cause.message ? cause.message : String(cause)
+              }`,
+              cause,
             }),
-    });
+      ),
+    );
 
     yield* Effect.promise(() => registerRemote({ name: "host", entry: entryUrl }));
     callbacks.onLog(descriptor.key, `Loading host from ${entryUrl}...`);
@@ -312,7 +377,9 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       catch: (cause) =>
         new OrchestratorError({
           operation: "load host module",
-          detail: cause instanceof Error ? cause.message : String(cause),
+          detail:
+            `${cause instanceof Error ? cause.message : String(cause)}` +
+            hostSkewRemediation(cause, imageManifest, runtimeConfig.host.digest, remoteUrl),
           cause,
         }),
     }).pipe(
@@ -340,13 +407,12 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     // The serving build's identity (#537): the host remote cannot read the
     // in-image platform manifest itself (its import.meta.url is a CDN URL),
     // so the booting process resolves it once and injects it.
-    const manifest = readInImagePlatformManifest();
-    const platform = manifest
+    const platform = imageManifest
       ? {
-          frameworkVersion: manifest.frameworkVersion,
-          everyPluginVersion: manifest.everyPluginVersion,
-          gitSha: manifest.gitSha,
-          image: manifest.image,
+          frameworkVersion: imageManifest.frameworkVersion,
+          everyPluginVersion: imageManifest.everyPluginVersion,
+          gitSha: imageManifest.gitSha,
+          image: imageManifest.image,
         }
       : undefined;
     const serverHandle = hostModule.runServer({
@@ -726,7 +792,9 @@ const spawnRemoteProbe = (
     const baseUrl = descriptor.url.replace(/\/$/, "");
     const manifestUrl = `${baseUrl}/mf-manifest.json`;
     const entryUrl = `${baseUrl}${descriptor.readinessPath}`;
-    const probeUrl = descriptor.readinessPath === "/health" ? `${baseUrl}/health` : manifestUrl;
+    const probeUrl =
+      descriptor.readinessUrl ??
+      (descriptor.readinessPath === "/health" ? `${baseUrl}/health` : manifestUrl);
 
     yield* Effect.forkScoped(
       Effect.gen(function* () {
@@ -734,7 +802,11 @@ const spawnRemoteProbe = (
           const status = yield* Ref.get(statusRef);
           if (status === "ready" || status === "error") return true;
 
-          const ok = yield* probeHttpOk(probeUrl, REMOTE_PROBE_TIMEOUT_MS);
+          const ok = yield* probeHttpOk(
+            probeUrl,
+            REMOTE_PROBE_TIMEOUT_MS,
+            descriptor.readinessMethod,
+          );
           if (ok) {
             yield* markReady;
             return true;

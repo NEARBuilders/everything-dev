@@ -1,9 +1,15 @@
 import { Context, Effect, Layer } from "effect";
-import { fetchBosConfigFromFastKv } from "everything-dev/fastkv";
-import { pointerFingerprint } from "everything-dev/fingerprint";
-import { verifySriForUrl } from "everything-dev/integrity";
+import { parseRuntimeRef, registryClientShape, runtimeRefOf } from "everything-dev/registry";
+
+const refOf = (bosUrl: string) => {
+  const parsed = parseRuntimeRef(bosUrl);
+  return runtimeRefOf({ accountId: parsed.accountId, gatewayId: parsed.gatewayId });
+};
+
+import { pointerDigest } from "everything-dev/digest";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
-import { resolveSlotVersion } from "everything-dev/version-manifest-resolve";
+import { asDigest, fetchVerified } from "everything-dev/verify";
+import { resolveRemoteVersion } from "everything-dev/version-manifest-resolve";
 import { logger } from "../utils/logger";
 import { ConfigService } from "./config";
 import { RuntimeSnapshot } from "./runtime-snapshot";
@@ -29,12 +35,12 @@ export function watchIntervalMs(): number {
 }
 
 /**
- * The published pointer's version identity: a hash over every slot's
+ * The published pointer's version identity: a hash over every remote's
  * `pin` — cheap to compute (no version-manifest fetch), and stable exactly
- * when the deployed set is. A pointer-fingerprint change is what triggers
+ * when the deployed set is. A pointer-digest change is what triggers
  * the adopt transaction.
  */
-export { pointerFingerprint } from "everything-dev/fingerprint";
+export { pointerDigest } from "everything-dev/digest";
 
 export type WatchTickOutcome = "clean" | "swapped" | "swap-failed" | "pointer-unreachable";
 
@@ -74,7 +80,7 @@ export interface WatchTickDeps {
 
 /**
  * One watch tick (atomic-deploys 08): fetch the published pointer; a
- * fingerprint change → the adopt transaction (derive → pre-warm → verify →
+ * digest change → the adopt transaction (derive → pre-warm → verify →
  * swap — the adopt's own SRI pass covers the entries it adopts). An adopt
  * failure logs and leaves `lastSeen` unchanged so the next tick retries.
  * On the unchanged-pointer path the current entries are SRI-verified each
@@ -100,19 +106,19 @@ export const runWatchTick = (
     );
     if (!pointer) return { lastSeen: deps.lastSeen, outcome: "pointer-unreachable" };
 
-    const fingerprint = pointerFingerprint(pointer);
-    if (fingerprint !== deps.lastSeen) {
+    const digest = pointerDigest(pointer);
+    if (digest !== deps.lastSeen) {
       const adopted = yield* Effect.tryPromise(() => deps.adopt(pointer)).pipe(
         Effect.match({
           onSuccess: (outcome) => {
             if (outcome.status === "swapped") {
-              logger.info(`[SnapshotWatch] snapshot swapped to ${fingerprint}`);
+              logger.info(`[SnapshotWatch] snapshot swapped to ${digest}`);
             }
             return true;
           },
           onFailure: (cause) => {
             logger.error(
-              `[SnapshotWatch] adopt failed for ${fingerprint} — retrying next tick:`,
+              `[SnapshotWatch] adopt failed for ${digest} — retrying next tick:`,
               describeCauseChain(cause),
             );
             return false;
@@ -120,7 +126,7 @@ export const runWatchTick = (
         }),
       );
       return {
-        lastSeen: adopted ? fingerprint : deps.lastSeen,
+        lastSeen: adopted ? digest : deps.lastSeen,
         outcome: adopted ? "swapped" : "swap-failed",
       };
     }
@@ -145,10 +151,10 @@ interface VerifyTarget {
 }
 
 /**
- * SRI-verify the live slots against their derived pins (the monitor's old
- * job, ported): every production slot is pin-derived, so each target URL IS
+ * SRI-verify the live remotes against their derived pins (the monitor's old
+ * job, ported): every production remote is pin-derived, so each target URL IS
  * the (hashed) entry — verified directly, no fixed-name resolution; an
- * extends-ref slot re-reads the PARENT config from FastKV and verifies
+ * extends-ref remote re-reads the PARENT config from FastKV and verifies
  * against the parent's latest pin — an upstream republish is noticed without
  * a restart (the parent's freshly-resolved `entryIntegrity` no longer matches
  * this snapshot's (older) entry bytes).
@@ -211,32 +217,33 @@ async function verifyCurrentEntries(config: RuntimeConfig): Promise<void> {
   for (const target of targets) {
     if (!target.url) continue;
     if (target.extendsRef) {
-      const parentConfig = await fetchBosConfigFromFastKv<Record<string, unknown>>(
-        target.extendsRef,
-      );
-      const parentSlot = getSlotForExtends(parentConfig, target.key);
+      const parentConfig = await registryClientShape.read<Record<string, unknown>>({
+        kind: "runtimeConfig",
+        ref: refOf(target.extendsRef),
+      });
+      const parentRemote = getRemoteForExtends(parentConfig, target.key);
       const parentPin = getPinForExtends(parentConfig, target.key);
       if (parentPin) {
         // resolve the parent's pin to its (possibly newer) entry coordinates
         // and verify this snapshot's (older) entry bytes against them — an
         // upstream republish surfaces as an integrity failure
-        const resolved = await resolveSlotVersion({
-          base: typeof parentSlot?.production === "string" ? parentSlot.production : "",
-          pin: parentPin,
+        const resolved = await resolveRemoteVersion({
+          base: typeof parentRemote?.production === "string" ? parentRemote.production : "",
+          digest: parentPin,
         });
-        await verifySriForUrl(target.url, resolved.entryIntegrity, { resolveEntryUrl: false });
-      } else if (parentSlot && typeof parentSlot.integrity === "string") {
-        await verifySriForUrl(target.url, parentSlot.integrity, { resolveEntryUrl: false });
+        await fetchVerified({ url: target.url, expected: asDigest(resolved.entryIntegrity) });
+      } else if (parentRemote && typeof parentRemote.integrity === "string") {
+        await fetchVerified({ url: target.url, expected: asDigest(parentRemote.integrity) });
       }
       continue;
     }
     if (target.integrity) {
-      await verifySriForUrl(target.url, target.integrity, { resolveEntryUrl: false });
+      await fetchVerified({ url: target.url, expected: asDigest(target.integrity) });
     }
   }
 }
 
-function getSlotForExtends(
+function getRemoteForExtends(
   config: Record<string, unknown>,
   key: string,
 ): Record<string, unknown> | undefined {
@@ -261,8 +268,8 @@ function getPinForExtends(
   config: Record<string, unknown>,
   key: string,
 ): { manifest: string; integrity: string } | undefined {
-  const slot = getSlotForExtends(config, key);
-  const pin = slot?.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+  const remote = getRemoteForExtends(config, key);
+  const pin = remote?.pin as { manifest?: unknown; integrity?: unknown } | undefined;
   if (
     pin &&
     typeof pin.manifest === "string" &&
@@ -308,7 +315,9 @@ export class SnapshotWatch extends Context.Service<
               Effect.runPromiseWith(effectContext)(coordinator.adopt(published)),
             fetchPointer: () =>
               watchTarget
-                ? fetchBosConfigFromFastKv<BosConfig>(watchTarget).catch(() => null)
+                ? registryClientShape
+                    .readOrNull<BosConfig>({ kind: "runtimeConfig", ref: refOf(watchTarget) })
+                    .catch(() => null)
                 : Promise.resolve(null),
             verifyEntries: (current) => verifyCurrentEntries(current),
             lastSeen,

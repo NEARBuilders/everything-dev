@@ -1,0 +1,7 @@
+{
+  "name": "death-contract-fake-b",
+  "private": true,
+  "scripts": {
+    "dev": "node ../../fake-service.mjs"
+  }
+}

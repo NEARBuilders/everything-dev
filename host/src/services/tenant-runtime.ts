@@ -5,9 +5,10 @@ import {
   type RuntimeConfig,
   resolveConfigComposableEntries,
 } from "everything-dev/config";
-import { verifySriForUrl } from "everything-dev/integrity";
+import { resolveEntryUrl } from "everything-dev/integrity";
 import { type ResolutionIo, walkExtendsChain } from "everything-dev/resolution";
 import type { BosConfig, BosConfigInput } from "everything-dev/types";
+import { asDigest, fetchVerified } from "everything-dev/verify";
 import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
 import { resolveDomain } from "../utils/normalize";
@@ -44,8 +45,8 @@ interface CachedRemoteConfig {
 
 interface CachedVerification {
   expiresAt: number;
-  value: Promise<void>;
-  refreshing?: Promise<void>;
+  value: Promise<unknown>;
+  refreshing?: Promise<unknown>;
 }
 
 export interface RequestRuntimeResolution {
@@ -174,7 +175,10 @@ function createVerificationPromise(
   label: string,
   options?: { resolveEntryUrl?: boolean },
 ) {
-  const verification = verifySriForUrl(url, integrity, options).catch((error) => {
+  const verification = fetchVerified({
+    url: options?.resolveEntryUrl === false ? url : resolveEntryUrl(url),
+    expected: asDigest(integrity),
+  }).catch((error) => {
     const cached = verifiedUiCache.get(cacheKey);
     if (cached?.value === verification || cached?.refreshing === verification) {
       verifiedUiCache.delete(cacheKey);

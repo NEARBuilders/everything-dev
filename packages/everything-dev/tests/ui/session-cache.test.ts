@@ -31,9 +31,19 @@ describe("resolveSessionFromCache", () => {
     expect(resolveSessionFromCache(queryClient, staleSession)).toBeNull();
   });
 
-  it("leaves an empty cache alone when the context session is null — unknown, not signed out (#527)", () => {
+  it("seeds the cache from an authoritative-null context session — resolved sign-out", () => {
     const queryClient = new QueryClient();
+    // Tri-state (#689): a null context session means the host's in-process
+    // getContext succeeded with no session — write the same explicit
+    // signed-out entry clearAuthenticatedQueries writes, so SSR renders
+    // signed-out without an edge round-trip.
     expect(resolveSessionFromCache(queryClient, null)).toBeNull();
+    expect(queryClient.getQueryData(sessionQueryKey)).toBeNull();
+  });
+
+  it("leaves the cache empty when the context session is undefined — unresolved (#527)", () => {
+    const queryClient = new QueryClient();
+    expect(resolveSessionFromCache(queryClient, undefined)).toBeUndefined();
     expect(queryClient.getQueryData(sessionQueryKey)).toBeUndefined();
   });
 });

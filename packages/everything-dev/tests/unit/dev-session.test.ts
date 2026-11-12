@@ -88,6 +88,17 @@ const fakeRuntimeConfig = {
   plugins: {},
 } as never;
 
+const remoteRuntimeConfig = {
+  host: { port: 3000, source: "local" },
+  api: { port: 3001, source: "local" },
+  ui: { port: 443, source: "remote" },
+  auth: { port: 443, source: "remote" },
+  plugins: {
+    "remote-widget": { port: 443, source: "remote", ui: { port: 443, source: "remote" } },
+    "local-widget": { port: 3010, source: "local", ui: { port: 3011, source: "local" } },
+  },
+} as never;
+
 const orchestrator = {
   packages: ["api", "host"],
   description: "test session",
@@ -95,7 +106,7 @@ const orchestrator = {
   interactive: false,
 };
 
-const runSession = (deps: DevSessionDeps = {}) => {
+const runSession = (deps: DevSessionDeps = {}, runtimeConfig: unknown = fakeRuntimeConfig) => {
   let handle: DevSessionHandle | null = null;
   const program = Effect.scoped(
     runDevSession(
@@ -115,7 +126,7 @@ const runSession = (deps: DevSessionDeps = {}) => {
             ["api", makeDescriptor("api")],
           ]),
         ),
-        DevRuntimeConfigLive(fakeRuntimeConfig),
+        DevRuntimeConfigLive(runtimeConfig),
         DevGeneratedEnvLive({}),
         ShellEnvLive({}),
         Layer.succeed(DevRenderer, DevRenderer.of({ create: () => mocks.view })),
@@ -220,6 +231,25 @@ describe("runDevSession quit correctness", () => {
     await vi.waitFor(() => {
       expect(registryEntries().filter((e) => e.pid === process.pid).length).toBe(0);
     });
+  });
+
+  it("registers only locally-bound ports — remote extends-chain entries never reach the registry or teardown probe", async () => {
+    const { program, getHandle } = runSession({}, remoteRuntimeConfig);
+    const exitPromise = Effect.runPromiseExit(program);
+
+    await makeAllReady(2);
+    const entry = registryEntries().find((e) => e.pid === process.pid);
+    expect(entry?.ports).toEqual({
+      host: 3000,
+      api: 3001,
+      "plugin:local-widget": 3010,
+      "plugin-ui:local-widget": 3011,
+    });
+
+    getHandle().shutdown("graceful");
+
+    const exit = await exitPromise;
+    expect(Exit.isSuccess(exit)).toBe(true);
   });
 
   it("escalates to force — reap, pipeline flush, exit — when a graceful shutdown overruns its timer", async () => {

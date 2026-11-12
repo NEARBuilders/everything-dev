@@ -1,7 +1,9 @@
 # ADR 0019: Migrations serialize on a journal-scoped Postgres advisory transaction lock
 
 Date: 2026-09-26
-Status: Accepted
+Status: Accepted — the lock mechanism stands; the journal's scope became
+per-workspace in [ADR 0045](./0045-per-workspace-migration-journals.md)
+(the lock coordinate is now the workspace's own journal, not one shared table)
 
 ## Context
 

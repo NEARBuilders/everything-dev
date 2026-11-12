@@ -195,7 +195,7 @@ export const PluginPublishResultSchema = z.object({
     .optional()
     .describe("Block height (or timestamp) of the snapshot from the listing"),
 
-  fingerprint: z.string().optional(),
+  pointerDigest: z.string().optional(),
   error: z.string().optional(),
 });
 
@@ -289,8 +289,8 @@ export const RollbackHistoryEntrySchema = z.object({
   summary: z.string(),
 });
 
-export const RollbackSlotCheckSchema = z.object({
-  slot: z.string(),
+export const RollbackRemoteCheckSchema = z.object({
+  remote: z.string(),
   ok: z.boolean(),
   reason: z.string().optional(),
 });
@@ -301,19 +301,124 @@ export const RollbackResultSchema = z.object({
   txHash: z.string().optional(),
   error: z.string().optional(),
   history: z.array(RollbackHistoryEntrySchema).optional(),
-  verification: z.array(RollbackSlotCheckSchema).optional(),
+  verification: z.array(RollbackRemoteCheckSchema).optional(),
 });
+
+export const PromoteOptionsSchema = z.object({
+  version: z
+    .string()
+    .describe(
+      "The deployment to activate — a block height (or timestamp prefix) from the publish history",
+    ),
+  force: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Allow pre-Phase-A snapshots without verifiable manifest pins (their bytes were overwritten in place)",
+    ),
+  dryRun: z.boolean().default(false).describe("Preview the promotion without publishing"),
+  verbose: z.boolean().default(false).describe("Show full output instead of clean summary"),
+  env: z
+    .enum(["production", "staging"])
+    .default("production")
+    .describe("Environment: production or staging"),
+  network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
+  privateKey: z.string().optional(),
+  wallet: z.boolean().default(false),
+  registry: z
+    .string()
+    .optional()
+    .describe(
+      "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+    ),
+});
+
+export const PromoteResultSchema = RollbackResultSchema;
 
 export const PublishResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
-  fingerprint: z.string().optional(),
-  slotPins: z.record(z.string(), z.string()).optional(),
+  pointerDigest: z.string().optional(),
+  remoteDigests: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
   deployResults: z.array(WorkspaceDeployResultSchema).optional(),
+});
+
+export const LockOptionsSchema = z.object({
+  check: z
+    .boolean()
+    .default(false)
+    .describe("CI gate — exit 1 when the resolved composition differs from bos.lock.json"),
+});
+
+export const LockResultSchema = z.object({
+  status: z.enum(["written", "unchanged", "drift", "error"]),
+  path: z.string(),
+  pointerDigest: z.string().optional(),
+  drift: z.array(z.string()).optional(),
+  error: z.string().optional(),
+  code: z.number().optional(),
+});
+
+export const CleanOptionsSchema = z.object({
+  configDir: z.string().optional().describe("Config directory to clean (defaults to cwd)"),
+  dryRun: z.boolean().default(false).describe("Report what would be removed without deleting"),
+});
+
+export const CleanEntrySchema = z.object({
+  id: z.string(),
+  path: z.string(),
+  bytes: z.number(),
+  action: z.enum(["removed", "would-remove", "kept", "absent"]),
+  reason: z.string().optional(),
+});
+
+export const CleanResultSchema = z.object({
+  status: z.enum(["ok", "error"]),
+  dryRun: z.boolean(),
+  entries: z.array(CleanEntrySchema),
+  freedBytes: z.number(),
+  error: z.string().optional(),
+});
+
+export const SeedOptionsSchema = z.object({
+  configDir: z.string().optional().describe("Config directory (defaults to cwd)"),
+  env: z
+    .enum(["development", "production"])
+    .default("development")
+    .describe(
+      "Target environment — production requires postgres:// database URLs and env-provided owner credentials",
+    ),
+  force: z
+    .boolean()
+    .default(false)
+    .describe("Re-run the owner bootstrap and steps even when the seed marker version matches"),
+  yes: z.boolean().default(false).describe("Skip the production confirmation prompt"),
+});
+
+export const SeedStepOutcomeSchema = z.object({
+  step: z.string(),
+  status: z.enum(["ran", "failed"]),
+  error: z.string().optional(),
+});
+
+export const SeedOwnerOutcomeSchema = z.object({
+  mode: z.enum(["near", "email"]),
+  provisioned: z.boolean(),
+  accountId: z.string(),
+});
+
+export const SeedResultSchema = z.object({
+  status: z.enum(["seeded", "already-seeded", "skipped", "error"]),
+  env: z.enum(["development", "production"]),
+  version: z.number().optional(),
+  workspaces: z.array(z.string()).optional(),
+  owner: SeedOwnerOutcomeSchema.nullable().optional(),
+  steps: z.array(SeedStepOutcomeSchema).optional(),
+  error: z.string().optional(),
 });
 
 export const DeployOptionsSchema = z.object({
@@ -340,6 +445,12 @@ export const DeployOptionsSchema = z.object({
   network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
 
   privateKey: z.string().optional(),
+  wallet: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
+    ),
   service: z.string().optional().describe("Override Railway service name from config"),
 
   registry: z
@@ -376,6 +487,12 @@ export const DeployOptionsSchema = z.object({
     .describe(
       "After publish, boot the runtime image against the just-published config and gate the Railway promotion on it — a red smoke rolls the config back to the previous snapshot",
     ),
+  forceRailway: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Run the Railway redeploy even when the published diff touches only SnapshotWatch-adopted surfaces (ui-only deploys skip it by default)",
+    ),
 });
 
 export const DeployManifestListEntrySchema = z.object({
@@ -395,8 +512,8 @@ export const DeployResultSchema = z.object({
   status: z.enum(["deployed", "published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
-  fingerprint: z.string().optional(),
-  slotPins: z.record(z.string(), z.string()).optional(),
+  pointerDigest: z.string().optional(),
+  remoteDigests: z.record(z.string(), z.string()).optional(),
   history: z.array(DeployManifestListEntrySchema).optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
@@ -688,22 +805,96 @@ export const UpgradeOptionsSchema = z.object({
 
   check: z.boolean().default(false).describe("CI check — exit 1 when updates are available"),
 
-  /** Overwrite conflicted template files (with a backup) instead of refusing. */
+  /** Overwrite conflicted template files (with a backup) instead of refusing.
+   * With the interactive plan (a TTY, no --force) this flag is usually
+   * unnecessary — the plan prompts per file instead. */
   force: z.boolean().default(false),
+
+  /** The approved write set (the interactive plan's file selection, or a
+   * hand-written `--overwrite a,b,c`): an exhaustive filter over the files
+   * the sync would write; conflicted files outside it are preserved. */
+  overwrite: z.array(z.string()).optional(),
+
+  /** Run `bos clean` after a successful upgrade (backups kept). */
+  cleanAfter: z.boolean().default(false),
 
   noInstall: z.boolean().default(false).describe("Skip pnpm install"),
 
   noSync: z.boolean().default(false).describe("Only upgrade packages, skip template sync"),
 
+  noRealign: z
+    .boolean()
+    .default(false)
+    .describe("Skip republishing owned remotes the audit finds built against an older chain"),
+
+  from: z
+    .enum(["v1"])
+    .optional()
+    .describe("v1 train: audit upgrade readiness and rewrite the pre-v2 tree in place"),
+
+  audit: z
+    .boolean()
+    .default(false)
+    .describe("With --from v1: audit only — emit .bos/v2-upgrade-manifest.json, write nothing"),
+
+  maintain: z
+    .array(z.enum(["port-route-guards", "db-topology", "i18n-seam", "compose-seam"]))
+    .optional()
+    .describe(
+      "With --from v1: re-run post-upgrade maintenance steps (regression guards after sync)",
+    ),
+
   json: z.boolean().default(false),
   migrationsOnly: z.boolean().default(false),
-  /** Internal: the pre-upgrade framework version, passed by the re-exec so
-   * the version-delta gate spans both processes. */
-  from: z.string().optional(),
+});
+
+export const UpgradeAuditFindingSchema = z.object({
+  check: z.string(),
+  path: z.string(),
+  severity: z.enum(["blocker", "warn"]),
+  message: z.string(),
+});
+
+export const UpgradeAuditManifestSchema = z.object({
+  tier: z.enum(["A", "B"]),
+  blockerCount: z.number(),
+  warnCount: z.number(),
+  deleteFiles: z.array(z.string()).readonly(),
+  importRewrites: z
+    .array(z.object({ from: z.string(), to: z.string(), files: z.array(z.string()).readonly() }))
+    .readonly(),
+  configKeys: z.array(z.string()).readonly(),
+  routerSeam: z.enum(["monolithic", "authored-seam", "unknown", "absent"]),
+  authoredConfigTarget: z.string(),
+  plugins: z
+    .array(
+      z.object({
+        name: z.string(),
+        hasBackend: z.boolean(),
+        hasWeb: z.boolean(),
+        extendsParent: z.boolean(),
+        variables: z.array(z.string()).readonly(),
+        secrets: z.array(z.string()).readonly(),
+      }),
+    )
+    .readonly(),
+  db: z.object({
+    schemaFile: z.string().nullable(),
+    migrationsDir: z.string().nullable(),
+  }),
 });
 
 export const UpgradeResultSchema = z.object({
-  status: z.enum(["upgraded", "dry-run", "error"]),
+  status: z.enum([
+    "upgraded",
+    "dry-run",
+    "error",
+    "already-upgraded",
+    "gate-blocked",
+    "audit",
+    /** The interactive plan's explicit decline — nothing was written. */
+    "cancelled",
+  ]),
   packages: z.array(
     z.object({
       name: z.string(),
@@ -715,23 +906,46 @@ export const UpgradeResultSchema = z.object({
   migrated: z.array(z.string()).optional(),
   availablePlugins: z.array(z.string()).optional(),
   /** The resolved platform release manifest when one publishes (ADR 0034). */
-  platform: z
+  release: z
     .object({
       resolved: z.string(),
       source: z.string(),
       fromCache: z.boolean(),
+      /** version = the immutable version record (an exact authored release's
+       * target); pointer = the moving platform.json tag (latest resolution) —
+       * #574. */
+      provenance: z.enum(["record", "pointer"]).optional(),
     })
     .optional(),
   /** Dry-run/check only: whether any update is available. */
   updatesAvailable: z.boolean().optional(),
+  selectedPlugins: z.array(z.string()).optional(),
+  audit: z
+    .object({
+      tier: z.enum(["A", "B"]),
+      findings: z.array(UpgradeAuditFindingSchema).readonly(),
+      manifest: UpgradeAuditManifestSchema,
+    })
+    .optional(),
+  blockers: z.array(UpgradeAuditFindingSchema).readonly().optional(),
+  notes: z.array(z.string()).optional(),
+  /** Owned remotes republished after the version delta (the audit's
+   * "built against an older chain" repair, executed). */
+  realignment: z
+    .object({
+      keys: z.array(z.string()),
+      realigned: z.array(z.string()),
+      failures: z.array(z.object({ key: z.string(), error: z.string() })),
+    })
+    .optional(),
   timings: z.array(PhaseTimingSchema).optional(),
   changelogUrl: z.string().optional(),
   error: z.string().optional(),
 });
 
 export const DeployedVersionStatusSchema = z.object({
-  publishedFingerprint: z.string(),
-  servedFingerprint: z.string().optional(),
+  publishedDigest: z.string(),
+  servedDigest: z.string().optional(),
   inSync: z.boolean(),
   error: z.string().optional(),
 });
@@ -943,14 +1157,29 @@ export const MfCheckRemoteResultSchema = z.object({
   reason: z.string().optional(),
 });
 
+export const MfCheckUiRemoteSchema = z.object({
+  remote: z.string(),
+  url: z.string(),
+  reachable: z.boolean(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
 export const MfCheckResultSchema = z.object({
   status: z.enum(["ok", "fail"]),
   hostVersion: z.string().nullable(),
   hostReachable: z.boolean(),
   hostReason: z.string().optional(),
   remotes: z.array(MfCheckRemoteResultSchema),
-  /** The platform compat gate (ADR 0034 pt 5) — present when a release manifest resolves. */
-  platform: z
+  /** The UI composition compat gate (#546) — present when UI remotes exist. */
+  ui: z
+    .object({
+      ok: z.boolean(),
+      remotes: z.array(MfCheckUiRemoteSchema),
+    })
+    .optional(),
+  /** The release compat gate (ADR 0034 pt 5) — present when a release manifest resolves. */
+  manifest: z
     .object({
       ok: z.boolean(),
       violations: z.array(PlatformCompatViolationSchema),
@@ -958,25 +1187,149 @@ export const MfCheckResultSchema = z.object({
     .optional(),
 });
 
-export const PlatformManifestOptionsSchema = z.object({
+export const ManifestOptionsSchema = z.object({
   check: z
     .boolean()
     .default(false)
-    .describe("Also run the platform compat check against the local workspace"),
+    .describe("Also run the release compat check against the local workspace"),
 });
 
-export const PlatformManifestResultSchema = z.object({
+export const VerifyFileMismatchSchema = z.object({
+  file: z.string(),
+  expected: z.string(),
+  actual: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const VerifyRemoteResultSchema = z.object({
+  remote: z.string(),
+  base: z.string(),
+  manifest: z.string(),
+  manifestOk: z.boolean(),
+  manifestReason: z.string().optional(),
+  /** attribution leg (ADR 0046 ticket 05) — present only when the walked
+   * config demands attribution (`publish.verification`) */
+  signature: z
+    .object({
+      ok: z.boolean(),
+      reason: z.string().optional(),
+    })
+    .optional(),
+  /** the immutable version directory the pin resolves into (absent on legacy pins) */
+  dir: z.string().optional(),
+  legacy: z.boolean(),
+  filesChecked: z.number(),
+  mismatches: z.array(VerifyFileMismatchSchema),
+});
+
+export const VerifyChainEntryResultSchema = z.object({
+  remote: z.string(),
+  url: z.string(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
+export const VerifyFreshnessSchema = z.object({
+  behind: z.boolean(),
+  pinned: z.string().optional(),
+  published: z.string().optional(),
+  message: z.string(),
+});
+
+export const VerifyOptionsSchema = z.object({
+  json: z.boolean().default(false).describe("Print the report as JSON"),
+  registry: z.string().optional().describe("Registry base URL override"),
+  depth: z
+    .enum(["pointer", "entries", "files"])
+    .default("files")
+    .describe(
+      "How deep the chain walk goes: pointer = the pinned manifest documents; entries = + the pinned remoteEntry/ssr bytes; files = + every file in each manifest's files map (the full sweep)",
+    ),
+});
+
+export const VerifyResultSchema = z.object({
+  /** fail = a pin no longer resolves byte-for-byte (rot); drift = behind the
+   * parent's release (advisory — never blocks); ok = verified */
+  status: z.enum(["ok", "drift", "fail"]),
+  remotes: z.array(VerifyRemoteResultSchema),
+  entries: z.array(VerifyChainEntryResultSchema).optional(),
+  freshness: VerifyFreshnessSchema.optional(),
+  error: z.string().optional(),
+});
+
+export const ManifestResultSchema = z.object({
   status: z.enum(["ok", "absent", "fail"]),
   version: z.string().nullable(),
   source: z.string().optional(),
   fromCache: z.boolean().optional(),
+  /** remote = immutable version remote (an exact pin's target); pointer = the
+   * moving manifest.json thin tag (unpinned resolution) — #574. *
+  provenance: z.enum(["record", "pointer"]).optional(),
   error: z.string().optional(),
+  /** Set when the authored release no longer matches anything in the
+   * extends chain — the root republished past it (issue #546). */
+  drift: z
+    .object({
+      pinned: z.string(),
+      published: z.string(),
+    })
+    .optional(),
   compat: z
     .object({
       ok: z.boolean(),
       violations: z.array(PlatformCompatViolationSchema),
     })
     .optional(),
+});
+
+export const SecretsSetOptionsSchema = z.object({
+  name: z.string().describe("Secret name (UPPER_SNAKE_CASE; BOS_* and PORT are reserved)"),
+  value: z.string().optional().describe("Secret value — omitted: hidden prompt (TTY)"),
+  site: z
+    .string()
+    .optional()
+    .describe("Override the vault site (default: the session credential's site)"),
+});
+
+export const SecretsSetResultSchema = z.object({
+  status: z.enum(["set", "error"]),
+  name: z.string().optional(),
+  siteUrl: z.string().optional(),
+  warning: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const SecretsListOptionsSchema = z.object({
+  account: z.string().optional().describe("Target runtime account (default: the declared config)"),
+  gateway: z.string().optional().describe("Target runtime gateway (default: the declared domain)"),
+  site: z.string().optional(),
+});
+
+export const SecretsListResultSchema = z.object({
+  status: z.enum(["listed", "error"]),
+  secrets: z
+    .array(
+      z.object({
+        name: z.string(),
+        state: z.enum(["set", "missing", "undeclared"]),
+      }),
+    )
+    .optional(),
+  missing: z.array(z.string()).optional(),
+  siteUrl: z.string().optional(),
+  warning: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const SecretsRemoveOptionsSchema = z.object({
+  name: z.string().describe("Secret name to remove"),
+  yes: z.boolean().default(false).describe("Skip the confirmation prompt"),
+});
+
+export const SecretsRemoveResultSchema = z.object({
+  status: z.enum(["removed", "not-found", "error"]),
+  name: z.string().optional(),
+  error: z.string().optional(),
 });
 
 export const commandOptionSchemas = {
@@ -989,7 +1342,11 @@ export const commandOptionSchemas = {
   pluginRemove: PluginRemoveOptionsSchema,
   pluginPublish: PluginPublishOptionsSchema,
   publish: PublishOptionsSchema,
+  lock: LockOptionsSchema,
+  clean: CleanOptionsSchema,
+  seed: SeedOptionsSchema,
   rollback: RollbackOptionsSchema,
+  promote: PromoteOptionsSchema,
   deploy: DeployOptionsSchema,
   smoke: SmokeOptionsSchema,
   login: LoginOptionsSchema,
@@ -1000,7 +1357,11 @@ export const commandOptionSchemas = {
   typecheck: TypecheckOptionsSchema,
   typesGen: TypesGenOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
-  platformManifest: PlatformManifestOptionsSchema,
+  manifest: ManifestOptionsSchema,
+  verify: VerifyOptionsSchema,
+  secretsSet: SecretsSetOptionsSchema,
+  secretsList: SecretsListOptionsSchema,
+  secretsRemove: SecretsRemoveOptionsSchema,
   dbStudio: DbStudioOptionsSchema,
   dbDoctor: DbDoctorOptionsSchema,
   dbRepair: DbRepairOptionsSchema,
@@ -1043,10 +1404,26 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/publish" })
     .input(PublishOptionsSchema)
     .output(PublishResultSchema),
+  lock: oc
+    .route({ method: "POST", path: "/lock" })
+    .input(LockOptionsSchema)
+    .output(LockResultSchema),
+  clean: oc
+    .route({ method: "POST", path: "/clean" })
+    .input(CleanOptionsSchema)
+    .output(CleanResultSchema),
+  seed: oc
+    .route({ method: "POST", path: "/seed" })
+    .input(SeedOptionsSchema)
+    .output(SeedResultSchema),
   rollback: oc
     .route({ method: "POST", path: "/rollback" })
     .input(RollbackOptionsSchema)
     .output(RollbackResultSchema),
+  promote: oc
+    .route({ method: "POST", path: "/promote" })
+    .input(PromoteOptionsSchema)
+    .output(PromoteResultSchema),
   deploy: oc
     .route({ method: "POST", path: "/deploy" })
     .input(DeployOptionsSchema)
@@ -1109,10 +1486,33 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/mf/check" })
     .input(MfCheckOptionsSchema)
     .output(MfCheckResultSchema),
-  platformManifest: oc
-    .route({ method: "POST", path: "/platform/manifest" })
-    .input(PlatformManifestOptionsSchema)
-    .output(PlatformManifestResultSchema),
+  manifest: oc
+    .route({ method: "POST", path: "/manifest" })
+    .input(ManifestOptionsSchema)
+    .output(ManifestResultSchema),
+  verify: oc
+    .route({
+      method: "POST",
+      path: "/verify",
+      summary: "Verify published pins against served bytes",
+      description:
+        "The drift alarm (#826): for every pinned remote, SRI-verify the pinned version manifest and hash every file it names against the served bytes. Rot (any mismatch) fails; being behind the parent's release is advisory only.",
+      tags: ["Deploy"],
+    })
+    .input(VerifyOptionsSchema)
+    .output(VerifyResultSchema),
+  secretsSet: oc
+    .route({ method: "POST", path: "/secrets/set" })
+    .input(SecretsSetOptionsSchema)
+    .output(SecretsSetResultSchema),
+  secretsList: oc
+    .route({ method: "POST", path: "/secrets/list" })
+    .input(SecretsListOptionsSchema)
+    .output(SecretsListResultSchema),
+  secretsRemove: oc
+    .route({ method: "POST", path: "/secrets/remove" })
+    .input(SecretsRemoveOptionsSchema)
+    .output(SecretsRemoveResultSchema),
 });
 
 export type DevOptions = z.infer<typeof DevOptionsSchema>;
@@ -1131,7 +1531,14 @@ export type PluginPublishResult = z.infer<typeof PluginPublishResultSchema>;
 export type WorkspaceDeployResult = z.infer<typeof WorkspaceDeployResultSchema>;
 export type PublishOptions = z.infer<typeof PublishOptionsSchema>;
 export type PublishResult = z.infer<typeof PublishResultSchema>;
+export type LockOptions = z.infer<typeof LockOptionsSchema>;
+export type LockResult = z.infer<typeof LockResultSchema>;
+export type CleanResult = z.infer<typeof CleanResultSchema>;
+export type SeedOptions = z.infer<typeof SeedOptionsSchema>;
+export type SeedResult = z.infer<typeof SeedResultSchema>;
 export type RollbackResult = z.infer<typeof RollbackResultSchema>;
+export type PromoteOptions = z.infer<typeof PromoteOptionsSchema>;
+export type PromoteResult = z.infer<typeof PromoteResultSchema>;
 export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
 export type DeployResult = z.infer<typeof DeployResultSchema>;
 export type DeployLegOutcome = z.infer<typeof DeployLegOutcomeSchema>;
@@ -1174,6 +1581,12 @@ export type TypecheckResult = z.infer<typeof TypecheckResultSchema>;
 export type TypecheckWorkspaceResult = z.infer<typeof TypecheckWorkspaceResultSchema>;
 export type MfCheckOptions = z.infer<typeof MfCheckOptionsSchema>;
 export type MfCheckResult = z.infer<typeof MfCheckResultSchema>;
+export type SecretsSetOptions = z.infer<typeof SecretsSetOptionsSchema>;
+export type SecretsSetResult = z.infer<typeof SecretsSetResultSchema>;
+export type SecretsListOptions = z.infer<typeof SecretsListOptionsSchema>;
+export type SecretsListResult = z.infer<typeof SecretsListResultSchema>;
+export type SecretsRemoveOptions = z.infer<typeof SecretsRemoveOptionsSchema>;
+export type SecretsRemoveResult = z.infer<typeof SecretsRemoveResultSchema>;
 
 export type CliCommandMeta = {
   commandPath?: string[];
@@ -1249,10 +1662,37 @@ export const cliCommandMeta = {
       "Publish the current workspace configuration (no build — use bos deploy for the full train)",
     interactive: false,
   },
+  lock: {
+    commandPath: ["lock"],
+    summary:
+      "Freeze the resolved composition into bos.lock.json (--check verifies drift for CI — exit 1)",
+    interactive: false,
+  },
+  clean: {
+    commandPath: ["clean"],
+    summary:
+      "Remove regenerable .bos state (logs, staging, caches) — never db, session, ports, deploy-state (--dry-run previews)",
+    interactive: false,
+  },
+  seed: {
+    commandPath: ["seed"],
+    summary:
+      "Run the declared seed (auth owner admin first, then steps) — dev by default; production requires postgres:// URLs, env-provided owner credentials, and confirmation",
+    interactive: true,
+  },
   rollback: {
     commandPath: ["rollback"],
     summary: "Republish an earlier config snapshot from the registry publish history",
     interactive: true,
+  },
+  promote: {
+    commandPath: ["promote"],
+    summary:
+      "Activate a recorded deployment without rebuilding — verified republish, no rollback branding (the lockfile + pointer ride the train)",
+    interactive: false,
+    fields: {
+      version: { positional: true },
+    },
   },
   deploy: {
     commandPath: ["deploy"],
@@ -1317,11 +1757,40 @@ export const cliCommandMeta = {
       "Verify Module Federation runtime compatibility across published host + plugin bundles",
     interactive: false,
   },
-  platformManifest: {
-    commandPath: ["platform", "manifest"],
+  manifest: {
+    commandPath: ["manifest"],
     summary:
-      "Show the platform release manifest — the booted host or the resolved release self-describes (ADR 0034)",
+      "Show the release manifest — the booted host or the resolved release self-describes (ADR 0034)",
     interactive: false,
+  },
+  verify: {
+    commandPath: ["verify"],
+    summary:
+      "Verify published pins against served bytes — SRI the manifests, hash every pinned file (drift alarm, #826)",
+    interactive: false,
+  },
+  secretsSet: {
+    commandPath: ["secrets", "set"],
+    summary:
+      "Store a runtime secret in the deploy console's vault — sealed at rest, never echoed back",
+    interactive: true,
+    fields: {
+      name: { positional: true },
+    },
+  },
+  secretsList: {
+    commandPath: ["secrets", "list"],
+    summary:
+      "List the runtime's secrets as names + set/missing status against the declared config (never values)",
+    interactive: false,
+  },
+  secretsRemove: {
+    commandPath: ["secrets", "remove"],
+    summary: "Remove a runtime secret from the vault",
+    interactive: true,
+    fields: {
+      name: { positional: true },
+    },
   },
   dbStudio: {
     commandPath: ["db", "studio"],

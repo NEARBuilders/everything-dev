@@ -1,6 +1,7 @@
 import type { Implementer } from "@orpc/server";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
+import { RateLimiterTag } from "../service-types";
 import { mapDomainError } from "../services/domain-errors";
 import { OnboardingService } from "../services/onboarding";
 
@@ -13,6 +14,8 @@ export function createOnboardingHandlers(
       input,
       context,
     }) {
+      const limiter = yield* RateLimiterTag;
+      yield* mapDomainError(limiter.enforce("createOnboardingCode", context.userId));
       const onboarding = yield* OnboardingService;
       return yield* mapDomainError(onboarding.createOnboardingCode(context, input));
     }),
@@ -72,10 +75,28 @@ export function createOnboardingHandlers(
       return yield* mapDomainError(onboarding.getOnboardingCodeInfo(input.code));
     }),
 
+    rotateStandingOnboardingCode: builder.rotateStandingOnboardingCode
+      .use(requireAuth)
+      .effect(function* ({ input, context }) {
+        const limiter = yield* RateLimiterTag;
+        yield* mapDomainError(limiter.enforce("createOnboardingCode", context.userId));
+        const onboarding = yield* OnboardingService;
+        return yield* mapDomainError(onboarding.rotateStandingOnboardingCode(context, input));
+      }),
+
+    getStandingOnboardingCode: builder.getStandingOnboardingCode
+      .use(requireAuth)
+      .effect(function* ({ input, context }) {
+        const onboarding = yield* OnboardingService;
+        return yield* mapDomainError(onboarding.getStandingOnboardingCode(context, input));
+      }),
+
     redeemOnboardingCode: builder.redeemOnboardingCode.use(requireAuth).effect(function* ({
       input,
       context,
     }) {
+      const limiter = yield* RateLimiterTag;
+      yield* mapDomainError(limiter.enforce("redeemOnboardingCode", context.userId));
       const onboarding = yield* OnboardingService;
       return yield* mapDomainError(onboarding.redeemOnboardingCode(context, input.code));
     }),

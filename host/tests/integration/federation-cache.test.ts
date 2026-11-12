@@ -12,14 +12,15 @@ const createInstanceMock = vi.fn((options?: { name?: string; remotes?: unknown[]
   moduleCache: new Map(),
   options: { name: options?.name ?? "host-ssr-compose", remotes: options?.remotes ?? [] },
 }));
-const verifySriForUrlMock = vi.fn();
+const fetchVerifiedMock = vi.fn();
 
 vi.mock("@module-federation/enhanced/runtime", () => ({
   createInstance: createInstanceMock,
 }));
 
-vi.mock("everything-dev/integrity", () => ({
-  verifySriForUrl: verifySriForUrlMock,
+vi.mock("everything-dev/verify", () => ({
+  asDigest: (sri: string) => sri,
+  fetchVerified: fetchVerifiedMock,
 }));
 
 const {
@@ -81,7 +82,7 @@ describe("loadRouterModule cache", () => {
   beforeEach(async () => {
     await startFederationLifecycle();
     vi.clearAllMocks();
-    verifySriForUrlMock.mockResolvedValue(undefined);
+    fetchVerifiedMock.mockResolvedValue(undefined);
   });
 
   it("reloads the router module when the deployed SSR coordinates change", async () => {
@@ -120,18 +121,14 @@ describe("loadRouterModule cache", () => {
         alias: "ui",
       },
     ]);
-    expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
-      1,
-      "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
-      "sha384-ssr-a",
-      { resolveEntryUrl: false },
-    );
-    expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
-      2,
-      "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
-      "sha384-ssr-b",
-      { resolveEntryUrl: false },
-    );
+    expect(fetchVerifiedMock).toHaveBeenNthCalledWith(1, {
+      url: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+      expected: "sha384-ssr-a",
+    });
+    expect(fetchVerifiedMock).toHaveBeenNthCalledWith(2, {
+      url: "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
+      expected: "sha384-ssr-b",
+    });
   });
 
   it("reuses the router module when remote SSR integrity stays the same", async () => {
@@ -157,7 +154,7 @@ describe("loadRouterModule cache", () => {
     expect(first).toBe(router.default);
     expect(second).toBe(router.default);
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
-    expect(verifySriForUrlMock).toHaveBeenCalledTimes(1);
+    expect(fetchVerifiedMock).toHaveBeenCalledTimes(1);
   });
 
   it("fails loudly for local ui without an SSR entry — source composition owns that path", async () => {
@@ -197,7 +194,7 @@ describe("loadRouterModule cache", () => {
     expect(second).toBe(routerTwo.default);
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
     expect(loadRemoteMock).toHaveBeenCalledTimes(2);
-    expect(verifySriForUrlMock).not.toHaveBeenCalled();
+    expect(fetchVerifiedMock).not.toHaveBeenCalled();
   });
 
   it("reuses the MF instance across cached reloads of the same remote", async () => {
@@ -245,7 +242,7 @@ describe("ui expose loads (routeConfig / compose)", () => {
   beforeEach(async () => {
     await startFederationLifecycle();
     vi.clearAllMocks();
-    verifySriForUrlMock.mockResolvedValue(undefined);
+    fetchVerifiedMock.mockResolvedValue(undefined);
   });
 
   function uiEntry(options?: { ssrUrl?: string; localPath?: string }) {
@@ -273,7 +270,7 @@ describe("ui expose loads (routeConfig / compose)", () => {
     expect(instanceOptions?.remotes?.[0]?.entry).toBe(
       "http://localhost:4113/remoteEntry.server.js",
     );
-    expect(verifySriForUrlMock).not.toHaveBeenCalled();
+    expect(fetchVerifiedMock).not.toHaveBeenCalled();
   });
 
   it("loads the core compose module without default-unwrap (named constructTree)", async () => {

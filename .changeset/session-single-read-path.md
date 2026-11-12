@@ -1,6 +1,5 @@
 ---
 "everything-dev": patch
-"@everything-dev/auth-plugin": patch
 ---
 
 fix(auth): single authoritative session read path — post-sign-in redirect loop

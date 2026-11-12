@@ -46,6 +46,21 @@ export type SharedDepConfig = SharedConfig;
 export const SharedDepConfigSchema = SharedConfigSchema;
 export const SharedDepMapSchema = z.record(z.string(), SharedConfigSchema);
 
+/**
+ * Remote digest (atomic-deploys): an explicit pointer to the remote's
+ * immutable per-deploy WorkspaceVersionManifest — `manifest` is the versioned
+ * manifest filename relative to the remote's production base, `integrity` is
+ * that document's SRI. Resolving the digest derives the remote's entry-level
+ * fields (`entryUrl`, entry integrity, ssr entry). A remote without a
+ * `digest` uses its top-level `integrity` as a direct entry SRI (fixed-name
+ * remotes only).
+ */
+export const RemoteDigestSchema = z.object({
+  manifest: z.string().min(1),
+  integrity: z.string().min(1),
+});
+export type RemoteDigest = z.infer<typeof RemoteDigestSchema>;
+
 export const FederationEntrySchema = z.object({
   name: z.string(),
   url: z.string(),
@@ -56,25 +71,25 @@ export const FederationEntrySchema = z.object({
   entryUrl: z.string().optional(),
   source: SourceModeSchema,
   integrity: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests — the
+   * integrity-in-pipeline registry's keying source (#642 revival, ADR 0046
+   * ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
+  /** The slot's pin coordinates (what is pinned) — stamped at resolution so
+   * the serving-generation digest derives from pointer inputs + resolved
+   * coordinates (ADR 0046 ticket 04). */
+  digest: RemoteDigestSchema.optional(),
 });
 export type FederationEntry = z.infer<typeof FederationEntrySchema>;
 
-/**
- * Slot pin (atomic-deploys): an explicit pointer to the slot's immutable
- * per-deploy WorkspaceVersionManifest — `manifest` is the versioned manifest
- * filename relative to the slot's production base, `integrity` is that
- * document's SRI. Resolving the pin derives the slot's entry-level fields
- * (`entryUrl`, entry integrity, ssr entry). A slot without a `pin` uses its
- * top-level `integrity` as a direct entry SRI (fixed-name slots only).
- */
-export const SlotPinSchema = z.object({
-  manifest: z.string().min(1),
-  integrity: z.string().min(1),
-});
-export type SlotPin = z.infer<typeof SlotPinSchema>;
-
 export const PluginUiConfigSchema = z.object({
-  name: z.string(),
+  // Optional (#800): the release-scoped stamper canonicalizes inherited
+  // remotes to the digest-bearing descriptor `{ production, digest }` — no
+  // name. Resolution derives the runtime container name from the plugin
+  // workspace, never from this field (resolveUiRuntimeName), so a nameless
+  // stamped ui is valid everywhere the schema is enforced — including
+  // BootSnapshotSchema's re-parse of the stored config.
+  name: z.string().optional(),
   development: z.string().optional(),
   production: z.string().optional(),
   /** browser-facing base overriding `production` when server-side loading
@@ -84,7 +99,7 @@ export const PluginUiConfigSchema = z.object({
   integrity: z.string().optional(),
   ssr: z.string().optional(),
   ssrIntegrity: z.string().optional(),
-  pin: SlotPinSchema.optional(),
+  digest: RemoteDigestSchema.optional(),
 });
 export type PluginUiConfig = z.infer<typeof PluginUiConfigSchema>;
 
@@ -100,8 +115,9 @@ export const ComposableAppEntrySchema = z.object({
   routes: z.array(z.string()).optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
-  ui: PluginUiConfigSchema.optional(),
-  pin: SlotPinSchema.optional(),
+  /** `false` opts a consumer out of the ui the extended provider attaches */
+  ui: z.union([PluginUiConfigSchema, z.literal(false)]).optional(),
+  digest: RemoteDigestSchema.optional(),
 });
 export type ComposableAppEntry = z.infer<typeof ComposableAppEntrySchema>;
 
@@ -115,6 +131,9 @@ export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
   app: z.record(z.string(), z.unknown()).optional(),
   plugins: z.record(z.string(), z.unknown()).optional(),
   dependsOn: z.array(z.string()).optional(),
+  /** `bos://account/gateway[#target]` — call-only attachments locate their
+   * contract types here; see PluginAttachmentRefSchema. */
+  contract: z.string().optional(),
 });
 export type BosPluginRef = z.infer<typeof BosPluginRefSchema>;
 export type PluginEntryValue = string | BosPluginRef;
@@ -125,6 +144,10 @@ const PluginRuntimeUiSchema = z.object({
   url: z.string(),
   entry: z.string(),
   source: SourceModeSchema,
+  /** The slot's pin coordinates (what is pinned) — stamped at resolution so
+   * the serving-generation digest derives from pointer inputs + resolved
+   * coordinates (ADR 0046 ticket 04). */
+  digest: RemoteDigestSchema.optional(),
   /** browser-facing base; when set the client config serves this instead of
    * `url` (server-side loading keeps `url`) */
   publicUrl: z.string().optional(),
@@ -143,6 +166,15 @@ const PluginRuntimeUiSchema = z.object({
    * manifest against it so a host resolving an older pin never silently
    * mixes newer manifest bytes into its composed tree */
   manifestIntegrity: z.string().optional(),
+  /** The compose manifest URL resolved through the pin's immutable version
+   * directory (#826) — absent for local slots and legacy pins, which read
+   * the fixed name at the slot root */
+  manifestUrl: z.string().optional(),
+  /** Shared-singleton `name → version` the pinned build embedded (#546) —
+   * the host's composition guard cross-compares it across UI sources before
+   * loading, so a platform skew fails with a named error instead of the
+   * federation runtime's cryptic singleton error. */
+  sharedVersions: z.record(z.string(), z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
 });
 export type PluginRuntimeUi = z.infer<typeof PluginRuntimeUiSchema>;
@@ -160,11 +192,22 @@ export const RuntimePluginConfigSchema = z.object({
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
   entryUrl: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests (hashed
+   * entry, ssr entry, files-map entries) — the integrity-in-pipeline
+   * registry's keying source (#642 revival, ADR 0046 ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
+  /** The slot's pin coordinates (what is pinned) — stamped at resolution so
+   * the serving-generation digest derives from pointer inputs + resolved
+   * coordinates (ADR 0046 ticket 04). */
+  digest: RemoteDigestSchema.optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
   ui: PluginRuntimeUiSchema.optional(),
   routes: z.array(z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
+  /** Call-only attachment: traffic endpoint is `url` (authored `proxy`),
+   * types locator is `contractUrl` — the contract ref's stamped production. */
+  contractUrl: z.string().optional(),
 });
 export type RuntimePluginConfig = z.infer<typeof RuntimePluginConfigSchema>;
 
@@ -186,12 +229,22 @@ export const RuntimeDependencyNodeSchema = z.object({
   variables: JsonObjectSchema.optional(),
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
+  /** Resolved artifact URL → SRI for everything the pin attests — the
+   * integrity-in-pipeline registry's keying source (#642 revival, ADR 0046
+   * ticket 03). */
+  integrityMap: z.record(z.string(), z.string()).optional(),
+  /** The slot's pin coordinates (what is pinned) — stamped at resolution so
+   * the serving-generation digest derives from pointer inputs + resolved
+   * coordinates (ADR 0046 ticket 04). */
+  digest: RemoteDigestSchema.optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
   ui: PluginRuntimeUiSchema.optional(),
   routes: z.array(z.string()).optional(),
   sourceOrigin: z.enum(["config", "manifest"]).optional(),
   singletonKey: z.string().optional(),
+  /** Call-only attachment (see RuntimePluginConfigSchema.contractUrl) */
+  contractUrl: z.string().optional(),
 });
 export type RuntimeDependencyNode = z.infer<typeof RuntimeDependencyNodeSchema>;
 
@@ -206,19 +259,22 @@ export const UiConfigSchema = z
     integrity: z.string().optional(),
     ssr: z.string().optional(),
     ssrIntegrity: z.string().optional(),
-    pin: SlotPinSchema.optional(),
+    digest: RemoteDigestSchema.optional(),
   })
   .strict();
 export type UiConfig = z.infer<typeof UiConfigSchema>;
 
 export const HostConfigSchema = z.object({
-  development: z.string(),
+  /** The host slot is local to the running image — published configs strip
+   * workspace-relative `local:` targets (publish canonicalization, #584), so
+   * production reads omit `development` entirely. */
+  development: z.string().optional(),
   /** Deploy state (ADR 0005) — absent until the first publish writes it. */
   production: z.string().optional(),
   /** direct entry SRI — only for slots without a `pin` */
   integrity: z.string().optional(),
   secrets: z.array(z.string()).optional(),
-  pin: SlotPinSchema.optional(),
+  digest: RemoteDigestSchema.optional(),
 });
 export type HostConfig = z.infer<typeof HostConfigSchema>;
 
@@ -279,9 +335,19 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     publish: z
       .object({
         auth: z.enum(["session", "key", "custody"]).optional(),
+        /** Manifest attribution key record (ADR 0046 ticket 05) — mirrors
+         * PublishConfigSchema.verification; the chain walker reads it from
+         * the config it walks (authored or published — publish survives
+         * canonicalization because children inherit it). */
+        verification: z
+          .union([z.object({ publicKey: z.string().min(1) }), z.literal("off")])
+          .optional(),
       })
       .optional(),
-    platform: z.string().optional(),
+    /** The authored release (ADR 0034): the exact framework version this app targets. */
+    release: z.string().optional(),
+    /** The authored seed declaration (#865). */
+    seed: SeedConfigSchema.optional(),
     ci: CiConfigSchema.optional(),
     cdn: CdnConfigSchema.optional(),
   }),
@@ -339,12 +405,16 @@ export interface BosConfigInput {
   app?: Record<string, BosConfigInputAppEntry>;
   plugins?: Record<string, string | BosConfigInput>;
   publish?: PublishConfig;
-  /** The child's exact platform pin — one field, everything derived (ADR 0034). */
-  platform?: string;
+  /** The child's authored release — one field, everything derived (ADR 0034). */
+  release?: string;
+  /** The authored seed declaration (#865). */
+  seed?: SeedConfig;
   ci?: CiConfig;
   cdn?: CdnConfig;
   rolledBackFrom?: string;
-  starter?: ParentStarterConfig;
+  /** Parent-published starter-pruning metadata — or the child's own
+   * authoring-only starter level (descriptor `starter`, #565). */
+  starter?: ParentStarterConfig | StarterLevel;
 }
 
 export const RailwayCiSchema = z.object({
@@ -363,6 +433,43 @@ export const CdnConfigSchema = z.object({
 });
 export type CdnConfig = z.infer<typeof CdnConfigSchema>;
 
+/**
+ * The `seed.auth.ownerAdmin` identity (#865): `true` derives the NEAR account
+ * from the app's top-level `account`; an object names it explicitly (NEAR
+ * account and/or email).
+ */
+export const SeedOwnerAdminSchema = z.union([
+  z.literal(true),
+  z
+    .object({
+      nearAccount: z.string().optional(),
+      email: z.string().optional(),
+    })
+    .strict(),
+]);
+export type SeedOwnerAdmin = z.infer<typeof SeedOwnerAdminSchema>;
+
+/**
+ * The authored seed declaration (#865). `steps` are workspace-relative script
+ * paths, idempotent by contract (upserts) — they run once per `version`;
+ * bumping the version re-runs them deliberately. Dev: `bos dev` seeds
+ * automatically before services spawn. Production: never implicit — `bos seed`
+ * runs it with explicit, env-provided owner credentials.
+ */
+export const SeedConfigSchema = z
+  .object({
+    version: z.number().int().positive(),
+    auth: z
+      .object({
+        ownerAdmin: SeedOwnerAdminSchema,
+      })
+      .strict()
+      .optional(),
+    steps: z.array(z.string()).optional(),
+  })
+  .strict();
+export type SeedConfig = z.infer<typeof SeedConfigSchema>;
+
 export const PublishAuthSchema = z.enum(["session", "key", "custody"]);
 export type PublishAuth = z.infer<typeof PublishAuthSchema>;
 
@@ -370,6 +477,16 @@ export const PublishConfigSchema = z.object({
   auth: PublishAuthSchema.optional(),
   /** Publish per-workspace source archives beside the dists (#406). */
   sourcePublish: z.boolean().optional(),
+  /**
+   * Manifest attribution (ADR 0046 ticket 05): the verifying public key the
+   * deploy train signs version manifests with and the chain walker demands
+   * signatures against — `{ publicKey: "ed25519:<base58>" }`, or `"off"` to
+   * disable explicitly. Absent means off (the rollout default): unsigned
+   * manifests verify as today. The key record publishes inside the on-chain
+   * config, so it inherits chain authenticity and rotation is a config
+   * publish.
+   */
+  verification: z.union([z.object({ publicKey: z.string().min(1) }), z.literal("off")]).optional(),
 });
 export type PublishConfig = z.infer<typeof PublishConfigSchema>;
 
@@ -390,11 +507,15 @@ export const BosConfigSchema = z.object({
   staging: BosStagingSchema.optional(),
   repository: z.string().optional(),
   publish: PublishConfigSchema.optional(),
-  platform: z.string().optional(),
+  /** The authored release (ADR 0034): the exact framework version this app targets. */
+  release: z.string().optional(),
+  /** The authored seed declaration (#865) — dev boots seed automatically;
+   * the published payload strips it (workspace-relative steps). */
+  seed: SeedConfigSchema.optional(),
   ci: CiConfigSchema.optional(),
   cdn: CdnConfigSchema.optional(),
   rolledBackFrom: z.string().optional(),
-  starter: ParentStarterConfigSchema.optional(),
+  starter: z.union([ParentStarterConfigSchema, StarterLevelSchema]).optional(),
   plugins: z.record(PluginKeySchema, z.union([z.string(), BosPluginRefSchema])).optional(),
   app: z.object({
     host: HostConfigSchema,
@@ -410,9 +531,9 @@ export const RuntimeConfigSchema = z.object({
   account: z.string(),
   domain: z.string().optional(),
   networkId: z.enum(["mainnet", "testnet"]),
-  /** the deploy fingerprint of the snapshot this config came from
+  /** the serving-generation digest of the snapshot this config came from
    * (atomic-deploys 10) — rides the client config for the soft-refresh signal */
-  deploymentFingerprint: z.string().optional(),
+  deploymentDigest: z.string().optional(),
   title: z.string().optional(),
   description: z.string().optional(),
   repository: z.string().optional(),
@@ -436,6 +557,12 @@ export const RuntimeConfigSchema = z.object({
     /** SRI of the pinned compose manifest (manifest.gen.json) — verified by
      * the host compose on every fetch (see PluginRuntimeUiSchema) */
     manifestIntegrity: z.string().optional(),
+    /** The compose manifest URL resolved through the pin's immutable version
+     * directory (#826) — see PluginRuntimeUiSchema */
+    manifestUrl: z.string().optional(),
+    /** Shared-singleton `name → version` the pinned build embedded (#546) —
+     * see PluginRuntimeUiSchema; mirrors the runtime slot type */
+    sharedVersions: z.record(z.string(), z.string()).optional(),
     dependsOn: z.array(z.string()).optional(),
   }),
   api: FederationEntrySchema.extend({
@@ -467,8 +594,8 @@ export const ClientRuntimeConfigSchema = z.object({
   env: z.enum(["development", "production", "staging"]),
   account: z.string(),
   networkId: z.enum(["mainnet", "testnet"]),
-  /** the deploy fingerprint this document was rendered from (soft refresh) */
-  deploymentFingerprint: z.string().optional(),
+  /** the serving-generation digest this document was rendered from (soft refresh) */
+  deploymentDigest: z.string().optional(),
   hostUrl: z.string().optional(),
   assetsUrl: z.string(),
   apiBase: z.string(),

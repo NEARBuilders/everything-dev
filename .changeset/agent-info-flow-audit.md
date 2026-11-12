@@ -1,6 +1,4 @@
 ---
-"ui": patch
-"host": patch
 "everything-dev": patch
 ---
 

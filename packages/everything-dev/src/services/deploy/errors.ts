@@ -1,6 +1,7 @@
 import { Data } from "effect";
 import type { WorkspaceDeployResult } from "../../contract";
 import type { BosConfigInput } from "../../types";
+import type { PublishedDiff } from "./changed-slots";
 
 /**
  * The publish train's typed error channel (ticket #422): every terminal
@@ -19,7 +20,11 @@ export type TrainErrorKind =
   | "missing-manifest"
   | "memory-backend"
   | "config-write"
+  | "composition"
   | "pin-verification"
+  | "platform-manifest"
+  | "platform-truth"
+  | "compat-window"
   | "sign"
   | "submit"
   | "confirm";
@@ -32,8 +37,19 @@ export interface PublishTrainOk {
   skipped?: string[];
   publishConfig?: BosConfigInput;
   deployResults?: WorkspaceDeployResult[];
-  fingerprint?: string;
-  slotPins?: Record<string, string>;
+  pointerDigest?: string;
+  remoteDigests?: Record<string, string>;
+  /** The release classifier's decision (#571/#573) — threads to the image
+   * leg so version tags move on the release deploy only. */
+  releaseLeg?: boolean;
+  /** The framework version the release leg published (release trains only)
+   * — the post-publish smoke's manifest leg verifies the pointer serves it. */
+  frameworkVersion?: string;
+  /** The published-config diff vs the previously live config (#826 follow-up)
+   * — the Railway leg's ui-only skip decision. Undefined when the live
+   * config was unreadable (first publish, registry offline): the legs then
+   * read cold and redeploy. */
+  diff?: PublishedDiff;
 }
 
 /** The wire shape the train's caller sees on terminal failure. */

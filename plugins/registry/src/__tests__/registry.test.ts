@@ -1,29 +1,56 @@
+import {
+  type RegistryClientShape,
+  type RegistryEntry,
+  type RegistryKey,
+  type RegistryListInput,
+  type RegistryListResult,
+  registryNamespaceForNetwork,
+} from "everything-dev/registry";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_REGISTRY_NAMESPACE, type RegistryConfig } from "../services/config";
+import {
+  createRegistryMethods,
+  resetDiscoveryCache,
+  resolvePublishedRuntime,
+} from "../services/registry";
 
-const fetchBosConfigFromFastKvMock = vi.fn();
-const listLatestValuesMock = vi.fn();
-const readLatestValueMock = vi.fn();
+function listResult(entries: Array<{ key: string; value: unknown }>): RegistryListResult {
+  const mapped: RegistryEntry[] = entries.map((entry) => ({
+    key: entry.key,
+    value: entry.value,
+    blockHeight: 1,
+    blockTimestampNs: "0",
+  }));
+  return { entries: mapped, pageToken: null };
+}
 
-vi.mock("../services/fastkv", async () => {
-  const actual = await vi.importActual<typeof import("../services/fastkv")>("../services/fastkv");
-  return {
-    ...actual,
-    fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
-    listLatestValues: listLatestValuesMock,
-    readLatestValue: readLatestValueMock,
+function fakeClient(
+  impl: {
+    read?: (key: RegistryKey) => Promise<unknown>;
+    readOrNull?: (key: RegistryKey) => Promise<unknown>;
+    list?: (input: RegistryListInput) => Promise<RegistryListResult>;
+  } = {},
+): RegistryClientShape {
+  const unexpected = async () => {
+    throw new Error("unexpected read");
   };
-});
+  const read = vi.fn(impl.read ?? unexpected) as RegistryClientShape["read"];
+  const readOrNull = vi.fn(
+    impl.readOrNull ?? impl.read ?? unexpected,
+  ) as RegistryClientShape["readOrNull"];
+  const list = vi.fn(impl.list ?? (async () => listResult([]))) as RegistryClientShape["list"];
+  return { read, readOrNull, list, history: vi.fn(async () => []) };
+}
 
-const { createRegistryMethods, resolvePublishedRuntime } = await import("../services/registry");
+const registryConfig: RegistryConfig = { namespace: "dev.everything.near" };
 
 describe("resolvePublishedRuntime", () => {
-  const registryConfig = { namespace: "dev.everything.near" };
-
   beforeEach(() => {
-    vi.clearAllMocks();
+    resetDiscoveryCache();
   });
 
   it("treats a runtime with no extends as its own lineage root", async () => {
+    const client = fakeClient();
     const result = await resolvePublishedRuntime(
       "pingpayio.near",
       "pingpay.io",
@@ -32,6 +59,7 @@ describe("resolvePublishedRuntime", () => {
         domain: "pingpay.io",
       },
       registryConfig,
+      client,
     );
 
     expect(result.lineage).toEqual({
@@ -40,18 +68,25 @@ describe("resolvePublishedRuntime", () => {
       depth: 0,
       extendsChain: ["bos://pingpayio.near/pingpay.io"],
     });
-    expect(fetchBosConfigFromFastKvMock).not.toHaveBeenCalled();
+    expect(client.read).not.toHaveBeenCalled();
   });
 
   it("derives lineage from production extends refs and merges inherited config", async () => {
-    fetchBosConfigFromFastKvMock.mockResolvedValueOnce({
-      account: "pingpayio.near",
-      domain: "pingpay.io",
-      title: "PingPay",
-      description: "Parent runtime",
-      app: {
-        ui: { production: "https://cdn.example.com/pingpay-ui" },
-      },
+    const client = fakeClient({
+      read: vi.fn(async (key) => {
+        if (key.ref === "bos://pingpayio.near/pingpay.io") {
+          return {
+            account: "pingpayio.near",
+            domain: "pingpay.io",
+            title: "PingPay",
+            description: "Parent runtime",
+            app: {
+              ui: { production: "https://cdn.example.com/pingpay-ui" },
+            },
+          };
+        }
+        throw new Error(`Unexpected ref ${key.ref}`);
+      }),
     });
 
     const result = await resolvePublishedRuntime(
@@ -67,6 +102,7 @@ describe("resolvePublishedRuntime", () => {
         title: "Pizza",
       },
       registryConfig,
+      client,
     );
 
     expect(result.lineage).toEqual({
@@ -83,16 +119,24 @@ describe("resolvePublishedRuntime", () => {
   });
 
   it("computes nested depth and root for grandchild runtimes", async () => {
-    fetchBosConfigFromFastKvMock
-      .mockResolvedValueOnce({
+    const configs: Record<string, unknown> = {
+      "bos://pizza.pingpayio.near/pizza.com": {
         extends: "bos://pingpayio.near/pingpay.io",
         account: "pizza.pingpayio.near",
         domain: "pizza.com",
-      })
-      .mockResolvedValueOnce({
+      },
+      "bos://pingpayio.near/pingpay.io": {
         account: "pingpayio.near",
         domain: "pingpay.io",
-      });
+      },
+    };
+    const client = fakeClient({
+      read: vi.fn(async (key) => {
+        const hit = configs[key.ref as string];
+        if (!hit) throw new Error(`Unexpected ref ${key.ref}`);
+        return hit;
+      }),
+    });
 
     const result = await resolvePublishedRuntime(
       "chicago.pizza.pingpayio.near",
@@ -103,6 +147,7 @@ describe("resolvePublishedRuntime", () => {
         domain: "pizza.com",
       },
       registryConfig,
+      client,
     );
 
     expect(result.lineage).toEqual({
@@ -116,57 +161,18 @@ describe("resolvePublishedRuntime", () => {
       ],
     });
   });
+});
+
+describe("listRegistryApps", () => {
+  beforeEach(() => {
+    resetDiscoveryCache();
+  });
 
   it("lists registry apps with derived parent/root filters and lineage fields", async () => {
-    listLatestValuesMock
-      .mockResolvedValueOnce({
-        entries: [
-          {
-            key: "apps/pingpayio.near/pingpay.io/bos.config.json",
-            value: {
-              account: "pingpayio.near",
-              domain: "pingpay.io",
-              app: {
-                host: { production: "https://host.example.com" },
-                ui: { production: "https://cdn.example.com/root-ui" },
-                api: { production: "https://api.example.com/root" },
-              },
-            },
-          },
-          {
-            key: "apps/pizza.pingpayio.near/pizza.com/bos.config.json",
-            value: {
-              extends: "bos://pingpayio.near/pingpay.io",
-              account: "pizza.pingpayio.near",
-              domain: "pizza.com",
-              app: {
-                host: { production: "https://pizza.example.com/host" },
-                ui: { production: "https://cdn.example.com/pizza-ui" },
-                api: { production: "https://api.example.com/pizza" },
-              },
-            },
-          },
-          {
-            key: "apps/chicago.pizza.pingpayio.near/pizza.com/bos.config.json",
-            value: {
-              extends: "bos://pizza.pingpayio.near/pizza.com",
-              account: "chicago.pizza.pingpayio.near",
-              domain: "pizza.com",
-              app: {
-                host: { production: "https://chicago.example.com/host" },
-                ui: { production: "https://cdn.example.com/chicago-ui" },
-                api: { production: "https://api.example.com/chicago" },
-              },
-            },
-          },
-        ],
-        pageToken: null,
-      })
-      .mockResolvedValueOnce({ entries: [], pageToken: null });
-
-    fetchBosConfigFromFastKvMock.mockImplementation(async (bosUrl: string) => {
-      if (bosUrl === "bos://pingpayio.near/pingpay.io") {
-        return {
+    const discovered = listResult([
+      {
+        key: "apps/pingpayio.near/pingpay.io/bos.config.json",
+        value: {
           account: "pingpayio.near",
           domain: "pingpay.io",
           app: {
@@ -174,11 +180,11 @@ describe("resolvePublishedRuntime", () => {
             ui: { production: "https://cdn.example.com/root-ui" },
             api: { production: "https://api.example.com/root" },
           },
-        };
-      }
-
-      if (bosUrl === "bos://pizza.pingpayio.near/pizza.com") {
-        return {
+        },
+      },
+      {
+        key: "apps/pizza.pingpayio.near/pizza.com/bos.config.json",
+        value: {
           extends: "bos://pingpayio.near/pingpay.io",
           account: "pizza.pingpayio.near",
           domain: "pizza.com",
@@ -187,15 +193,53 @@ describe("resolvePublishedRuntime", () => {
             ui: { production: "https://cdn.example.com/pizza-ui" },
             api: { production: "https://api.example.com/pizza" },
           },
-        };
-      }
-
-      throw new Error(`Unexpected BOS URL ${bosUrl}`);
+        },
+      },
+      {
+        key: "apps/chicago.pizza.pingpayio.near/pizza.com/bos.config.json",
+        value: {
+          extends: "bos://pizza.pingpayio.near/pizza.com",
+          account: "chicago.pizza.pingpayio.near",
+          domain: "pizza.com",
+          app: {
+            host: { production: "https://chicago.example.com/host" },
+            ui: { production: "https://cdn.example.com/chicago-ui" },
+            api: { production: "https://api.example.com/chicago" },
+          },
+        },
+      },
+    ]);
+    const configs: Record<string, unknown> = {
+      "bos://pingpayio.near/pingpay.io": {
+        account: "pingpayio.near",
+        domain: "pingpay.io",
+        app: {
+          host: { production: "https://host.example.com" },
+          ui: { production: "https://cdn.example.com/root-ui" },
+          api: { production: "https://api.example.com/root" },
+        },
+      },
+      "bos://pizza.pingpayio.near/pizza.com": {
+        extends: "bos://pingpayio.near/pingpay.io",
+        account: "pizza.pingpayio.near",
+        domain: "pizza.com",
+        app: {
+          host: { production: "https://pizza.example.com/host" },
+          ui: { production: "https://cdn.example.com/pizza-ui" },
+          api: { production: "https://api.example.com/pizza" },
+        },
+      },
+    };
+    const client = fakeClient({
+      list: vi.fn(async () => discovered),
+      read: vi.fn(async (key) => {
+        const hit = configs[key.ref as string];
+        if (!hit) throw new Error(`Unexpected ref ${key.ref}`);
+        return hit;
+      }),
     });
 
-    readLatestValueMock.mockResolvedValue(null);
-
-    const service = createRegistryMethods(registryConfig);
+    const service = createRegistryMethods(registryConfig, client);
     const byParent = await service.listRegistryApps({
       parent: "bos://pingpayio.near/pingpay.io",
     });
@@ -248,10 +292,8 @@ describe("resolvePublishedRuntime", () => {
 });
 
 describe("prepareRegistryConfigWrite", () => {
-  const registryConfig = { namespace: "dev.everything.near" };
-
   it("returns a prepared FastKV call matching the bos publish key and args", () => {
-    const service = createRegistryMethods(registryConfig);
+    const service = createRegistryMethods(registryConfig, fakeClient());
     const config = {
       account: "pingpayio.near",
       domain: "pingpay.io",
@@ -276,13 +318,10 @@ describe("prepareRegistryConfigWrite", () => {
     expect(result.attachedDeposit).toBe("0 yocto");
   });
 
-  it("targets the global registry namespace that bos:// resolution reads", async () => {
-    const { getRegistryNamespaceForNetwork } = await import("everything-dev/fastkv");
-    const { DEFAULT_REGISTRY_NAMESPACE } = await import("../services/fastkv");
+  it("defaults the namespace to the primitive's mainnet default", () => {
+    expect(DEFAULT_REGISTRY_NAMESPACE).toBe(registryNamespaceForNetwork("mainnet"));
 
-    expect(DEFAULT_REGISTRY_NAMESPACE).toBe(getRegistryNamespaceForNetwork("mainnet"));
-
-    const service = createRegistryMethods({ namespace: DEFAULT_REGISTRY_NAMESPACE });
+    const service = createRegistryMethods({ namespace: DEFAULT_REGISTRY_NAMESPACE }, fakeClient());
 
     const result = service.prepareRegistryConfigWrite({
       accountId: "testing123.sputnik-dao.near",
@@ -290,6 +329,99 @@ describe("prepareRegistryConfigWrite", () => {
       config: { account: "testing123.sputnik-dao.near" },
     });
 
-    expect(result.contractId).toBe(getRegistryNamespaceForNetwork("mainnet"));
+    expect(result.contractId).toBe(registryNamespaceForNetwork("mainnet"));
+  });
+});
+
+describe("getManifest — the thin-tag read surface", () => {
+  it("returns the manifest tag and, when asked, its version record", async () => {
+    const tag = { version: "2.0.0-rc.31", digest: "abc123" };
+    const record = { frameworkVersion: "2.0.0-rc.31" };
+    const client = fakeClient({
+      readOrNull: vi.fn(async (key) => {
+        if (key.kind === "manifest") return tag;
+        if (key.kind === "version" && key.version === "2.0.0-rc.31") return record;
+        throw new Error(`Unexpected key ${key.kind}`);
+      }),
+    });
+    const service = createRegistryMethods(registryConfig, client);
+
+    const withoutRecord = await service.getManifest({ ref: "bos://a.everything.near/app.dev" });
+    expect(withoutRecord).toEqual({
+      ref: "bos://a.everything.near/app.dev",
+      tag,
+      versionRecord: null,
+    });
+
+    const withRecord = await service.getManifest({
+      ref: "bos://a.everything.near/app.dev",
+      includeVersionRecord: true,
+    });
+    expect(withRecord.versionRecord).toEqual(record);
+  });
+
+  it("a runtime with no manifest legs serves nulls — the dead-end shape", async () => {
+    const client = fakeClient({ readOrNull: vi.fn(async () => null) });
+    const service = createRegistryMethods(registryConfig, client);
+    const result = await service.getManifest({
+      ref: "bos://dev.everything.near/everything.dev",
+      includeVersionRecord: true,
+    });
+    expect(result.tag).toBeNull();
+    expect(result.versionRecord).toBeNull();
+  });
+});
+
+describe("resolveRuntime — the resolution machine over the client", () => {
+  it("Latest resolves from a thin tag + verified version record", async () => {
+    const record = {
+      schemaVersion: 1,
+      kind: "everything-dev/platform-manifest",
+      frameworkVersion: "2.0.0-rc.31",
+      everyPluginVersion: "1.0.0",
+      image: { ref: "ghcr.io/nearbuilders/everything-dev", tags: ["v2.0.0-rc.31"] },
+      catalog: {},
+      sharedDeps: {},
+      templateInventory: [],
+      compat: { minChild: "1.0.0" },
+    };
+    const { createHash } = await import("node:crypto");
+    const digest = createHash("sha256").update(JSON.stringify(record)).digest("hex");
+    const client = fakeClient({
+      read: vi.fn(async () => ({ account: "a.everything.near", domain: "app.dev" })),
+      readOrNull: vi.fn(async (key) => {
+        if (key.kind === "runtimeConfig") {
+          return { account: "a.everything.near", domain: "app.dev" };
+        }
+        if (key.kind === "manifest") return { version: "2.0.0-rc.31", digest };
+        if (key.kind === "version") return record;
+        return null;
+      }),
+    });
+    const service = createRegistryMethods(registryConfig, client);
+
+    const result = await service.resolveRuntime({ ref: "bos://a.everything.near/app.dev" });
+    expect(result.outcome).toMatchObject({
+      state: "Resolved",
+      from: "manifest",
+      provenance: "pointer",
+    });
+  });
+
+  it("a pinned query names the release; a miss comes back Unresolved(absent)", async () => {
+    const client = fakeClient({
+      read: vi.fn(async () => ({ account: "a.everything.near", domain: "app.dev" })),
+      readOrNull: vi.fn(async () => null),
+    });
+    const service = createRegistryMethods(registryConfig, client);
+
+    const result = await service.resolveRuntime({
+      ref: "bos://a.everything.near/app.dev",
+      release: "9.9.9",
+    });
+    expect(result.outcome).toMatchObject({ state: "Unresolved", reason: "absent" });
+    if (result.outcome.state === "Unresolved") {
+      expect(result.outcome.detail).toContain("9.9.9");
+    }
   });
 });

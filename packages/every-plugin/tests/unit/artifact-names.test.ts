@@ -38,6 +38,18 @@ describe("classifyBundlePath / cacheControlOf", () => {
       expect(cacheControlOf(name), name).toBe("public, max-age=0, must-revalidate");
     }
   });
+
+  it("serves everything under the version subtree immutable (#826)", () => {
+    for (const name of [
+      "versions/0123456789abcdef.json",
+      "versions/0123456789abcdef/138.js",
+      "versions/0123456789abcdef/__federation_expose_plugin.js",
+      "versions/0123456789abcdef/main.js",
+      "versions/0123456789abcdef/ssr/remoteEntry.server.js",
+    ]) {
+      expect(cacheControlOf(name), name).toBe("public, max-age=31536000, immutable");
+    }
+  });
 });
 
 describe("contentHashOf", () => {
@@ -117,6 +129,7 @@ describe("planArtifactCopies", () => {
       entryBase: "remoteEntry",
       contents: { "mf-manifest.json": manifestContent, "style.css": cssContent },
     });
+    if (!plan) throw new Error("expected a copy plan");
 
     expect(plan.copies).toEqual([
       {
@@ -138,6 +151,7 @@ describe("planArtifactCopies", () => {
       entryBase: "remoteEntry.server",
       contents: {},
     });
+    if (!plan) throw new Error("expected a copy plan");
     expect(plan.copies).toEqual([]);
     expect(plan.report).toEqual({ entry: "remoteEntry.server.9d2e1a3b5c7d9021.js" });
   });

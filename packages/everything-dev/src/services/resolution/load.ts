@@ -287,9 +287,15 @@ export function defaultConfigEnv(): BosEnv {
   return process.env.NODE_ENV === "production" ? "production" : "development";
 }
 
+/** The env every published-config consumer boot resolves under —
+ * resolvePublishedConfig walks and parses with this pinned. The pre-publish
+ * boot-check (resolution/boot-check.ts) and the boot must move in lockstep. */
+export const PUBLISHED_CONFIG_ENV: BosEnv = "production";
+
 export function getEntryAssociatedUi(
   entry: Partial<BosPluginRef>,
 ): Record<string, unknown> | undefined {
+  if (entry.ui === false) return undefined;
   const flat = isPlainObject(entry.ui) ? (entry.ui as Record<string, unknown>) : undefined;
   const nested = (() => {
     if (!isPlainObject(entry.app)) return undefined;
@@ -412,6 +418,46 @@ export function parseExtendsTarget(ref: string): ParsedExtendsTarget {
 export function getConfigBaseDir(configPath: string, baseDir: string): string {
   if (configPath.startsWith("bos://")) return baseDir;
   return dirname(isAbsolute(configPath) ? configPath : resolve(baseDir, configPath));
+}
+
+/**
+ * Resolve a call-only attachment's `contract` locator to the contract origin —
+ * the targeted entry's stamped production (the artifact origin whose
+ * `plugin.manifest.json` serves the sha256-verified contract types).
+ *
+ * Unlike `resolveComposableReference` this merges nothing: the locator is a
+ * pure type pointer. `#target` defaults to `app.api`; non-bos:// refs are
+ * refused (a live app origin belongs in `proxy`, not here).
+ */
+export async function resolveContractOrigin(
+  ref: string,
+  baseDir: string,
+  env: BosEnv,
+  defaultTargetPath = "app.api",
+): Promise<string> {
+  const parsed = parseExtendsTarget(ref);
+  if (!parsed.configPath.startsWith("bos://")) {
+    throw new ConfigExtendsError({
+      message: `contract locator "${ref}" must be a bos:// ref — the live app origin belongs in proxy`,
+    });
+  }
+  const targetPath = parsed.targetPath ?? defaultTargetPath;
+  const { resolveMergedConfigInput } = await import("./session");
+  const extendedConfig = await resolveMergedConfigInput(parsed.configPath, {
+    baseDir: getConfigBaseDir(parsed.configPath, baseDir),
+    env,
+  });
+  const entry = getTargetedEntry(extendedConfig, targetPath);
+  const production =
+    typeof entry.production === "string" && entry.production.length > 0
+      ? entry.production
+      : undefined;
+  if (!production) {
+    throw new ConfigExtendsError({
+      message: `contract locator "${ref}" (${targetPath}) resolves to no stamped production URL — deploy the provider app first`,
+    });
+  }
+  return production.replace(/\/$/, "");
 }
 
 function asComposableEntry(value: unknown): BosPluginRef {
@@ -574,7 +620,10 @@ export async function resolveComposableReference(
   }
 
   resolvedEntry = mergeComposableEntries(resolvedEntry, sourceOverrides);
-  associatedUi = mergeAssociatedUi(associatedUi, getEntryAssociatedUi(sourceOverrides));
+  associatedUi =
+    source.ui === false
+      ? undefined
+      : mergeAssociatedUi(associatedUi, getEntryAssociatedUi(sourceOverrides));
 
   if (extendsError && !allowLocalPaths && !hasUsableLocalDevelopment) {
     throw extendsError;
@@ -588,7 +637,7 @@ export async function resolveComposableReference(
     // safety argument as the entry itself: keep its local target when the
     // plugin resolves locally, or the folder-form ui surface silently
     // disappears (no BOS_UI_PORT, an unassigned ui dev server, and a
-    // port collision with another plugin's ui slot).
+    // port collision with another plugin's ui remote).
     associatedUi: stripUnsafeLocalDevelopment(
       associatedUi,
       allowLocalPaths || Boolean(localDevelopment),

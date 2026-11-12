@@ -8,9 +8,9 @@ The open runtime for apps on NEAR — composed from published config and loaded 
 A published app configuration (`bos.app.ts` authored, resolved through `extends`) that the host loads as remotes.
 _Avoid_: app (ambiguous between the runtime and a tenant), project
 
-**SlotResolver**:
-The host's entry-URL seam (`entryUrls` in `everything-dev/ui/slot`) — one pure derivation from a stamped config slot (`EntrySlot`) to the URLs each surface loads: `web` (browser entry — bustered fixed name in development, pin-derived hashed outside it), `ssr` (server container entry; undefined when the slot has no SSR coordinates), and `browserManifest` (the pin-derived hashed mf-manifest, structurally absent for local slots — atomic-deploys 08). Surfaces resolve lazily and throw loudly outside development naming slot + surface; buster arithmetic (integrity for web, ssrIntegrity→containerVersion for the server) lives inside the module, never at call sites.
-_Avoid_: resolveEntryUrlForEnv (the deleted per-surface helper), remoteEntryUrlOf/ssrEntryUrlOf/getSsrEntryUrl (the deleted per-site wrappers), buster at the call site
+**EntryResolver**:
+The host's entry-URL seam (`entryUrls` in `everything-dev/ui/remote-entry`) — one pure derivation from a stamped remote (`RemoteEntry`) to the URLs each surface loads: `ui` (browser entry — bustered fixed name in development, digest-derived hashed outside it), `ssr` (server container entry; undefined when the remote has no SSR coordinates), and `browserManifest` (the digest-derived hashed mf-manifest, structurally absent for local remotes — atomic-deploys 08). Surfaces resolve lazily and throw loudly outside development naming remote + surface; buster arithmetic (integrity for ui, ssrIntegrity→containerVersion for the server) lives inside the module, never at call sites.
+_Avoid_: SlotResolver (retired), `web` surface (retired — the browser surface is `ui`), resolveEntryUrlForEnv (the deleted per-surface helper), remoteEntryUrlOf/ssrEntryUrlOf/getSsrEntryUrl (the deleted per-site wrappers), buster at the call site
 
 **Quiet build**:
 The prerequisite dist builder in `everything-dev/build` — one function (`buildPackageQuietly`) over the three framework packages (every-plugin, better-near-auth, everything-dev), each identified by its staleness-check dist entry. Skips when the dist is fresh, rebuilds captured-output-quietly, and fails loudly on nonzero exit; used by `bos build`'s train and the `bos dev` boot build.
@@ -40,17 +40,33 @@ _Avoid_: stage (dev/build/upload/publish are train stages, not legs), step
 Whether the deploy train owns its runtime image — `root` (a Dockerfile at the config root or `BOS_IMAGE`; the train can produce a digest and must pin Railway to it) or `child` (inherits the platform's universal image per ADR 0020/0021; its image ref derives from the platform release manifest — no image bytes to build, pin, or boot). One function resolves it; the image, smoke, and Railway gates all consume it.
 _Avoid_: root vs consumer (the account naming, not the image-ownership question), tenant tier
 
+**Remote**:
+A named position in the composition — `app.<key>`, `app.<key>.ui`, `plugins.<id>`, `plugins.<id>.ui` — and (loosely) the workspace it loads bytes from. The walker in `src/services/remotes.ts` derives every dotted path; never fork the traversal.
+_Avoid_: config slot (retired — the ticket-11 vocabulary; attachment slots in the descriptor domain and port slots in the infra planner are different concepts), surface (a remote's `ui`/`ssr` loading surfaces are not remotes)
+
+**Registry key**:
+One of the four typed keys in `src/services/registry/keys.ts` (ADR 0040), each with one wire form: `runtimeConfig` (`apps/<account>/<gateway>/bos.config.json`), `manifest` (`apps/<account>/<gateway>/manifest.json` — the thin tag: version + digest), `version` (`versions/<v>.json` — the immutable per-release record, written once), `deployRecord` (`deploys/<ts>.json` — the audit trail). A `RuntimeRef` (`bos://<account>/<gateway>`) names the identity every key hangs from. Never hand-build registry paths.
+_Avoid_: platform.json (the retired pre-cutover key — abandoned in place), slot (a key is not a slot), hand-built path strings (the golden tests pin the wire forms)
+
 **Platform release manifest**:
-The machine-readable contract of one framework release (ADR 0034): framework + every-plugin versions, the release catalog, exact shared-dep versions with their flags, the hashed template inventory, and the compat floor — composed once by the deploy train and published to two homes with byte-identical content (the FastKV pointer slot `apps/<root-account>/<root-gateway>/platform.json` beside the config, and the in-image copy generated inside the docker build). Carries image `ref` + tags, never the digest.
+The machine-readable contract of one framework release (ADR 0034): framework + every-plugin versions, the release catalog, exact shared-dep versions with their flags, the hashed template inventory, and the compat floor — composed once by the deploy train and published to two homes with byte-identical content (FastKV as the thin tag `apps/<root-account>/<root-gateway>/manifest.json` naming the immutable `versions/<v>.json` record — ADR 0040 — and the in-image copy generated inside the docker build). Carries image `ref` + tags, never the digest.
 _Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest (the per-plugin bundle metadata), release notes
 
-**Derived pin**:
-The child's single authored `platform: "<framework-version>"` field in `bos.app.ts` — everything else (catalog entries, the deploy-time image ref `ref@v<version>` with its registry digest, the release-scoped sync source, compat verification) derives from the resolved manifest, so no hand-correlated pin pairs remain. Exact in v1: no ranges; absent means latest via extends. The old `ci.image` hand-pin is removed — a deploy fails fast on it.
-_Avoid_: platform version (ambiguous with the manifest's own `frameworkVersion`), image pin (the digest is derived, not authored), version bump
+**Derived release**:
+The child's single authored `release: "<framework-version>"` field in `bos.app.ts` — everything else (catalog entries, the deploy-time image ref `ref@v<version>` with its registry digest, the release-scoped sync source, compat verification) derives from the resolved manifest, so no hand-correlated pin pairs remain. Exact in v1: no ranges; absent means latest via extends. The old `ci.image` hand-pin is removed — a deploy fails fast on it.
+_Avoid_: platform version (ambiguous with the manifest's own `frameworkVersion`), image pin (the digest is derived, not authored), version bump, platform pin (retired — the authored field is `release:`)
+
+**Runtime map**:
+The generated composition inventory (ADR 0034-adjacent, #591/#594) — every `bos types gen` run composes the ui sources (core, auth-ui, plugin UIs) with core-wins precedence and emits `.bos/generated/runtime-map.json` + `ui/src/lib/runtime-map.gen.ts`: mounts, every route with its owner and full path, shadowed claims, and the backend inventory (host, api, the auth server, plugin backends — remote ones carry the composed plugin version + contract hash from their published `plugin.manifest.json`). A static model of `constructTree`, kept honest by a parity test against the real engine. The first lookup for route/service ownership and local-vs-upstream classification (`docs/agents/runtime-map.md`); never grep `node_modules`.
+_Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest (the per-plugin bundle metadata), route manifest (the per-ui-source input the map is composed from), composition report
 
 **Pin plane**:
 One of the three independently-pinned byte sources a booting runtime consumes — **image** (the digest-pinned universal image), **config** (on-chain FastKV, account-key signed, atomic), **bundles** (CDN bytes whose sha384 SRI is recorded inside the on-chain config). The security model (ADR 0036): each plane's bytes verify against pins recorded in a *different* plane, so compromising any single plane is insufficient. Speed asymmetry is part of the model — config moves fast (atomic publish, minutes), image moves slow (rare smoke-gated rebuilds).
 _Avoid_: trust layer, security layer (nothing is layered — the planes are peers), integrity plane (integrity is one pin among three)
+
+**Release composition**:
+The version-scoped composition surface a release-authored runtime composes from (ADR 0034 consumer boot): every inherited remote — `app.*` and `plugins.*` — stamps at resolution with the authored release's recorded `{ production, digest }` (`ResolutionSession.releaseManifest` → `release-composition.ts`), so production, local dev, and type generation all share one co-versioned byte set. Child-authored remotes stay untouched; remotes provisioned by later parent releases are omitted from an older release's composition and surfaced at dev boot ("present upstream from rc.N — run `bos upgrade` to inherit") rather than silently live-followed. `bos upgrade` is the release mover.
+_Avoid_: version plane, release plane (retired), plane stamping (the mechanism; the release composition is the outcome), pointer-live (what it replaces: extends inheritance that drifted with the parent's latest deploy), remotes override (it is not a config source — it stamps the inherited entries)
 
 ## Organization access
 
@@ -134,6 +150,24 @@ _Avoid_: provision, register
 One of a Gas Key's independent nonce sequences; parallel sends pick different Lanes and never serialize on each other.
 _Avoid_: nonce (the per-lane counter), slot
 
+## Agent connect
+
+**Agent Account**:
+A custody account on NEAR Intents owned by a signed-in user and driven by AI agents under the owner-signed policy; the auth plugin maps one Better Auth user to their Agent Accounts (`agentAccount`).
+_Avoid_: agent wallet (that's the custody Wallet inside it), bot account
+
+**Owner Intent**:
+One owner-authorized change to an Agent Account (create, policy, grant, freeze, delete) — generated by the backend, signed by the owner's wallet byte-for-byte, then submitted; tracked per user in `ownerIntent` by Correlation Id.
+_Avoid_: transaction (on-chain only for some intents), action (that's a policy permission)
+
+**Grant Token**:
+The revocable `ngt_…` credential letting one agent session act on an Agent Account inside the policy; the server stores it encrypted at rest and it never reaches a browser or model.
+_Avoid_: API key (the partner's `naa_` credential — different party), session token
+
+**Correlation Id**:
+The tracking id of one Owner Intent or execution (`intent_…`/`op_…`); the ledger authorizes submits and status reads against it.
+_Avoid_: operation id generically, request id (that's the API's `meta.request_id`)
+
 ## Custody publish
 
 **Custody Wallet**:
@@ -159,9 +193,59 @@ The whole of a console rollback, FastKV-first: re-publish the previous verified 
 _Avoid_: redeploy (the instance half alone), image rollback (implies the image is the unit)
 
 **Reconciler**:
-The platform-side watcher that converges platform-hosted instances to each namespace's latest published fingerprint — making publish the deploy action. Idempotent; failures surface as drift.
+The platform-side watcher that converges platform-hosted instances to each namespace's latest published pointer digest — making publish the deploy action. Idempotent; failures surface as drift.
 _Avoid_: relay, agent, deploy trigger
+
+**Digest identity**:
+The two composition-plane hashes (ADR 0046 ticket 04), both derived in `everything-dev/digest` so the planes can't drift: **pointer digest** (what is pinned — a hash over every remote's pin coordinates; the lockfile's identity per ADR 0042, the watch's change-detection hash, what deployment records name) and **deployment digest** (what is served — the pointer inputs plus resolved entry coordinates per slot; the client soft-refresh signal and the host's adopt comparison). Relation: pointer stable + entries stable ⇒ deployment stable; the converse is deliberately not a guarantee — adopt treats an unchanged deployment digest as skip (a heuristic), and the watch tracks the pointer independently. Species, never compared across: content digests (the engine's `Digest` SRI brand, version id/dirId), the compose digest (SSR/client parity), the lockfile digest (serialized content), the compose variant cache key (dev mtimes — a cache key, not an identity).
+_Avoid_: fingerprint (retired word — pre-cutover lockfiles/snapshots/records carry `fingerprint` fields and are regenerated on next `bos lock` / first adopt; the old `everything-dev/fingerprint` subpath is removed), hash (never says what is hashed)
+
+**Sync baseline (template.sync)**:
+The per-file template hash record `bos sync`'s three-way comparison reads (ADR 0047) — committed as the optional `template.sync` section of `bos.lock.json`, with `.bos/sync-snapshot.json` as the lock-less fallback and the migration's absorb source. A local annotation on the lock: never produced by `lockfileOf`, never enters the pointer or lockfile digest, carried forward by every writer. Missing baseline + local divergence ⇒ `conflicted`, never a silent template win.
+_Avoid_: snapshot (ambiguous — the boot snapshot and the legacy sync-snapshot file are different artifacts; say "sync baseline" or "boot snapshot"), lock (the lock is the whole file; the baseline is one section)
+
+**Verification spine**:
+The chain tx → config → release record → slot manifest → version dir → file sequence of attestations from the on-chain write to the served byte (ADR 0046). Each layer edge is independently checked — the registry write is NEAR-signed, the config's pins carry manifest SRIs, the release record is immutable, the manifest pins the entry and maps every file's SRI, the version dir is content-addressed, files hash to their SRIs — and every consumer re-verifies the prefix it loads through: the Verifier engine is the primitive, the chain walker walks all depths, and the smoke/adopt legs refuse a broken prefix instead of serving past it.
+_Avoid_: trust chain (implies transitive trust — nothing is inherited; each hop is checked on its own), integrity chain (integrity is one property the spine carries; it also carries provenance and attribution)
+
+**Attestation**:
+One identity-bytes-digest claim at a layer edge of the spine — these bytes, at this layer, hash to this digest, per this identity. The walker reports each leg separately; an attestation fails loud and named, never degrades to a warning.
+_Avoid_: signature (reserved for the cryptographic kind — the manifest attribution, ADR 0046)
+
+**`Verified<T>`**:
+A branded artifact that has passed the Verifier engine — bytes whose digest matched the pin at fetch time, a parsed document whose SRI verified. Consumers take `Verified<T>` and unverified bytes don't flow: the type is the gate, `mark` is the only door, and every production fetch path goes through the engine.
+_Avoid_: checked value, SRI'd value (informal — the brand is the term)
+
+**Attribution**:
+The cryptographic "published by the runtime's identity" property signatures add on top of integrity (ADR 0046): the deploy train signs each slot's version manifest with the existing publish identity, and the verifying key record publishes inside the on-chain config — so the record inherits chain authenticity and rotation is a config publish, never a silent key swap.
+_Avoid_: authentication of bytes (overloaded — sessions authenticate, bytes are attributed), trust (the property exists so you don't need it)
+
+**Drift**:
+The served/live state diverging from a published pin — the umbrella term whose byte-level form is **rot** (a served object no longer hashes to its pin) and whose release-level form is **staleness** (the served generation behind the published pointer). The pointer watch converges it; the smoke gate, the adopt comparison, and `bos verify` detect it.
+_Avoid_: skew (reserve for generation mixing inside one load — the compose digest parity check)
 
 **Fleet**:
 The set of runtime instances the platform hosts on its own managed substrate — the root pair, own-instance children, and sandbox leases.
 _Avoid_: cluster (carries Kubernetes connotations we rejected), infra (too broad)
+
+**Secrets vault**:
+The per-deployment store of sealed runtime secrets in the api shell — keyed `(account, gateway, name)`, sealed with the proven sealed-box cipher under a per-runtime KEK. Values are never echoed back; each deployment keeps its own vault (a single global one would be a trust disaster).
+_Avoid_: KMS (implies an external service), .env (the vault's whole point is not needing one), secret manager
+
+**KEK** (key-encryption key):
+The per-runtime AES key that seals a runtime's secrets — HKDF'd from the platform root secret (`BETTER_AUTH_SECRET`) with a runtime-scoped salt. Its source is a swappable sub-seam: the custody-TEE swap (ticket 13) changes where the KEK comes from without touching the schema, CLI, or config declarations.
+_Avoid_: root key (that's the platform secret the KEK derives from), master key
+
+## Call-only plugins
+
+**Call-only plugin**:
+A `plugins.<key>` attachment authored with `proxy` + `contract` (+ optional `secrets`) and none of the composed source fields (`extends`, `path`, URL fields) — it consumes a deployed app's API as a typed oRPC client without federation-loading its bundle, composing its routes, or running its services. Detection is structural: proxy present, no source. The entry stays a regular plugin entry in every other respect.
+_Avoid_: rpc-mode (the superseded discriminator — removed), remote plugin (that's a composed federation remote), proxy-only (proxy alone is the traffic endpoint, not the concept)
+
+**Contract locator**:
+The call-only attachment's `contract` value — a `bos://account/gateway[#target]` ref whose targeted entry's stamped production is the artifact CDN origin serving the sha256-verified contract types. A pure type pointer: it merges nothing, adopts no UI, and never touches composable-entry resolution. Distinct origin from the traffic endpoint in production — that split is why call-only has two locators.
+_Avoid_: extends (that composes the targeted entry — merging, UI adoption, pins), types URL (the locator is a ref, not a URL)
+
+**Call-only proxy endpoint**:
+The attachment's `proxy` value — the live app origin whose `/api/rpc` serves the plugin's traffic. The host forwards `/api/rpc/{key}/*` to it with the declared secret as `x-api-key` (server-side only), through the same dispatch seam as composed-plugin routers; readiness probes its rpc ping, because a manifest-200 from the artifact CDN says nothing about whether the API serves.
+_Avoid_: contract origin (the CDN serving types — the other locator), reverse proxy (uncharged term)

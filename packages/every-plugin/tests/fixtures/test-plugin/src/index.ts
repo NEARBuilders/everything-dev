@@ -1,3 +1,4 @@
+/* eslint-disable require-yield */
 import { MemoryPublisher } from "@orpc/publisher/memory";
 import { ORPCError } from "@orpc/server";
 import { Clock, Context, Data, Effect, Layer } from "effect";
@@ -83,7 +84,7 @@ export const TestPlugin = createPlugin({
 
       // Create publisher for background events with resume support for serverless
       const publisher = new MemoryPublisher<BackgroundEvents>({
-        resume: { enabled: true, seconds: 60 * 2 }, // Retain events for 2 minutes to support resume
+        resume: { enabled: true, ttl: 60 * 2 * 1000 }, // Retain events for 2 minutes to support resume
       });
 
       // Start background producer if enabled (forked into the plugin scope)

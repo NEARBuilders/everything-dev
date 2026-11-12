@@ -1,7 +1,8 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { z } from "zod";
-import { Errors } from "./errors";
+import { OnboardingErrors, OnboardingRateLimitedErrors } from "./errors";
+
 import { onboardingCodeSummarySchema, onboardingStatsSchema } from "./schemas";
 
 export const onboardingRoutes = {
@@ -9,15 +10,15 @@ export const onboardingRoutes = {
     .route({ method: "POST", path: "/v1/auth/onboarding/codes" })
     .input(
       z.object({
-        eventId: z.string().min(1).max(200),
-        eventName: z.string().trim().min(1).max(160),
+        eventId: z.string().min(1).max(200).optional(),
+        eventName: z.string().trim().min(1).max(160).optional(),
         organizationId: z.string().optional(),
-        maxUses: z.number().int().min(1).max(500).optional(),
-        expiresAt: z.date().optional(),
+        maxUses: z.number().int().min(0).max(500).optional(),
+        expiresAt: z.date().nullable().optional(),
       }),
     )
     .output(onboardingCodeSummarySchema.extend({ code: z.string() }))
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   listOnboardingCodes: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/codes" })
@@ -28,7 +29,19 @@ export const onboardingRoutes = {
       }),
     )
     .output(z.array(onboardingCodeSummarySchema))
-    .errors(Errors),
+    .errors(OnboardingErrors),
+
+  rotateStandingOnboardingCode: oc
+    .route({ method: "POST", path: "/v1/auth/onboarding/codes/standing/rotate" })
+    .input(z.object({ organizationId: z.string().optional(), eventId: z.string().optional() }))
+    .output(onboardingCodeSummarySchema.extend({ code: z.string() }))
+    .errors(OnboardingRateLimitedErrors),
+
+  getStandingOnboardingCode: oc
+    .route({ method: "GET", path: "/v1/auth/onboarding/codes/standing" })
+    .input(z.object({ organizationId: z.string().optional(), eventId: z.string().optional() }))
+    .output(onboardingCodeSummarySchema.extend({ code: z.string() }).nullable())
+    .errors(OnboardingErrors),
 
   revokeOnboardingCode: oc
     .route({ method: "POST", path: "/v1/auth/onboarding/codes/revoke" })
@@ -39,7 +52,7 @@ export const onboardingRoutes = {
       }),
     )
     .output(z.object({ success: z.boolean() }))
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   getOnboardingStation: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/codes/station" })
@@ -50,7 +63,7 @@ export const onboardingRoutes = {
       }),
     )
     .output(onboardingCodeSummarySchema.extend({ code: z.string() }))
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   getOnboardingStatus: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/codes/status" })
@@ -72,7 +85,7 @@ export const onboardingRoutes = {
         ),
       }),
     )
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   getOnboardingCodeInfo: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/info" })
@@ -81,7 +94,7 @@ export const onboardingRoutes = {
       z
         .object({
           organizationName: z.string(),
-          eventName: z.string(),
+          eventName: z.string().nullable(),
           inviterName: z.string().nullable(),
           role: z.string(),
           expired: z.boolean(),
@@ -90,7 +103,7 @@ export const onboardingRoutes = {
         })
         .nullable(),
     )
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   getOnboardingStats: oc
     .route({ method: "GET", path: "/v1/auth/onboarding/stats" })
@@ -104,7 +117,7 @@ export const onboardingRoutes = {
       }),
     )
     .output(onboardingStatsSchema)
-    .errors(Errors),
+    .errors(OnboardingErrors),
 
   redeemOnboardingCode: oc
     .route({ method: "POST", path: "/v1/auth/onboarding/redeem" })
@@ -113,9 +126,10 @@ export const onboardingRoutes = {
       z.object({
         success: z.boolean(),
         alreadyRedeemed: z.boolean(),
+        organizationId: z.string(),
         organizationName: z.string(),
-        eventName: z.string(),
+        eventName: z.string().nullable(),
       }),
     )
-    .errors(Errors),
+    .errors(OnboardingRateLimitedErrors),
 };

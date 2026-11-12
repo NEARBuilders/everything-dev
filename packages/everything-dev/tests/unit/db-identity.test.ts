@@ -2,12 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { normalizeSlug } from "../../src/db/core";
 import {
   findWorkspaceDir,
-  normalizeSlug,
   workspaceIdentityFromModuleUrl,
   workspaceIdentityFromWorkspaceDir,
-} from "../../src/db";
+} from "../../src/db/identity";
 
 function makeWorkspace(name: string, structure: string[] = []): string {
   const dir = mkdtempSync(join(tmpdir(), "everything-dev-identity-"));
@@ -59,7 +59,7 @@ describe("workspaceIdentityFromWorkspaceDir", () => {
       expect(identity.secretName).toBe("AUTH_DATABASE_URL");
       expect(identity.journal).toEqual({
         schema: "drizzle",
-        table: "__drizzle_migrations",
+        table: "__drizzle_migrations_auth",
         slug: "auth",
       });
       expect(identity.workspaceDir).toBe(dir);

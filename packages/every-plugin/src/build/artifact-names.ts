@@ -34,13 +34,16 @@ export function uiEntryFilename(input: { isBuild: boolean; server?: boolean }): 
 const HASH_SEGMENT_PATTERN = /\.[a-f0-9]{8,}\./;
 
 /**
- * Serving classification for bundle objects: anything whose name carries a
- * content-hash segment (including hashed entrypoints like
- * `remoteEntry.8f3a….js`) is immutable by construction; fixed-name
- * entrypoints and non-hashed files a redeploy replaces in place must
- * revalidate.
+ * Serving classification for bundle objects: anything under a version
+ * directory (`versions/<dirId>/…`, #826) or a `versions/<id>.json` manifest
+ * is immutable by construction — the directory name is content-addressed and
+ * the upload service refuses conflicting writes under `versions/`; likewise
+ * any name carrying a content-hash segment (including hashed entrypoints
+ * like `remoteEntry.8f3a….js`). Fixed-name entrypoints and non-hashed files
+ * a redeploy replaces in place must revalidate.
  */
 export function isImmutableBundlePath(name: string): boolean {
+  if (name === "versions" || name.startsWith("versions/")) return true;
   const base = name.split("/").pop() ?? name;
   return HASH_SEGMENT_PATTERN.test(base);
 }
@@ -75,6 +78,14 @@ export const BuildEntryReportSchema = z.object({
   entry: z.string().min(1),
   browserManifest: z.string().min(1).optional(),
   css: z.string().min(1).optional(),
+  /**
+   * Shared-singleton `name → version` this build embedded — resolved from the
+   * building workspace's node_modules at config time and stamped by both the
+   * rspack and rsbuild build paths. The deploy leg records it into the
+   * workspace's version manifest, so a slot's pin carries shared-dep
+   * semantics and consumers can detect a build skew before loading (#546).
+   */
+  shared: z.record(z.string(), z.string()).optional(),
 });
 export type BuildEntryReport = z.infer<typeof BuildEntryReportSchema>;
 

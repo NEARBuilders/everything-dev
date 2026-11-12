@@ -57,6 +57,7 @@
       "!!**/virtual-modules.d.ts",
       "!!bos.config.json",
       "!!docs/plans",
+      "!!**/scaffold/upgrade-audit/fixtures",
       "!!.agents"
     ],
     "ignoreUnknown": true

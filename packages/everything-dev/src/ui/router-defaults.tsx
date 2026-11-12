@@ -19,8 +19,12 @@ export function defaultNotFoundComponent() {
 
 export function defaultPendingComponent() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-6">
-      <p className="text-sm text-muted-foreground">Loading...</p>
+    <div
+      className="flex min-h-48 flex-1 items-center justify-center bg-background p-6"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-foreground" />
     </div>
   );
 }

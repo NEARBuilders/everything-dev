@@ -4,21 +4,29 @@
 # https://github.com/NEARBuilders/everything-dev/issues
 name: CI
 
+# CI is the pull-request validation workflow only — there is no `push: main`
+# trigger and no merge queue. The test tiering (docs/agents/testing.md):
+#
+#   T0 local        — lefthook hooks: format/style on commit, typecheck +
+#                     Effect lint on push
+#   T1 here (PR)    — the vital plane: lint/typecheck, path-gated unit
+#                     suites, the ui-only app-load smoke. Slow full-stack
+#                     suites (browser matrix, HTTP stacks, process death)
+#                     skip on PRs.
+#   T2 gate         — the full regression matrix runs before a release
+#                     (release.yml's publish gate) and nightly on the main
+#                     tip (backcompat-nightly.yml). The slow suites below
+#                     stay wired for `workflow_dispatch` triage.
+#
+# Skip-safety: `paths-ignore` is deliberately absent — a paths-ignored run
+# never reports the required `CI gate` check, and branch protection would
+# stall forever waiting on it. Path-targeting lives inside `detect-changes`
+# instead, where a no-op reports success (docs-only PRs therefore pay only
+# the lint/audit pass, and changeset version PRs fast-path to green — see
+# `detect-changes`; the release plane's own full regression is release.yml's
+# gate, so a version PR needs no suites here).
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".changeset/**"
   pull_request:
-    # Mirrors the push filter. Docs-only PRs run the dedicated Docs Check
-    # workflow (which also validates links against renamed/deleted targets);
-    # changeset-only PRs need no validation at all.
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".changeset/**"
   workflow_dispatch:
 
 concurrency:
@@ -36,7 +44,9 @@ jobs:
   detect-changes:
     name: Detect changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
+      version: ${{ steps.changes.outputs.version }}
       everything-dev: ${{ steps.changes.outputs.everything-dev }}
       every-plugin: ${{ steps.changes.outputs.every-plugin }}
       plugins: ${{ steps.changes.outputs.plugins }}
@@ -45,6 +55,7 @@ jobs:
       regression-http: ${{ steps.changes.outputs.regression-http }}
       regression-framework: ${{ steps.changes.outputs.regression-framework }}
       regression-browser: ${{ steps.changes.outputs.regression-browser }}
+      regression-browser-smoke: ${{ steps.changes.outputs.regression-browser-smoke }}
       regression-unit: ${{ steps.changes.outputs.regression-unit }}
       workflows: ${{ steps.changes.outputs.workflows }}
     steps:
@@ -55,100 +66,31 @@ jobs:
 
       - name: Detect changed paths
         id: changes
+        env:
+          # Untrusted pull-request data must enter the script as an env var
+          # (script-injection surface, see actionlint's expression rule).
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        # Path-group semantics live in scripts/detect-changes.mjs — the
+        # single source of truth, unit-tested against the incident cases
+        # (packages/everything-dev/tests/unit/detect-changes.test.ts). This
+        # step only feeds inputs (event, refs) and collects outputs.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch origin "${{ github.base_ref }}" --depth=1
-            BASE="origin/${{ github.base_ref }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            {
-              echo "everything-dev=true"
-              echo "every-plugin=true"
-              echo "host=true"
-              echo "regression-http=true"
-              echo "regression-framework=true"
-              echo "regression-browser=true"
-              echo "regression-unit=true"
-              echo "workflows=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          else
-            BEFORE="${{ github.event.before }}"
-            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE" ]; then
-              BASE="HEAD~1"
-            else
-              git fetch origin "$BEFORE" --depth=1 2>/dev/null || true
-              BASE="$BEFORE"
-            fi
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$BASE_REF" --depth=1 >/dev/null 2>&1 || true
           fi
-
-          if ! DIFF=$(git diff --name-only "$BASE" HEAD); then
-            {
-              echo "everything-dev=true"
-              echo "every-plugin=true"
-              echo "plugins=true"
-              echo "ui-api=true"
-              echo "host=true"
-              echo "regression-http=true"
-              echo "regression-framework=true"
-              echo "regression-browser=true"
-              echo "regression-unit=true"
-              echo "workflows=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if echo "$DIFF" | grep -qE '^tests/regression/lib/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/'; then
-            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-unit=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^\.github/workflows/|^\.github/templates/workflows/'; then
-            echo "workflows=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "workflows=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^packages/everything-dev/|^packages/every-plugin/|^packages/better-near-auth/|^api/|^plugins/|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci.yml$'; then
-            echo "everything-dev=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "everything-dev=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^packages/every-plugin/|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json)$|^\.github/workflows/ci.yml$'; then
-            echo "every-plugin=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "every-plugin=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^plugins/|^packages/every-plugin/|^packages/better-near-auth/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "plugins=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "plugins=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^ui/|^api/|^packages/everything-dev/|^packages/every-plugin/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "ui-api=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ui-api=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^host/|^ui/|^packages/|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "host=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "host=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(http|lib)/|^host/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "regression-http=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-http=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(framework|lib)/|^packages/everything-dev/src/|^packages/every-plugin/src/|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-framework=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(browser|lib)/|^host/|^ui/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
-            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "regression-browser=false" >> "$GITHUB_OUTPUT"
-          fi
+          node scripts/detect-changes.mjs \
+            --event "$EVENT_NAME" \
+            --pr-head-ref "$HEAD_REF" \
+            --base "origin/$BASE_REF" \
+            --before "$BEFORE_SHA" >> "$GITHUB_OUTPUT"
 
   lint-and-typecheck:
     name: Lint and Type Check
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.version != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -161,6 +103,9 @@ jobs:
             echo "::error::bun.lock present — bun re-migrated the workspace (ADR 0026). Delete bun.lock and re-run pnpm install."
             exit 1
           fi
+
+      - name: Guard — changesets target publishable packages only (#572)
+        run: node scripts/changeset-guard.mjs
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -235,6 +180,11 @@ jobs:
       - name: Run typecheck
         run: pnpm run typecheck
 
+      # The framework packages typecheck their own sources (tsc --noEmit) —
+      # `pnpm run typecheck` above only covers the app units
+      - name: Run package self-typecheck
+        run: pnpm run typecheck:packages
+
       # Staleness-checked prerequisite builds + the template plugin target —
       # contract types + manifest pipeline in one command.
       - name: Build template plugin (contract types + manifest pipeline)
@@ -244,7 +194,7 @@ jobs:
     name: Workflow lint
     runs-on: ubuntu-24.04
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.workflows == 'true'
+    if: needs.detect-changes.outputs.version != 'true' && needs.detect-changes.outputs.workflows == 'true'
     timeout-minutes: 5
     steps:
       - name: Checkout repository
@@ -261,8 +211,11 @@ jobs:
           tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
           /tmp/actionlint -color .github/workflows/*.yml .github/templates/workflows/*.yml
 
-  framework-tests:
-    name: Framework tests
+  # The framework suite split into parallel planes — the vital verdict (unit)
+  # lands ~2 minutes in; the integration plane (scaffold/train suites, the
+  # slow tail) runs alongside, not after it. Wall of the gate = max, not sum.
+  framework-unit:
+    name: Framework unit
     needs: [detect-changes]
     if: needs.detect-changes.outputs.everything-dev == 'true'
     runs-on: ubuntu-24.04
@@ -297,11 +250,135 @@ jobs:
       - name: Build framework dists
         run: pnpm run build template
 
-      - name: Test everything-dev
-        run: pnpm --filter everything-dev test
+      - name: Test everything-dev (unit)
+        run: pnpm --filter everything-dev test:unit
+
+  framework-integration:
+    name: Framework integration
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.everything-dev == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build framework dists
+        run: pnpm run build template
+
+      - name: Test everything-dev (integration)
+        run: pnpm --filter everything-dev test:integration
+
+  better-near-auth:
+    name: better-near-auth tests
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.everything-dev == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Get near-kit version
+        id: near-kit
+        working-directory: packages/better-near-auth
+        run: echo "version=$(node -p "require('near-kit/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache near-sandbox binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ~/.near-kit/sandbox/bin
+          key: ${{ runner.os }}-near-sandbox-${{ steps.near-kit.outputs.version }}
+          restore-keys: |
+            ${{ runner.os }}-near-sandbox-
 
       - name: Test better-near-auth
         run: pnpm --filter better-near-auth test
+
+  fresh-init-dev:
+    name: Fresh init dev gate
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.everything-dev == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build framework dists
+        run: pnpm run build template
+
+      - name: Fresh init + dev boot gate
+        run: pnpm --filter everything-dev exec vitest run tests/integration/fresh-init-dev.test.ts
 
   plugin-tests:
     name: Plugin tests
@@ -503,41 +580,13 @@ jobs:
     name: Regression HTTP (dev)
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
-    if: needs.detect-changes.outputs.regression-http == 'true'
+    # T2 suite — release gate + nightly + manual dispatch only; skipped on PRs.
+    if: github.event_name == 'workflow_dispatch' && needs.detect-changes.outputs.regression-http == 'true'
     timeout-minutes: 15
     env:
       CI: true
-      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
-      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
       CORS_ORIGIN: http://localhost:4100
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
-    services:
-      postgres-api-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: api_test_db
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d api_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
-      postgres-auth-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: auth_test_db
-        ports:
-          - 5435:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -575,8 +624,8 @@ jobs:
       - name: Run HTTP regression suite (dev)
         run: pnpm run test:regression:http:dev
 
-      - name: Upload regression artifacts on failure
-        if: failure()
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
           name: regression-http-artifacts-dev
@@ -594,47 +643,29 @@ jobs:
     needs: [detect-changes, lint-and-typecheck, regression-image]
     if: >-
       !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
       needs.lint-and-typecheck.result == 'success' &&
       needs.detect-changes.outputs.regression-http == 'true' &&
       (needs.regression-image.result == 'success' || needs.regression-image.result == 'skipped' || needs.regression-image.result == 'failure')
     timeout-minutes: 20
     env:
       CI: true
-      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
-      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
       CORS_ORIGIN: http://localhost:4100
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
       REGRESSION_PREBUILT_IMAGE: ${{ needs.regression-image.result == 'success' && needs.regression-image.outputs.image || '' }}
-    services:
-      postgres-api-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: api_test_db
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d api_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
-      postgres-auth-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: auth_test_db
-        ports:
-          - 5435:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Free disk space
+        # The in-job `docker build --target regression` (no prebuilt image on
+        # PR runs) needs headroom for the container's fresh pnpm store, the
+        # full node_modules COPY into the regression stage, and the export
+        # layers — the preinstalled SDK set is dead weight here.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeProfiler /usr/local/share/boost || true
+          sudo docker image prune -af || true
+          df -h /
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -670,8 +701,8 @@ jobs:
       - name: Run HTTP regression suite (start)
         run: pnpm run test:regression:http:start
 
-      - name: Upload regression artifacts on failure
-        if: failure()
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
           name: regression-http-artifacts-start
@@ -681,40 +712,22 @@ jobs:
     name: Regression framework (process death)
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
-    if: needs.detect-changes.outputs.regression-framework == 'true'
-    timeout-minutes: 15
+    # T2 suite — release gate + nightly + manual dispatch only; skipped on PRs.
+    if: github.event_name == 'workflow_dispatch' && needs.detect-changes.outputs.regression-framework == 'true'
+    # Two stack slots: every test but one boots the confined death-contract
+    # fixture (~100MB of fake node services); the single full-stack boot
+    # (sigterm) adds ~2GB. Two concurrent boots — full + confined — fit a
+    # 4-core/16GB runner with room to spare. (The suite once ran serial at
+    # slots=1 because three concurrent FULL stacks exhausted RAM —
+    # 240-450MB free observed — and the saturated runner was torn down
+    # mid-job; the confined fixture removed that class.)
+    timeout-minutes: 12
     env:
       CI: true
-      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
-      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
-    services:
-      postgres-api-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: api_test_db
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d api_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
-      postgres-auth-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: auth_test_db
-        ports:
-          - 5435:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
+      BOS_TEARDOWN_ADOPTION: "1"
+      BOS_FRAMEWORK_STACK_SLOTS: "2"
+      BOS_FRAMEWORK_READY_TIMEOUT_MINUTES: "4"
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -746,69 +759,67 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin dist
-        run: pnpm run build template
+      # No "Build every-plugin dist" here: the suite boots only `bos dev`,
+      # which resolves every-plugin from TS source through tsx (ADR 0018) —
+      # a fresh checkout boots the same. The http/browser jobs keep the
+      # build step (their dev modes run ui via dev:built).
 
+      # Background watchdog: teed into resource-watchdog.log AND the step's
+      # output pipe — when a runner death skips the artifact upload below,
+      # free -m / top still land in the fetched log. A TERM trap on the
+      # step shell timestamps infra kills: the 2026-10-23/24 exit-143 deaths
+      # turned out to be RAM saturation from concurrent stack boots (see the
+      # serial slots note above) — runner loss, never a test failure.
+      # No in-step retry: deterministic failures just re-fail.
       - name: Run framework regression suite
-        run: pnpm run test:regression:framework
+        run: |
+          # $(date) must expand inside the inner bash on every loop iteration —
+          # single quotes are intentional.
+          # shellcheck disable=SC2016
+          nohup bash -c 'while true; do
+            echo "=== watchdog $(date -u +%H:%M:%S) ==="
+            free -m
+            ps -eo pid,ppid,pgid,rss,etime,comm --sort=-rss | head -15
+            sleep 30
+          done' 2>&1 | tee resource-watchdog.log &
 
-      - name: Upload regression artifacts on failure
-        if: failure()
+          # shellcheck disable=SC2016
+          trap 'echo "[term-trap] step shell received TERM at $(date -u +%H:%M:%S); ancestors: $(ps -o ppid=,comm= -p $PPID 2>/dev/null | tr "\n" ";")"' TERM
+          pnpm run test:regression:framework
+
+      # always(), not !success(): run 40016532628 died with the whole step tree
+      # TERMed (exit 143) while two stacks booted — and this upload was skipped
+      # anyway, losing the evidence. The suite's own stack logs are the only
+      # ground truth about how far a boot got.
+      - name: Upload regression artifacts (always)
+        if: ${{ always() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
           name: regression-framework-artifacts
-          path: .bos/logs/**
+          path: |
+            .bos/logs/**
+            tests/regression/fixtures/death-contract/.bos/logs/**
+            resource-watchdog.log
 
+  # dev:* = the dev server, smoke-only (ADR 0009). One job runs both projects
+  # sequentially — one dependency-install exposure (the apt step that hung
+  # three CI runs on 2026-10-23), one fixed setup cost, instead of two legs.
+  # The projects are not duplicates: dev:ssr pins the SSR-rendered shell, dev:csr the CSR compose.
   regression-browser:
-    name: Regression Browser (${{ matrix.mode }})
-    strategy:
-      fail-fast: false
-      matrix:
-        # dev:* = the dev server, smoke-only (ADR 0009).
-        include:
-          - mode: dev:ssr
-            slug: dev-ssr
-            timeout: 10
-          - mode: dev:csr
-            slug: dev-csr
-            timeout: 10
+    name: Regression Browser (dev)
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
-    if: needs.detect-changes.outputs.regression-browser == 'true'
-    timeout-minutes: ${{ matrix.timeout }}
+    # T2 suite — release gate + nightly + manual dispatch only; skipped on
+    # PRs (ui-only PRs pay the app-load smoke instead: the detector returns
+    # regression-browser=false when the smoke covers the diff).
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      needs.detect-changes.outputs.regression-browser == 'true'
+    timeout-minutes: 20
     env:
       CI: true
-      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
-      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
       CORS_ORIGIN: http://localhost:4100
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
-    services:
-      postgres-api-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: api_test_db
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d api_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
-      postgres-auth-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: auth_test_db
-        ports:
-          - 5435:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -839,20 +850,10 @@ jobs:
       - name: Build every-plugin dist
         run: pnpm run build template
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-
-      - name: Install Playwright browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright system deps
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
+      # Shared browser install (cache + probe-gated system deps) — the apt-hang
+      # rationale lives in the action. Child repos reuse it cross-repo:
+      # NEARBuilders/everything-dev/.github/actions/install-playwright
+      - uses: ./.github/actions/install-playwright
 
       - name: Resource watchdog
         run: |
@@ -866,17 +867,101 @@ jobs:
             sleep 30
           done' >> resource-watchdog.log 2>&1 &
 
-      - name: Run browser regression suite (${{ matrix.mode }})
-        run: pnpm run test:regression:browser:${{ matrix.mode }}
+      - name: Run browser regression suite (dev:ssr)
+        run: pnpm run test:regression:browser:dev:ssr
 
-      - name: Upload regression artifacts on failure
-        if: failure()
+      - name: Run browser regression suite (dev:csr)
+        run: pnpm run test:regression:browser:dev:csr
+
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
-          name: regression-browser-artifacts-${{ matrix.slug }}
+          name: regression-browser-artifacts-dev
           path: |
             .bos/logs/**
             resource-watchdog.log
+            playwright-report/**
+            test-results/**
+
+  # ui-only diffs (#826 follow-up): a diff confined to the ui workspace
+  # replaces the full sharded browser matrix with the app-load spec (boot +
+  # hydration + runtime-config shape) — the one ui-only risk gate, minutes
+  # instead of the full matrix.
+  regression-browser-smoke:
+    name: Regression Browser Smoke (app-load)
+    runs-on: ubuntu-24.04
+    needs: [detect-changes, lint-and-typecheck]
+    if: >-
+      needs.detect-changes.outputs.regression-browser-smoke == 'true' &&
+      needs.detect-changes.outputs.regression-browser == 'true'
+    timeout-minutes: 15
+    # Matrix-of-one: the single literal the container tag and the drift-guard
+    # step both derive from (env context isn't available in container.image).
+    # Must track the lockfile's @playwright/test resolution. The official
+    # container ships browsers + system deps, so apt never runs on this
+    # gate; the sharded matrix below stays on the probe-gated action — its
+    # start:* suites need docker, which a job container can't provide.
+    strategy:
+      matrix:
+        playwright-version: ["1.65.0"]
+    container:
+      image: mcr.microsoft.com/playwright:v${{ matrix.playwright-version }}-noble
+      options: --user 1001 --init --ipc=host
+    env:
+      PLAYWRIGHT_VERSION: ${{ matrix.playwright-version }}
+      CI: true
+      CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin dist
+        run: pnpm run build template
+
+      - name: Verify container matches the lockfile's Playwright
+        run: |
+          actual="$(pnpm exec playwright --version)"
+          expected="Version ${PLAYWRIGHT_VERSION}"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::lockfile resolves ${actual}, but the job container ships v${PLAYWRIGHT_VERSION} browsers — bump the playwright-version matrix value in this job"
+            exit 1
+          fi
+
+      - name: Run ui smoke spec (dev:ssr)
+        run: pnpm run test:regression:browser:smoke
+
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-browser-artifacts-smoke
+          path: |
+            .bos/logs/**
             playwright-report/**
             test-results/**
 
@@ -887,59 +972,48 @@ jobs:
   # build, and fall back to a local build when the image job was skipped
   # (fork PRs) or failed.
   regression-browser-start:
-    name: Regression Browser (${{ matrix.mode }})
+    name: Regression Browser (${{ matrix.mode }} ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
+        # Full-suite start legs, sharded across jobs (file-level granularity;
+        # each shard boots its own container stack against its own per-job
+        # Postgres services — full isolation, no intra-runner contention).
         include:
           - mode: start:ssr
             slug: start-ssr
             timeout: 20
+            shard: 1/2
+            shard-slug: s1
+          - mode: start:ssr
+            slug: start-ssr
+            timeout: 20
+            shard: 2/2
+            shard-slug: s2
           - mode: start:csr
             slug: start-csr
             timeout: 20
+            shard: 1/2
+            shard-slug: s1
+          - mode: start:csr
+            slug: start-csr
+            timeout: 20
+            shard: 2/2
+            shard-slug: s2
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck, regression-image]
     if: >-
       !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
       needs.lint-and-typecheck.result == 'success' &&
       needs.detect-changes.outputs.regression-browser == 'true' &&
       (needs.regression-image.result == 'success' || needs.regression-image.result == 'skipped' || needs.regression-image.result == 'failure')
     timeout-minutes: ${{ matrix.timeout }}
     env:
       CI: true
-      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
-      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
       CORS_ORIGIN: http://localhost:4100
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
       REGRESSION_PREBUILT_IMAGE: ${{ needs.regression-image.result == 'success' && needs.regression-image.outputs.image || '' }}
-    services:
-      postgres-api-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: api_test_db
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d api_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
-      postgres-auth-test:
-        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: auth_test_db
-        ports:
-          - 5435:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -971,20 +1045,10 @@ jobs:
         if: needs.regression-image.result == 'success'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-
-      - name: Install Playwright browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright system deps
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
+      # Shared browser install (cache + probe-gated system deps) — the apt-hang
+      # rationale lives in the action. Child repos reuse it cross-repo:
+      # NEARBuilders/everything-dev/.github/actions/install-playwright
+      - uses: ./.github/actions/install-playwright
 
       - name: Resource watchdog
         run: |
@@ -998,14 +1062,14 @@ jobs:
             sleep 30
           done' >> resource-watchdog.log 2>&1 &
 
-      - name: Run browser regression suite (${{ matrix.mode }})
-        run: pnpm run test:regression:browser:${{ matrix.mode }}
+      - name: Run browser regression suite (${{ matrix.mode }}, shard ${{ matrix.shard }})
+        run: pnpm exec playwright test -c tests/regression/browser/playwright.config.mjs --project=${{ matrix.mode }} --shard=${{ matrix.shard }}
 
-      - name: Upload regression artifacts on failure
-        if: failure()
+      - name: Upload regression artifacts on failure or cancel
+        if: ${{ !success() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
-          name: regression-browser-artifacts-${{ matrix.slug }}
+          name: regression-browser-artifacts-${{ matrix.slug }}-${{ matrix.shard-slug }}
           path: |
             .bos/logs/**
             resource-watchdog.log
@@ -1015,15 +1079,16 @@ jobs:
   # Build the docker regression fixture once per run and push it for the
   # start:* suites to pull (three suites otherwise pay three identical full
   # builds). Also exports the shared builder-stage layers to the GHCR
-  # buildcache ref, which the deploy workflow's runtime build imports for
-  # the same SHA (the manifest-gen layers diverge — regression omits
-  # BOS_GIT_SHA — but the install + framework builds hit). Push events only:
-  # fork PR runs can't push to GHCR and fall back to per-suite local builds.
+  # buildcache ref, which the deploy workflow's runtime build imports on a
+  # best-effort basis (the manifest-gen layers diverge — regression omits
+  # BOS_GIT_SHA — but the install + framework builds hit). Manual-dispatch
+  # runs only: PR/queue runs can't push to GHCR and fall back to per-suite
+  # local builds.
   regression-image:
     name: Build regression fixture image
     needs: [detect-changes]
     if: >-
-      github.event_name != 'pull_request' &&
+      github.event_name == 'workflow_dispatch' &&
       (needs.detect-changes.outputs.regression-http == 'true' ||
        needs.detect-changes.outputs.regression-browser == 'true')
     runs-on: ubuntu-24.04
@@ -1036,6 +1101,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Free disk space
+        # Same headroom case as regression-http-start: the fixture build
+        # (fresh pnpm store + full node_modules COPY + registry export) sits
+        # close to the runner's disk ceiling.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeProfiler /usr/local/share/boost || true
+          sudo docker image prune -af || true
+          df -h /
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -1061,3 +1135,43 @@ jobs:
             exit 1
           fi
           echo "image=${REF}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
+  # Umbrella required check: the main-branch ruleset + merge queue require
+  # exactly the `CI gate` context. Path-gated suite jobs are legitimately
+  # skipped when their paths are untouched, and a required check never
+  # treats "skipped" as success — so the gate runs unconditionally and
+  # folds the whole tree into one boolean: pass when every suite succeeded
+  # OR was skipped on purpose, fail on any failure or cancellation.
+  # detect-changes is in `needs` so its own failure cannot masquerade as a
+  # clean all-skipped run.
+  ci-gate:
+    name: CI gate
+    needs:
+      - detect-changes
+      - lint-and-typecheck
+      - workflows-lint
+      - framework-unit
+      - framework-integration
+      - better-near-auth
+      - plugin-tests
+      - ui-api-tests
+      - host-tests
+      - regression-unit
+      - regression-http
+      - regression-http-start
+      - regression-framework
+      - regression-browser
+      - regression-browser-smoke
+      - regression-browser-start
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate suite results
+        run: |
+          RESULTS="${{ join(needs.*.result, ' ') }}"
+          echo "suite results: $RESULTS"
+          if echo "$RESULTS" | grep -qE 'failure|cancelled'; then
+            echo "::error::CI run has failed or cancelled suites — see the jobs above"
+            exit 1
+          fi

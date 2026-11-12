@@ -1,0 +1,4 @@
+{
+  "pgliteDefaultDir": ".bos/db",
+  "pgliteTestUrl": "pglite::memory:"
+}

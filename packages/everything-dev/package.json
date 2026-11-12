@@ -1,6 +1,6 @@
 {
   "name": "everything-dev",
-  "version": "2.0.0-rc.18",
+  "version": "2.0.0-rc.44",
   "type": "module",
   "engines": {
     "node": ">=20.11"
@@ -63,6 +63,24 @@
       "import": "./dist/services/registry/dag.mjs",
       "require": "./dist/services/registry/dag.cjs"
     },
+    "./registry": {
+      "development": {
+        "types": "./src/services/registry/index.ts",
+        "import": "./src/services/registry/index.ts"
+      },
+      "types": "./dist/services/registry/index.d.mts",
+      "import": "./dist/services/registry/index.mjs",
+      "require": "./dist/services/registry/index.cjs"
+    },
+    "./registry/fastkv": {
+      "development": {
+        "types": "./src/services/registry/fastkv.ts",
+        "import": "./src/services/registry/fastkv.ts"
+      },
+      "types": "./dist/services/registry/fastkv.d.mts",
+      "import": "./dist/services/registry/fastkv.mjs",
+      "require": "./dist/services/registry/fastkv.cjs"
+    },
     "./hosting": {
       "development": {
         "types": "./src/services/hosting/adapter.ts",
@@ -81,6 +99,15 @@
       "import": "./dist/services/hosting/docker.mjs",
       "require": "./dist/services/hosting/docker.cjs"
     },
+    "./hosting/secrets": {
+      "development": {
+        "types": "./src/services/hosting/secrets.ts",
+        "import": "./src/services/hosting/secrets.ts"
+      },
+      "types": "./dist/services/hosting/secrets.d.mts",
+      "import": "./dist/services/hosting/secrets.mjs",
+      "require": "./dist/services/hosting/secrets.cjs"
+    },
     "./bundle-cache": {
       "development": {
         "types": "./src/services/registry/bundle-cache.ts",
@@ -90,14 +117,32 @@
       "import": "./dist/services/registry/bundle-cache.mjs",
       "require": "./dist/services/registry/bundle-cache.cjs"
     },
-    "./fingerprint": {
+    "./snapshot": {
       "development": {
-        "types": "./src/services/registry/fingerprint.ts",
-        "import": "./src/services/registry/fingerprint.ts"
+        "types": "./src/services/snapshot/schema.ts",
+        "import": "./src/services/snapshot/schema.ts"
       },
-      "types": "./dist/services/registry/fingerprint.d.mts",
-      "import": "./dist/services/registry/fingerprint.mjs",
-      "require": "./dist/services/registry/fingerprint.cjs"
+      "types": "./dist/services/snapshot/schema.d.mts",
+      "import": "./dist/services/snapshot/schema.mjs",
+      "require": "./dist/services/snapshot/schema.cjs"
+    },
+    "./lockfile": {
+      "development": {
+        "types": "./src/services/lockfile/schema.ts",
+        "import": "./src/services/lockfile/schema.ts"
+      },
+      "types": "./dist/services/lockfile/schema.d.mts",
+      "import": "./dist/services/lockfile/schema.mjs",
+      "require": "./dist/services/lockfile/schema.cjs"
+    },
+    "./digest": {
+      "development": {
+        "types": "./src/services/registry/digest.ts",
+        "import": "./src/services/registry/digest.ts"
+      },
+      "types": "./dist/services/registry/digest.d.mts",
+      "import": "./dist/services/registry/digest.mjs",
+      "require": "./dist/services/registry/digest.cjs"
     },
     "./version-manifest-resolve": {
       "development": {
@@ -116,15 +161,6 @@
       "types": "./dist/services/resolution/resolver.d.mts",
       "import": "./dist/services/resolution/resolver.mjs",
       "require": "./dist/services/resolution/resolver.cjs"
-    },
-    "./fastkv": {
-      "development": {
-        "types": "./src/services/registry/fastkv.ts",
-        "import": "./src/services/registry/fastkv.ts"
-      },
-      "types": "./dist/services/registry/fastkv.d.mts",
-      "import": "./dist/services/registry/fastkv.mjs",
-      "require": "./dist/services/registry/fastkv.cjs"
     },
     "./contract.meta": {
       "development": {
@@ -351,6 +387,15 @@
       "import": "./dist/ui/manifest/index.mjs",
       "require": "./dist/ui/manifest/index.cjs"
     },
+    "./ui/compose": {
+      "development": {
+        "types": "./src/ui/compose.ts",
+        "import": "./src/ui/compose.ts"
+      },
+      "types": "./dist/ui/compose.d.mts",
+      "import": "./dist/ui/compose.mjs",
+      "require": "./dist/ui/compose.cjs"
+    },
     "./ui/manifest-generator": {
       "development": {
         "types": "./src/ui/manifest-generator.ts",
@@ -378,6 +423,15 @@
       "types": "./dist/ui/version-check.d.mts",
       "import": "./dist/ui/version-check.mjs",
       "require": "./dist/ui/version-check.cjs"
+    },
+    "./verify": {
+      "development": {
+        "types": "./src/services/verify/index.ts",
+        "import": "./src/services/verify/index.ts"
+      },
+      "types": "./dist/services/verify/index.d.mts",
+      "import": "./dist/services/verify/index.mjs",
+      "require": "./dist/services/verify/index.cjs"
     }
   },
   "files": [
@@ -403,14 +457,16 @@
     "dev": "echo 'Source exports - no build needed'",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "test:structure": "vitest run tests/integration/init.structure.test.ts",
     "test:full": "CI=true vitest run tests/integration/init.full.test.ts --testTimeout=120000"
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
-    "@effect/platform-node": "4.0.0-rc.117",
-    "@effect/platform-node-shared": "4.0.0-rc.117",
+    "@effect/platform-node": "4.0.0-rc.118",
+    "@effect/platform-node-shared": "4.0.0-rc.118",
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
@@ -418,7 +474,7 @@
     "chalk": "^5.6.2",
     "defu": "^6.1.7",
     "dotenv": "^17.3.1",
-    "effect": "4.0.0-rc.117",
+    "effect": "4.0.0-rc.118",
     "every-plugin": "workspace:^",
     "execa": "^9.5.2",
     "glob": "^13.0.6",
@@ -510,7 +566,7 @@
     "@tanstack/router-plugin": "catalog:",
     "@types/node": "catalog:",
     "@types/tar": "^7.0.0",
-    "alchemy": "2.0.0-beta.79",
+    "alchemy": "2.0.0-beta.83",
     "better-auth": "catalog:",
     "jsdom": "^30.0.1",
     "react": "catalog:",

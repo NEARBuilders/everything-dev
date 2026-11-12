@@ -1,15 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
-import { attemptAuth, attemptDb } from "../attempts";
+import { attemptAuth } from "../attempts";
 import * as schema from "../db/schema";
 import type { PluginServices } from "../service-types";
 import { createHeaders, memberRoleOf, parseTeamAreas } from "../utils";
-import {
-  type AuthFailure,
-  NoOrganizationSelected,
-  NotOrganizer,
-  OrgRequiresApproval,
-} from "./domain-errors";
+import { type AuthFailure, NoOrganizationSelected, NotOrganizer } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -42,21 +37,9 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
       const organizationId = inputOrganizationId ?? context.activeOrganizationId ?? null;
       const userId = context.userId;
       if (!userId || !organizationId) {
-        return yield* Effect.fail(
-          new NoOrganizationSelected({ message: "No organization selected" }),
-        );
+        return yield* new NoOrganizationSelected({ message: "No organization selected" });
       }
       const headers = createHeaders(context.reqHeaders);
-      const organization = yield* attemptDb(() =>
-        db.query.organization.findFirst({
-          where: eq(schema.organization.id, organizationId),
-        }),
-      );
-      if (organization?.status !== "active") {
-        return yield* Effect.fail(
-          new OrgRequiresApproval({ message: "Organization requires platform-admin approval" }),
-        );
-      }
       const result = yield* attemptAuth(() =>
         auth.api.getActiveMemberRole({
           headers,
@@ -70,12 +53,10 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         (role !== null &&
           (yield* Effect.promise(() => belongsToEventsTeam(db, userId, organizationId))));
       if (!isOrganizer) {
-        return yield* Effect.fail(
-          new NotOrganizer({
-            message:
-              "Only organizers — organization owners, admins, or members of a team with the events area — can manage onboarding codes",
-          }),
-        );
+        return yield* new NotOrganizer({
+          message:
+            "Only organizers — organization owners, admins, or members of a team with the events area — can manage onboarding codes",
+        });
       }
       return { userId, organizationId, headers };
     }),

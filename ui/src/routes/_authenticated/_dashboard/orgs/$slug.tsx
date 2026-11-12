@@ -9,7 +9,6 @@ import {
   Button,
   EmptyState,
   PageContainer,
-  PageHeader,
   Skeleton,
   Tabs,
   TabsList,
@@ -103,7 +102,7 @@ function OrganizationDetail() {
         const { members } = await apiClient.auth.listMembers({ organizationId: orgId });
         return members;
       },
-      enabled: !!orgId && org?.status === "active",
+      enabled: !!orgId,
     }).data ?? [];
   const invitations =
     useQuery({
@@ -111,7 +110,7 @@ function OrganizationDetail() {
       queryFn: async (): Promise<InvitationItem[]> => {
         return apiClient.auth.listInvitations({ organizationId: orgId });
       },
-      enabled: !!orgId && org?.status === "active",
+      enabled: !!orgId,
     }).data ?? [];
   const apiKeys =
     useQuery({
@@ -119,7 +118,7 @@ function OrganizationDetail() {
       queryFn: async (): Promise<OrganizationApiKey[]> => {
         return apiClient.auth.listApiKeys({ organizationId: orgId, configId: "org-keys" });
       },
-      enabled: !!orgId && org?.status === "active",
+      enabled: !!orgId,
     }).data ?? [];
   const myMembership = members.find((member) => member.userId === session?.user?.id);
   const canManageMembers = myMembership?.role === "owner" || myMembership?.role === "admin";
@@ -169,7 +168,7 @@ function OrganizationDetail() {
     if (!isOrganizationTab(value) || value === activeTab) return;
     void navigate({ search: (prev) => ({ ...prev, tab: value }), replace: true });
   };
-  const teamsState = useOrganizationTeams(orgId, activeTab === "teams" && org?.status === "active");
+  const teamsState = useOrganizationTeams(orgId, activeTab === "teams");
   const { deleteOrgMutation, leaveOrgMutation, updateOrgMutation } = useOrganizationSettings(
     auth,
     orgId,
@@ -201,31 +200,6 @@ function OrganizationDetail() {
             </Button>
           }
         />
-      </PageContainer>
-    );
-  }
-
-  if (org?.status !== "active") {
-    return (
-      <PageContainer variant="narrow">
-        <PageHeader
-          title={org.name}
-          subtitle={`@${org.slug}`}
-          headerTestId="orgs.request.heading"
-        />
-        <div className="flex flex-col gap-4" data-testid="orgs-request-status">
-          <h2 className="text-lg font-medium">
-            {org?.status === "pending" ? "Pending approval" : "Request rejected"}
-          </h2>
-          <p className="text-sm text-muted-foreground" data-testid="orgs-request-reason">
-            {org?.status === "pending"
-              ? "A platform admin will review your request. Your organization can be used once approved."
-              : org.rejectionReason}
-          </p>
-          <Button variant="outline" nativeButton={false} render={<Link to="/orgs" />}>
-            Back to organizations
-          </Button>
-        </div>
       </PageContainer>
     );
   }

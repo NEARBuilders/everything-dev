@@ -31,11 +31,22 @@ vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
   return {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,
+    // #771's preflight key-health probe hits the real registry RPC from
+    // inside the train — outside this test's injected RegistryStore/Signer
+    // seams. The hermetic guard blocks it in CI and a real RPC answers
+    // locally; either way the probe must not be the thing under test here.
+    checkPublishKeyHealth: vi.fn(async () => ({ ok: true })),
   };
 });
 
 const configWithoutDomain = { account: "v1.acct.near" } as BosConfig;
-const configReady = { account: "v1.acct.near", domain: "app.test" } as BosConfig;
+// The pre-publish schema gate (train) rejects payloads that could not boot;
+// the ready fixture carries the required app remotes.
+const configReady = {
+  account: "v1.acct.near",
+  domain: "app.test",
+  app: { host: {}, ui: {}, api: {} },
+} as BosConfig;
 
 const baseInput = {
   runtimeConfig: null,
@@ -142,7 +153,11 @@ describe("DeployTrainService", () => {
       RegistryStore.of({
         fetchConfig: (async () => {
           registryReads += 1;
-          if (registryReads === 1) throw new Error("No config found");
+          // Behavior-keyed, not call-count-keyed: every read misses until the
+          // submit has gone through the injected Signer tag, then reads serve
+          // the published bytes for the confirm legs — another train read
+          // added before submit must not re-choreograph this fake.
+          if (submitted.length === 0) throw new Error("No config found");
           return JSON.parse(JSON.stringify(configReady));
         }) as never,
         fetchHistory: (async () => {

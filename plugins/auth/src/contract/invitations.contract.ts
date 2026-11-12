@@ -1,7 +1,7 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { z } from "zod";
-import { Errors } from "./errors";
+import { Errors, InvitationErrors } from "./errors";
 import { invitationSchema } from "./schemas";
 
 export const invitationRoutes = {
@@ -83,7 +83,7 @@ export const invitationRoutes = {
     .route({ method: "POST", path: "/v1/auth/invitations/accept-near" })
     .input(z.object({ invitationId: z.string() }))
     .output(z.object({ success: z.boolean() }))
-    .errors(Errors),
+    .errors(InvitationErrors),
 
   rejectNearInvitation: oc
     .route({ method: "POST", path: "/v1/auth/invitations/reject-near" })

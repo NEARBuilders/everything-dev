@@ -2,12 +2,14 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { pgliteDefaultUrlForSlug } from "../../db/binding";
 
 /**
  * The runtime-image boot gate: boots a runtime image the way production
  * boots — identity from BOS_ACCOUNT/BOS_GATEWAY env and the published config
  * from the registry — and asserts the boot surface: /health, one SSR page,
- * the OpenAPI spec, and `bos mf check` in-image. Health/SSR/API polls run
+ * the OpenAPI spec, `bos mf check` in-image, and the
+ * entries-depth chain walk in-image. Health/SSR/API polls run
  * concurrently against a shared boot deadline; a container that exits early
  * fails fast (the start stack exits non-zero when a service fails to boot),
  * and the failure path probes the CDN from inside the container to classify
@@ -214,14 +216,18 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
   const envPairs: Record<string, string> = {
     BOS_ACCOUNT: options.account ?? process.env.SMOKE_BOS_ACCOUNT ?? "dev.everything.near",
     BOS_GATEWAY: options.gateway ?? process.env.SMOKE_BOS_GATEWAY ?? "everything.dev",
+    // Boot-gate only: the container's own persistent-by-path PGlite defaults
+    // (in-container fs, one data dir per workspace) are enough — no external
+    // postgres involved. Distinct dirs: two live PGlite instances cannot share
+    // one data dir (ADR 0044).
     API_DATABASE_URL:
       options.apiDatabaseUrl ??
       process.env.SMOKE_API_DATABASE_URL ??
-      "postgres://everythingdev:everythingdev@host.docker.internal:5434/api_test_db",
+      pgliteDefaultUrlForSlug("api"),
     AUTH_DATABASE_URL:
       options.authDatabaseUrl ??
       process.env.SMOKE_AUTH_DATABASE_URL ??
-      "postgres://everythingdev:everythingdev@host.docker.internal:5435/auth_test_db",
+      pgliteDefaultUrlForSlug("auth"),
     BETTER_AUTH_SECRET:
       options.authSecret ??
       process.env.SMOKE_BETTER_AUTH_SECRET ??
@@ -235,7 +241,6 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     container,
     "-p",
     `${port}:${port}`,
-    "--add-host=host.docker.internal:host-gateway",
     ...Object.entries(envPairs).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
     image,
   ]);
@@ -247,7 +252,18 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     const exitWatch = watchContainerExit(container);
     const bootChecks = Promise.all([
       pollUntil("health", () =>
-        fetchStatusOk(`${baseUrl}/health`).then((r) => `status ${r.status}`),
+        fetchStatusOk(`${baseUrl}/health`).then(async (r) => {
+          const health = (await r.json()) as { snapshot?: { booted?: boolean } };
+          // A registry-sourced production boot must never claim snapshot
+          // provenance — the degraded rung (ADR 0041) only triggers when the
+          // registry is unreachable, which a healthy publish never is.
+          if (health.snapshot?.booted) {
+            throw new Error(
+              "/health reports snapshot provenance on a registry-sourced boot — the degraded rung triggered on a healthy publish",
+            );
+          }
+          return `status ${r.status}`;
+        }),
       ),
       pollUntil("ssr page", async () => {
         const response = await fetchStatusOk(`${baseUrl}/`);
@@ -308,6 +324,34 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
       60_000,
     );
 
+    // The chain walk as a pre-promotion leg (ADR 0046): the booted identity's
+    // published config walks at entries depth inside the container — pinned
+    // manifest documents and their remoteEntry/ssr bytes byte-for-byte. Rot
+    // here means the just-published config points at bytes the CDN does not
+    // serve; the promotion must not happen.
+    console.log(`  … bos verify --depth entries (in-image)`);
+    const chain = await pollUntil(
+      "bos verify --depth entries",
+      async () => {
+        const result = docker([
+          "exec",
+          container,
+          "node",
+          "./node_modules/everything-dev/dist/cli.mjs",
+          "verify",
+          "--depth",
+          "entries",
+        ]);
+        if (result.status !== 0) {
+          throw new Error(
+            `bos verify failed (exit ${result.status})\n${result.stdout}${result.stderr}`,
+          );
+        }
+        return (result.stdout.trim().split("\n").at(-1) ?? "").slice(0, 400);
+      },
+      120_000,
+    );
+
     // ADR 0034: the boot gate also self-describes — the in-image platform
     // release manifest must exist and parse (the release contract ships in
     // the same bytes the host boots from).
@@ -331,7 +375,7 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     const mb = (Number(sizeResult.stdout.trim()) / (1024 * 1024)).toFixed(1);
     console.log(`  ℹ image size: ${mb} MB (${image})`);
 
-    const summary = `health: ${health}; ssr: ${ssr}; api: ${api}; mf compat: ${mf}; platform: ${platformVersion}`;
+    const summary = `health: ${health}; ssr: ${ssr}; api: ${api}; mf compat: ${mf}; chain: ${chain}; platform: ${platformVersion}`;
     console.log("smoke: PASS");
     return { ok: true, image, summary };
   } catch (error) {

@@ -37,7 +37,7 @@ export default createPlugin({
   }),
 
   secrets: z.object({
-    PROPOSALS_DATABASE_URL: z.string().default("pglite:.bos/proposals/:memory:"),
+    PROPOSALS_DATABASE_URL: z.string().default("pglite:.bos/db/proposals"),
   }),
 
   context: ProposalContextSchema,
@@ -48,7 +48,7 @@ export default createPlugin({
     Effect.gen(function* () {
       const Database = DatabaseLive(config);
       const publisher = new MemoryPublisher<ProposalEvents>({
-        resume: { enabled: true, seconds: 120 },
+        resume: { enabled: true, ttl: 120 * 1000 },
       });
 
       yield* Effect.log("[Proposals] Services Initialized");

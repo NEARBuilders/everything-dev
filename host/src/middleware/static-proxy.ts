@@ -4,6 +4,7 @@ import type { AuthVariables } from "../lib/auth";
 import { STATIC_ASSET_PATTERN } from "../middleware/security";
 import type { RuntimeConfig } from "../services/config";
 import { getTenantRuntimeErrorResponse, resolveRequestRuntime } from "../services/tenant-runtime";
+import { isClientAbortError } from "../utils/errors";
 import { logger } from "../utils/logger";
 
 type HonoEnv = { Variables: AuthVariables };
@@ -120,6 +121,10 @@ export function createStaticAssetProxyHandler(
       });
       return await proxyStaticAssetRequest(c.req.raw, runtime.config.ui.url);
     } catch (error) {
+      if (isClientAbortError(error)) {
+        logger.debug(`[Proxy Asset] ${c.req.method} ${c.req.path} — client disconnected`);
+        return new Response(null, { status: 499 });
+      }
       const { message, status } = getTenantRuntimeErrorResponse(error);
       logger.error(`[Proxy Asset] ${c.req.method} ${c.req.path} — ${message}`);
       return c.text(message, { status: status as 404 | 500 | 502 });

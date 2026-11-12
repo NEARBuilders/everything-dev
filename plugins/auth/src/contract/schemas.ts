@@ -25,8 +25,6 @@ export const organizationInfoSchema = z.object({
   logo: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   status: z.enum(["active", "pending", "rejected"]).default("active"),
-  requestedBy: z.string().nullable().optional(),
-  rejectionReason: z.string().nullable().optional(),
 });
 
 export const teamContextSchema = z.object({
@@ -119,6 +117,10 @@ export const requestContextSchema = z.object({
   permissions: z.record(z.string(), z.array(z.string())).nullable(),
   session: contextSessionSchema.nullable(),
   near: nearCapabilitiesSchema,
+  // Host-injected: the session's primary NEAR account on the request context
+  // (#678). Declared here so plugin ContextSchemas derived from the contract
+  // see it without a local widening, and so output validation doesn't strip it.
+  nearAccountId: z.string().nullable().optional(),
   organization: organizationContextSchema,
   organizations: z
     .array(
@@ -157,6 +159,12 @@ export const apiKeyRateLimitSchema = z.object({
   enabled: z.boolean().optional(),
   timeWindow: z.number().int().positive().optional(),
   max: z.number().int().positive().optional(),
+});
+
+export const adminOrganizationSummarySchema = organizationInfoSchema.extend({
+  createdAt: z.date(),
+  memberCount: z.number(),
+  teamCount: z.number(),
 });
 
 export const memberSchema = z.object({
@@ -253,12 +261,12 @@ export const passkeySchema = z.object({
 export const onboardingCodeSummarySchema = z.object({
   id: z.string(),
   eventId: z.string().nullable(),
-  eventName: z.string(),
+  eventName: z.string().nullable(),
   teamId: z.string(),
   role: z.string(),
   maxUses: z.number(),
   usedCount: z.number(),
-  expiresAt: z.date(),
+  expiresAt: z.date().nullable(),
   revokedAt: z.date().nullable(),
   createdAt: z.date(),
 });

@@ -88,7 +88,7 @@ describe("set-email guards", () => {
 });
 
 describe("set-email without an email provider", () => {
-  it("claims instantly for a synthetic email", async () => {
+  it("claims the email but keeps it unverified for a synthetic email", async () => {
     const { services, driver } = await createTestServices();
     drivers.push(driver);
     const user = await createTestUser(services, { email: "synthetic-claimer@example.com" });
@@ -97,14 +97,18 @@ describe("set-email without an email provider", () => {
 
     const res = await setEmail(services, user, "claimed@example.com");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: boolean; verificationRequired: boolean };
-    expect(body).toEqual({ status: true, verificationRequired: false });
+    const body = (await res.json()) as {
+      status: boolean;
+      verificationRequired: boolean;
+      emailVerified: boolean;
+    };
+    expect(body).toEqual({ status: true, verificationRequired: false, emailVerified: false });
 
     const updated = await services.db.query.user.findFirst({
       where: eq(schema.user.email, "claimed@example.com"),
     });
     expect(updated?.id).toBe(user.userId);
-    expect(updated?.emailVerified).toBe(true);
+    expect(updated?.emailVerified).toBe(false);
   });
 });
 
@@ -117,7 +121,7 @@ describe("set-email with an email provider configured", () => {
         const url =
           typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         if (url === "https://api.resend.com/emails") {
-          const body = JSON.parse(String(init?.body)) as {
+          const body = JSON.parse(init?.body as string) as {
             to: string;
             subject: string;
             text: string;
@@ -139,8 +143,12 @@ describe("set-email with an email provider configured", () => {
 
     const res = await setEmail(services, user, "verified-claim@example.com");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: boolean; verificationRequired: boolean };
-    expect(body).toEqual({ status: true, verificationRequired: true });
+    const body = (await res.json()) as {
+      status: boolean;
+      verificationRequired: boolean;
+      emailVerified: boolean;
+    };
+    expect(body).toEqual({ status: true, verificationRequired: true, emailVerified: false });
 
     const pending = await services.db.query.user.findFirst({
       where: eq(schema.user.email, "verified-claim@example.com"),

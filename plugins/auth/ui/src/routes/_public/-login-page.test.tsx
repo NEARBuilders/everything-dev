@@ -9,6 +9,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Route as LoginRoute } from "./login/index";
 
@@ -19,10 +20,16 @@ const harness = vi.hoisted(() => ({
   deviceCode: vi.fn(),
   deviceToken: vi.fn(),
   cancelPasskeyCeremony: vi.fn(),
+  signInNear: vi.fn(),
+  sessionData: null as unknown,
 }));
 
 vi.mock("everything-dev/ui/auth", () => ({
-  sessionQueryOptions: () => ({ queryKey: ["session"], queryFn: async () => null }),
+  sessionQueryKey: ["session"],
+  sessionQueryOptions: () => ({
+    queryKey: ["session"],
+    queryFn: async () => harness.sessionData,
+  }),
   refreshSessionCache: harness.refreshSessionCache,
   createAccountWithPasskey: harness.createAccountWithPasskey,
   signInWithPasskey: harness.signInWithPasskey,
@@ -33,6 +40,7 @@ vi.mock("everything-dev/ui/auth", () => ({
   getDeviceLinkClientId: () => "test-client",
   useAuthClient: () => ({
     near: { detectNearAccount: async () => null },
+    signIn: { near: harness.signInNear },
     device: { code: harness.deviceCode, token: harness.deviceToken },
   }),
 }));
@@ -76,10 +84,34 @@ const originalMatchMedia = window.matchMedia;
 afterEach(() => {
   cleanup();
   window.matchMedia = originalMatchMedia;
+  harness.sessionData = null;
   vi.clearAllMocks();
 });
 
 describe("login page", () => {
+  it("renders the panel skeleton while the session check resolves, then the form", async () => {
+    let release: (value: null) => void = () => {};
+    harness.sessionData = new Promise<null>((resolve) => {
+      release = resolve;
+    });
+    renderLogin();
+
+    expect(await screen.findByTestId("login.session-skeleton")).toBeTruthy();
+    release(null);
+    expect(await screen.findByTestId("login.passkey-button")).toBeTruthy();
+    expect(screen.queryByTestId("login.session-skeleton")).toBeNull();
+  });
+
+  it("bounces a signed-in visitor to the redirect target once the session resolves", async () => {
+    harness.sessionData = {
+      user: { id: "user-1", name: "Tester", banned: false },
+      session: { id: "session-1", activeOrganizationId: null },
+    };
+    const router = renderLogin();
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/orgs"));
+  });
+
   it("leads with passkey sign-in and hints at other methods when none is found", async () => {
     harness.signInWithPasskey.mockImplementation(
       async (_auth: unknown, options?: { onError?: (error: Error) => void }) => {
@@ -88,8 +120,8 @@ describe("login page", () => {
     );
     renderLogin();
 
-    expect((await screen.findByTestId("login.heading")).textContent).toBe("Sign in to continue");
-    fireEvent.click(screen.getByTestId("login.passkey-button"));
+    await screen.findByTestId("login.heading");
+    fireEvent.click(await screen.findByTestId("login.passkey-button"));
 
     expect(await screen.findByTestId("login.no-passkey-hint")).toBeTruthy();
     expect(screen.getByTestId("near.signin-button")).toBeTruthy();
@@ -116,10 +148,10 @@ describe("login page", () => {
     renderLogin();
 
     await screen.findByTestId("login.heading");
-    fireEvent.click(screen.getByTestId("login.passkey-button"));
+    fireEvent.click(await screen.findByTestId("login.passkey-button"));
     expect(harness.cancelPasskeyCeremony).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId("near.signin-button"));
+    fireEvent.click(await screen.findByTestId("near.signin-button"));
     expect(harness.cancelPasskeyCeremony).toHaveBeenCalledTimes(2);
     expect(screen.queryByTestId("login.no-passkey-hint")).toBeNull();
   });
@@ -208,7 +240,7 @@ describe("login page", () => {
     }));
     renderLogin();
 
-    await screen.findByTestId("login.heading");
+    await screen.findByTestId("login.passkey-button");
     expect(screen.queryByTestId("login.device-button")).toBeNull();
     expect(screen.getByTestId("near.signin-button")).toBeTruthy();
   });
@@ -228,10 +260,8 @@ describe("login page", () => {
 
     renderLogin("/login?method=phone");
 
-    expect((await screen.findByTestId("login.heading")).textContent).toBe(
-      "Sign in with your phone",
-    );
-    expect(screen.getByTestId("device.user-code").textContent).toBe("ABCD-2345");
+    await screen.findByTestId("login.heading");
+    expect((await screen.findByTestId("device.user-code")).textContent).toBe("ABCD-2345");
   });
 
   it("ignores the ?method=phone deep link on mobile", async () => {
@@ -245,5 +275,74 @@ describe("login page", () => {
 
     expect((await screen.findByTestId("login.heading")).textContent).toBe("Sign in to continue");
     expect(screen.queryByTestId("device.user-code")).toBeNull();
+  });
+
+  it("reports a server failure inline with the server detail collapsed", async () => {
+    harness.signInNear.mockImplementation(
+      async (callbacks?: {
+        onSuccess?: () => void;
+        onError?: (error: { message?: string; detail?: string; status?: number }) => void;
+      }) => {
+        callbacks?.onError?.({
+          message: "The API is currently unavailable.",
+          detail: "Plugin auth failed: shared dependency version skew",
+          status: 503,
+        });
+      },
+    );
+    renderLogin();
+
+    fireEvent.click(await screen.findByTestId("near.signin-button"));
+
+    expect(await screen.findByTestId("login.error").then((el) => el.textContent)).toBe(
+      "The API is currently unavailable.",
+    );
+    fireEvent.click(screen.getByTestId("login.error.detail-toggle"));
+    expect(screen.getByTestId("login.error.detail").textContent).toBe(
+      "Plugin auth failed: shared dependency version skew",
+    );
+    expect(screen.queryByTestId("login.no-passkey-hint")).toBeNull();
+  });
+
+  it("does not duplicate a sign-in failure into a toast", async () => {
+    harness.signInNear.mockImplementation(
+      async (callbacks?: {
+        onSuccess?: () => void;
+        onError?: (error: { message?: string; status?: number }) => void;
+      }) => {
+        callbacks?.onError?.({ message: "The API is currently unavailable.", status: 503 });
+      },
+    );
+    renderLogin();
+
+    fireEvent.click(await screen.findByTestId("near.signin-button"));
+
+    expect(await screen.findByTestId("login.error")).toBeTruthy();
+    expect(vi.mocked(toast.error).mock.calls.filter((call) => call[0] !== undefined)).toHaveLength(
+      0,
+    );
+  });
+
+  it("reports a passkey server failure inline instead of claiming no passkey", async () => {
+    harness.signInWithPasskey.mockImplementation(
+      async (
+        _auth: unknown,
+        options?: {
+          onError?: (error: Error & { message?: string; status?: number }) => void;
+        },
+      ) => {
+        options?.onError?.(
+          Object.assign(new Error("The API is currently unavailable."), { status: 503 }),
+        );
+      },
+    );
+    renderLogin();
+
+    fireEvent.click(await screen.findByTestId("login.passkey-button"));
+
+    expect(await screen.findByTestId("login.error").then((el) => el.textContent)).toBe(
+      "The API is currently unavailable.",
+    );
+    expect(screen.queryByTestId("login.no-passkey-hint")).toBeNull();
   });
 });

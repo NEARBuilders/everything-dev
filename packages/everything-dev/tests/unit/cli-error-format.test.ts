@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeMigrationFailure } from "../../src/cli/upgrade";
+import { describeMigrationFailure } from "../../src/services/scaffold/upgrade";
 import { formatUnknownError } from "../../src/utils/errors";
 
 describe("formatUnknownError (#522)", () => {

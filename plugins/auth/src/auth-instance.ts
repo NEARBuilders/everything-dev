@@ -15,12 +15,19 @@ import {
 } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
-import { eq, gt } from "drizzle-orm";
-import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
+import { gt } from "drizzle-orm";
+import type {
+  AuthConfig,
+  AuthCrossSubDomainCookiesConfig,
+  AuthIpAddressConfig,
+  AuthPermissionStatements,
+  AuthRateLimitConfig,
+} from "./auth-config";
 import { custody } from "./custody";
 import type { Database as AuthDatabase } from "./db/layer";
 import * as schema from "./db/schema";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
+import { emailVisibility } from "./email-visibility";
 import {
   isNearInvitation,
   isNearNetwork,
@@ -28,7 +35,6 @@ import {
   nearInvitations,
   normalizeNearAccountId,
 } from "./near-invitations";
-import { organizationApproval } from "./organization-approval";
 import { createOrganizationMembershipPolicy } from "./organization-membership-policy";
 import {
   createPasskeySignUpUser,
@@ -37,8 +43,14 @@ import {
   requireUserVerifiedSignIn,
   requireWalletCapablePasskey,
 } from "./passkey-sign-up";
+import {
+  activateDefaultOrganizationForSession,
+  ensurePersonalOrganization,
+  mirrorSessionOrganizationChoice,
+} from "./personal-organization";
 import { attributeReferralOnUserCreate, referralSignupGuard } from "./referral-signup";
 import { setEmail } from "./set-email";
+import type { OrgPermissionAuth } from "./utils";
 
 function buildOrganizationAccess(permissions: AuthPermissionStatements) {
   const ac = createAccessControl(permissions.statements);
@@ -111,11 +123,62 @@ export function resolvePasskeyRelyingPartyOptions(
   return { rpID, rpName, origin: [...new Set([origin, ...gatewayOrigins])] };
 }
 
+/**
+ * Maps the authored rateLimit variables to better-auth's option shape,
+ * passing only the fields the deployment set — absent fields fall through to
+ * better-auth's own defaults (#688).
+ */
+export function compactRateLimit(
+  rateLimit: AuthRateLimitConfig | undefined,
+): { rateLimit: Record<string, unknown> } | Record<string, never> {
+  if (!rateLimit) return {};
+  const mapped = Object.fromEntries(
+    Object.entries({
+      enabled: rateLimit.enabled,
+      window: rateLimit.window,
+      max: rateLimit.max,
+      storage: rateLimit.storage,
+    }).filter(([, value]) => value !== undefined),
+  );
+  return Object.keys(mapped).length > 0 ? { rateLimit: mapped } : {};
+}
+
+export function compactIpAddress(
+  ipAddress: AuthIpAddressConfig | undefined,
+): { ipAddressHeaders: string[] } & { trustedProxies?: string[] } {
+  return {
+    ipAddressHeaders: ipAddress?.ipAddressHeaders ?? ["x-forwarded-for"],
+    ...(ipAddress?.trustedProxies?.length ? { trustedProxies: ipAddress.trustedProxies } : {}),
+  };
+}
+
+/**
+ * Maps the authored crossSubDomainCookies variables to better-auth's advanced
+ * option shape, emitting the block only when enabled so absent config leaves
+ * better-auth's cookie behavior untouched (#668). A disabled block drops the
+ * domain too — better-auth reads it only when enabled. Without a domain,
+ * better-auth falls back to the root domain of the base URL.
+ */
+export function compactCrossSubDomainCookies(
+  cookies: AuthCrossSubDomainCookiesConfig | undefined,
+): { crossSubDomainCookies?: { enabled: boolean; domain?: string } } {
+  if (!cookies?.enabled) return {};
+  return {
+    crossSubDomainCookies: {
+      enabled: cookies.enabled,
+      ...(cookies.domain !== undefined ? { domain: cookies.domain } : {}),
+    },
+  };
+}
+
 export function buildSiwnOptions(config: AuthConfig): Parameters<typeof siwn>[0] {
+  const relyingParty = resolvePasskeyRelyingPartyOptions(config);
   const base = {
     passkeyWalletNetwork: config.network ?? "mainnet",
+    passkeyWalletRelyingParty: { rpID: relyingParty.rpID, origins: relyingParty.origin },
     apiKey: config.siwn.apiKey,
     rpcUrl: config.siwn.rpcUrl,
+    readRpcUrl: config.siwn.readRpcUrl,
     relayer: config.siwn.relayer,
     sessionGasKey: config.siwn.sessionGasKey,
     subAccount: config.siwn.subAccount,
@@ -203,50 +266,6 @@ async function sendSMS(
   console.log(`================================================================\n`);
 }
 
-async function createPersonalOrganization(
-  database: AuthDatabase,
-  user: { id: string; name?: string; email?: string; isAnonymous?: boolean },
-) {
-  if (user.isAnonymous) {
-    return null;
-  }
-
-  const existingOrg = await database.query.organization.findFirst({
-    where: (org, { eq, and }) =>
-      and(eq(org.slug, user.id), eq(org.metadata, JSON.stringify({ isPersonal: true }))),
-  });
-
-  if (existingOrg) {
-    return existingOrg;
-  }
-
-  const [personalOrg] = await database
-    .insert(schema.organization)
-    .values({
-      id: crypto.randomUUID(),
-      name: user.name || "My Organization",
-      slug: user.id,
-      logo: null,
-      metadata: JSON.stringify({ isPersonal: true }),
-      createdAt: new Date(),
-    })
-    .returning();
-
-  if (!personalOrg) {
-    throw new Error("Failed to create personal organization");
-  }
-
-  await database.insert(schema.member).values({
-    id: crypto.randomUUID(),
-    userId: user.id,
-    organizationId: personalOrg.id,
-    role: "owner",
-    createdAt: new Date(),
-  });
-
-  return personalOrg;
-}
-
 export function createAuthInstance(
   config: AuthConfig,
   db: AuthDatabase,
@@ -283,7 +302,9 @@ export function createAuthInstance(
     ? siwnOptions.recipients.mainnet
     : siwnOptions.recipient;
 
-  return betterAuth({
+  let authRef: OrgPermissionAuth | undefined;
+
+  const auth = betterAuth({
     database: drizzleAdapter(db, {
       provider: "pg",
       schema: schema,
@@ -299,10 +320,12 @@ export function createAuthInstance(
     // better-auth's core limiter defaults to enabled in production with a
     // single shared per-path bucket when no client IP is resolvable — the
     // regression container's whole /api/auth/* traffic shares one bucket and
-    // trips it within seconds. Test environments opt out explicitly.
+    // trips it within seconds. Test environments opt out explicitly; authored
+    // config (#688) tunes window/max/storage for the deployment. Absent config
+    // leaves better-auth's own defaults.
     ...(process.env.BETTER_AUTH_RATE_LIMIT_DISABLED === "1"
       ? { rateLimit: { enabled: false } }
-      : {}),
+      : compactRateLimit(config.rateLimit)),
     socialProviders,
     plugins: [
       siwn(siwnOptions),
@@ -340,11 +363,12 @@ export function createAuthInstance(
       }),
       passkeySignUp({ network, referral: config.referral }),
       setEmail({ requireVerification: Boolean(emailApiKey && emailConfig?.from) }),
-      organizationApproval(db),
+      emailVisibility({ getAuth: () => authRef }),
       organization({
         ac: orgAc,
         roles: orgRoles,
         membershipLimit: membershipPolicy.limit,
+        requireEmailVerificationOnInvitation: true,
         teams: {
           enabled: true,
           defaultTeam: { enabled: false },
@@ -354,8 +378,6 @@ export function createAuthInstance(
           organization: {
             additionalFields: {
               status: { type: "string", required: false, input: false, defaultValue: "active" },
-              requestedBy: { type: "string", required: false, input: false },
-              rejectionReason: { type: "string", required: false, input: false },
             },
           },
           team: {
@@ -371,15 +393,7 @@ export function createAuthInstance(
           },
         },
         organizationHooks: {
-          beforeCreateOrganization: async ({ user }) => ({
-            data: { status: "pending", requestedBy: user.id, rejectionReason: null },
-          }),
-          beforeCreateInvitation: async ({ invitation, organization }) => {
-            if (organization.status !== "active") {
-              throw new APIError("FORBIDDEN", {
-                message: "Organization requires platform-admin approval",
-              });
-            }
+          beforeCreateInvitation: async ({ invitation }) => {
             const accountId =
               typeof invitation.nearAccountId === "string" ? invitation.nearAccountId : undefined;
             const suppliedNetwork = invitation.nearNetwork;
@@ -425,14 +439,6 @@ export function createAuthInstance(
             return undefined;
           },
           beforeAcceptInvitation: async ({ invitation }) => {
-            const organization = await db.query.organization.findFirst({
-              where: eq(schema.organization.id, invitation.organizationId),
-            });
-            if (organization?.status !== "active") {
-              throw new APIError("FORBIDDEN", {
-                message: "Organization requires platform-admin approval",
-              });
-            }
             if (isNearInvitation(invitation)) {
               throw new APIError("BAD_REQUEST", {
                 message:
@@ -528,8 +534,27 @@ export function createAuthInstance(
           after: async (user) => {
             const userData = user as typeof schema.user.$inferInsert & { isAnonymous?: boolean };
             if (userData.isAnonymous) return;
-            await createPersonalOrganization(db, user);
+            await ensurePersonalOrganization(db, user);
             await attributeReferralOnUserCreate(user, config.referral);
+          },
+        },
+      },
+      session: {
+        create: {
+          after: async (session) => {
+            await activateDefaultOrganizationForSession(db, session).catch((error) => {
+              console.warn(
+                "[Auth] Failed to activate default organization on session create",
+                error,
+              );
+            });
+          },
+        },
+        update: {
+          after: async (session) => {
+            await mirrorSessionOrganizationChoice(db, session).catch((error) => {
+              console.warn("[Auth] Failed to remember organization preference", error);
+            });
           },
         },
       },
@@ -555,14 +580,25 @@ export function createAuthInstance(
       },
       // Behind a reverse proxy (Railway, and most PaaS ingress) the socket
       // address is the proxy's, so Better Auth cannot resolve the client IP
-      // and rate limiting collapses into one shared per-path bucket. Trust
-      // the standard forwarded header; deployments without a proxy are
-      // unaffected (the header is absent and the fallback applies).
-      ipAddress: {
-        ipAddressHeaders: ["x-forwarded-for"],
-      },
+      // and rate limiting collapses into one shared per-path bucket. Better
+      // Auth refuses comma-separated forwarded chains from untrusted proxies,
+      // so an appending chain (Cloudflare + Railway) still fails to resolve —
+      // deployments name a single trusted header (e.g. cf-connecting-ip) or
+      // list their proxies in trustedProxies (#688, trust boundary #338).
+      // The default trusts the standard forwarded header; deployments without
+      // a proxy are unaffected (the header is absent and the fallback applies).
+      // The default trusts the standard forwarded header; deployments without
+      // a proxy are unaffected (the header is absent and the fallback applies).
+      ipAddress: compactIpAddress(config.ipAddress),
+      // Sibling subdomains sharing one session cookie (#668): authored config
+      // only — absent config keeps cookies host-scoped. The domain must be the
+      // shared registrable domain (schema-enforced dot-prefix), and every app
+      // sealing cookies for it must run the same BETTER_AUTH_SECRET.
+      ...compactCrossSubDomainCookies(config.crossSubDomainCookies),
     },
   });
+  authRef = auth;
+  return auth;
 }
 
 export type Auth = ReturnType<typeof createAuthInstance>;

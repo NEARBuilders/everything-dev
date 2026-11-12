@@ -40,10 +40,11 @@ test.describe("SSR compose", () => {
       authRemote,
       "compose payload must include a remote keyed by a manifest name",
     ).toBeTruthy();
-    expect(
-      manifestNames.size,
-      "payload must embed the core, auth and plugin-ui manifests",
-    ).toBeGreaterThanOrEqual(3);
+    // Structure pin, not a count: the payload composes the core ui plus every
+    // composable plugin ui (ui-compose uiSources) — 'auth' must be among them.
+    // 'ai' legitimately composes too when its manifest loads.
+    expect(manifestNames.has("ui"), "payload must embed the core ui manifest").toBe(true);
+    expect(manifestNames.has("auth"), "payload must embed the auth manifest").toBe(true);
     expect(
       [...manifestNames].some((name) => name.includes("docs")),
       "payload must embed the docs plugin-ui manifest",

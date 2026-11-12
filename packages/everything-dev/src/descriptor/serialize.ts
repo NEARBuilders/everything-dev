@@ -23,14 +23,15 @@ const FIELD_COMMENTS: Record<string, string> = {
   description: "Human-readable runtime description.",
   repository: "GitHub repository tarball source used by `bos init` templates.",
   testnet: "Testnet identity for this runtime.",
-  platform:
-    'The platform release pin (ADR 0034): the exact framework version this app targets ("exact-or-loud").',
+  release:
+    'The authored release (ADR 0034): the exact framework version this app targets ("exact-or-loud").',
   staging: "Staging environment identity.",
   starter: "Authoring-only: the starter level this child was scaffolded with (simple | advanced).",
   ci: "CI settings: runtime image name, Railway service.",
   cdn: "CDN origin serving this runtime's built bundles.",
   publish:
     "Publish settings: signing mode (session | key | custody) and sourcePublish (publish workspace source archives with each deploy).",
+  seed: "Seed declaration (#865): `version` gates one-shot runs (bump to re-run), `auth.ownerAdmin` provisions the app owner as platform admin, `steps` are idempotent workspace-relative seed scripts. Dev seeds on boot; production seeds via `bos seed` only.",
   host: "Local host workspace override.",
   api: "Local API workspace override.",
   ui: "Local UI workspace override.",

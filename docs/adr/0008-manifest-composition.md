@@ -52,3 +52,7 @@ Investigation (2026-09) found the framework itself converging on the same substr
 - `MOUNT_REGISTRY_VERSION` bumps; all compose digests invalidate once.
 - Plan 025 (landing carve-out) executes manifest-first as the second production consumer; plan 026 (shell into host) simplifies — the host constructs all routes, in-process or manifest-fed, one construction story; plan 028 (`app.ts`) absorbs a stable manifest-only plugin shape.
 - `bos types gen` gains merged route-type emission from manifests (typed cross-plugin `<Link>`) — replaces the `pluginPath` seam.
+
+## Amendment (2026-11): mount guards are beforeLoads, not gate kinds
+
+The registry no longer declares gate kinds (`none`/`session`/`admin`/`organization`/`team`) — each mount carries shape metadata only (`guarded`, `implemented`). Guard implementations are ordinary `beforeLoad`s supplied by the composing framework via `ConstructInput.guards`, keyed by mount id; the engine composes guard-then-declared and fails construction loudly when a `guarded` mount has no guard. The engine becomes fully auth-agnostic (no `/login`, no user/role knowledge); session semantics — tri-state query-cache reads (#527/#689), banned handling, login redirects — live in the framework glue and ride the same guards apps author in their own route files. `HostContext`/`GateUser` are deleted; the engine↔glue contract is TanStack's own `beforeLoad` shape. `MOUNT_REGISTRY_VERSION` bumps to 6; compose digests invalidate once (as the bump exists to do).

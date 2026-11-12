@@ -12,16 +12,12 @@ export function toOrganizationInfo(organization: {
   logo?: string | null;
   metadata?: unknown;
   status?: string;
-  requestedBy?: string | null;
-  rejectionReason?: string | null;
 }): {
   id: string;
   name: string;
   slug: string;
   logo: string | null;
   status: "active" | "pending" | "rejected";
-  requestedBy: string | null;
-  rejectionReason: string | null;
   metadata: Record<string, unknown> | null;
 } {
   const status =
@@ -34,8 +30,6 @@ export function toOrganizationInfo(organization: {
     slug: organization.slug,
     logo: organization.logo ?? null,
     status,
-    requestedBy: organization.requestedBy ?? null,
-    rejectionReason: organization.rejectionReason ?? null,
     metadata:
       typeof organization.metadata === "string"
         ? (tryJsonParse<Record<string, unknown>>(organization.metadata) ?? null)
@@ -166,12 +160,12 @@ export function toAdminSession(session: any) {
 export function toOnboardingSummary(row: {
   id: string;
   eventId: string | null;
-  eventName: string;
+  eventName: string | null;
   teamId: string;
   role: string;
   maxUses: number;
   usedCount: number;
-  expiresAt: Date | string;
+  expiresAt: Date | string | null;
   revokedAt: Date | null;
   createdAt: Date | string;
 }) {
@@ -183,7 +177,7 @@ export function toOnboardingSummary(row: {
     role: row.role,
     maxUses: row.maxUses,
     usedCount: row.usedCount,
-    expiresAt: toDate(row.expiresAt),
+    expiresAt: row.expiresAt === null ? null : toDate(row.expiresAt),
     revokedAt: row.revokedAt ? toDate(row.revokedAt) : null,
     createdAt: toDate(row.createdAt),
   };

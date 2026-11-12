@@ -12,7 +12,14 @@ const DEFAULT_MIGRATION_JOURNAL = {
   table: "__drizzle_migrations",
 } as const;
 
-const PER_PLUGIN_ISOLATION = false;
+/**
+ * ADR 0045: journals are per-workspace (`__drizzle_migrations_<slug>`), so
+ * "every row in my journal is mine" holds by construction and the
+ * ahead-of-build guard is sound. `{ isolated: false }` overrides to the
+ * legacy shared coords (tests, legacy imports); boot adoption copies a
+ * workspace's known rows out of the shared journal once.
+ */
+const PER_PLUGIN_ISOLATION = true;
 
 export function normalizeSlug(name: string): string {
   const basename = name.split("/").pop() ?? name;
@@ -147,17 +154,6 @@ export function isConcurrentDdlUniqueViolation(error: unknown): boolean {
   });
 }
 
-const RETRYABLE_SQLSTATES: ReadonlySet<string> = new Set([
-  "42P06",
-  "42710",
-  "42701",
-  "42P07",
-  "23505",
-  "40001",
-  "40P01",
-  "55P03",
-]);
-
 const RETRYABLE_DRIVER_CODES: ReadonlySet<string> = new Set([
   "ECONNREFUSED",
   "ECONNRESET",
@@ -175,16 +171,6 @@ function matchesRetryableStates(error: unknown, states: ReadonlySet<string>): bo
   });
 }
 
-/**
- * Decide whether a failed migration-init statement (schema/journal creation)
- * is worth retrying. Covers the concurrent `CREATE SCHEMA IF NOT EXISTS`
- * race (unique violation on `pg_namespace`, duplicate-object errors),
- * serialization/deadlock errors, and transient connection failures.
- */
-export function isRetryableMigrationError(error: unknown): boolean {
-  return matchesRetryableStates(error, RETRYABLE_SQLSTATES);
-}
-
 const RETRYABLE_STATEMENT_SQLSTATES: ReadonlySet<string> = new Set([
   "40001", // serialization_failure
   "40P01", // deadlock_detected
@@ -193,8 +179,8 @@ const RETRYABLE_STATEMENT_SQLSTATES: ReadonlySet<string> = new Set([
 
 /**
  * Decide whether a failed migration *statement* (inside its transaction) is
- * worth retrying. Deliberately narrower than `isRetryableMigrationError`:
- * duplicate-object classes are tolerated at the SAVEPOINT level, and a 23505
+ * worth retrying. Duplicate-object classes are tolerated at the SAVEPOINT
+ * level, and a 23505
  * is either the concurrent-DDL catalog collision (also tolerated) or a
  * deterministic data-level violation (retrying is pointless) — so only
  * lock/serialization/transient-connection states justify re-running the

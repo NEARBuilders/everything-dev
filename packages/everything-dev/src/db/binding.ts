@@ -1,31 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
+import { normalizeSlug } from "./core";
+import defaults from "./defaults.json";
 import type { WorkspaceIdentity } from "./identity";
-
-/**
- * drizzle-kit subcommands that open a database connection. For everything
- * else (generate, check) the connection string is parsed but never used, so a
- * placeholder is safe.
- */
-const DB_REQUIRING_COMMANDS: ReadonlySet<string> = new Set([
-  "push",
-  "pull",
-  "migrate",
-  "studio",
-  "up",
-]);
-
-/**
- * Whether the current process is a drizzle-kit invocation whose command needs
- * a live database. Mirrors drizzle-kit's CLI layout: `drizzle-kit <command> …`.
- */
-export function requiresDatabaseConnection(argv: readonly string[] = process.argv): boolean {
-  const isDrizzleKit = typeof argv[1] === "string" && argv[1].includes("drizzle-kit");
-  if (!isDrizzleKit) return false;
-  const command = argv[2];
-  return typeof command === "string" && DB_REQUIRING_COMMANDS.has(command);
-}
 
 /**
  * Materialize the environment a spawned tool needs to reach the binding's
@@ -35,6 +13,38 @@ export function requiresDatabaseConnection(argv: readonly string[] = process.arg
  */
 export function bindingEnv(binding: { secretName: string; url: string }): Record<string, string> {
   return { [binding.secretName]: binding.url };
+}
+
+/**
+ * The zero-config local database root: a persistent, file-backed PGlite data
+ * dir (`.bos/db`). No ports, no docker — concurrent projects never collide.
+ * This is the *layout base*, not a driver target: multiple live PGlite
+ * instances on one data dir silently corrupt committed data (heap/index
+ * divergence — ADR 0044), so every workspace opens its own subdirectory via
+ * `pgliteDefaultUrlForSlug`. The literal remains exported for legacy-pin
+ * matching (the compose-era and shared-dir rewrite in `env/legacy-databases`)
+ * — never hand a driver the bare base.
+ *
+ * This default is a runtime-driver concern only: drizzle-kit commands
+ * (db:push/db:studio/db:migrate) need a real postgres DSN in the environment.
+ *
+ * Single-sourced in `defaults.json` (read by plain-node tooling like the
+ * regression env too) — never hardcode the literal elsewhere. Scaffolded
+ * templates and plugin secret defaults deliberately keep their own frozen
+ * copy: a database location is pinned at init, it must not silently follow
+ * a framework upgrade.
+ */
+export const PGLITE_DEFAULT_URL = `pglite:${defaults.pgliteDefaultDir}`;
+
+/**
+ * The per-identity default: `<PGLITE_DEFAULT_URL>/<slug>` (e.g.
+ * `pglite:.bos/db/api`, `pglite:.bos/db/agent_connect`). The slug matches the
+ * `pluginMigrationSlug`/`normalizeDatabaseSlug` naming used for schemas,
+ * journals, and secret names — one workspace, one data dir, collisions
+ * impossible by package-name uniqueness (ADR 0044).
+ */
+export function pgliteDefaultUrlForSlug(slug: string): string {
+  return `${PGLITE_DEFAULT_URL}/${normalizeSlug(slug)}`;
 }
 
 function findEnvFile(startDir: string | undefined): string | undefined {
@@ -58,22 +68,21 @@ function findEnvFile(startDir: string | undefined): string | undefined {
  *   2. the canonical secret in the nearest `.env` walked up from the
  *      workspace directory (existing environment wins — values are not
  *      overridden, matching dotenv semantics)
- *   3. loud failure when the drizzle-kit command needs a database
- *   4. an in-memory pglite placeholder for commands that never connect
- *      (generate, check) and for non-drizzle-kit consumers
+ *   3. the per-identity default (`pgliteDefaultUrlForSlug(identity.slug)`) —
+ *      consumed by the runtime driver (`createDatabaseDriver`), so boot
+ *      migrations apply zero-config against the workspace's own
+ *      `.bos/db/<slug>` data dir
  *
- * This replaces the previous silent `pglite:` fallback that masked missing
- * configuration as cryptic driver errors downstream.
+ * drizzle-kit commands need a postgres DSN; feeding them the pglite default
+ * fails loudly at connect time.
  */
 export function resolveDatabaseUrl(
   identity: WorkspaceIdentity,
   options: {
     env?: Record<string, string | undefined>;
-    argv?: readonly string[];
   } = {},
 ): string {
   const env = options.env ?? process.env;
-  const argv = options.argv ?? process.argv;
 
   const direct = env[identity.secretName];
   if (direct) return direct;
@@ -85,17 +94,9 @@ export function resolveDatabaseUrl(
       const fromFile = parsed[identity.secretName];
       if (fromFile) return fromFile;
     } catch {
-      // unreadable .env — fall through to loud failure / placeholder
+      // unreadable .env — fall through to the default
     }
   }
 
-  if (requiresDatabaseConnection(argv)) {
-    throw new Error(
-      `Missing ${identity.secretName} for workspace "${identity.slug}" — ` +
-        `required for "drizzle-kit ${argv[2]}". ` +
-        `Add ${identity.secretName} to your .env (see .env.example) or run via \`bos db\`.`,
-    );
-  }
-
-  return `pglite:.bos/${identity.slug}/:memory:`;
+  return pgliteDefaultUrlForSlug(identity.slug);
 }

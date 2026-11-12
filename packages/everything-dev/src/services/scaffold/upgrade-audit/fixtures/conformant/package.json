@@ -1,0 +1,26 @@
+{
+  "name": "fixture",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "dev": "bos dev",
+    "types:gen": "node node_modules/.bin/bos types gen",
+    "typecheck": "bun run types:gen && if [ -d ui ]; then bun run --cwd ui typecheck; fi",
+    "test": "bun run --if-present --cwd api test",
+    "db:push": "bun run --cwd api drizzle-kit push"
+  },
+  "workspaces": {
+    "packages": [
+      "api",
+      "ui",
+      "plugins/*"
+    ],
+    "catalog": {
+      "react": "19.2.4",
+      "typescript": "^5.9.3",
+      "everything-dev": "^1.53.2",
+      "every-plugin": "^2.10.1"
+    }
+  }
+}

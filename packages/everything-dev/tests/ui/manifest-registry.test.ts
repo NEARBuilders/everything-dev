@@ -11,19 +11,11 @@ import {
 describe("mount registry v2", () => {
   it("declares the implemented mounts plus org/team vocabulary", () => {
     expect(MOUNTS).toEqual(["public", "authenticated", "admin", "org", "team"]);
-    expect(MOUNT_REGISTRY.public).toMatchObject({ gate: "none", implemented: true });
-    expect(MOUNT_REGISTRY.authenticated).toMatchObject({ gate: "session", implemented: true });
-    expect(MOUNT_REGISTRY.admin).toMatchObject({ gate: "admin", implemented: true });
-    expect(MOUNT_REGISTRY.org).toMatchObject({
-      gate: "organization",
-      parameterized: true,
-      implemented: false,
-    });
-    expect(MOUNT_REGISTRY.team).toMatchObject({
-      gate: "team",
-      parameterized: true,
-      implemented: false,
-    });
+    expect(MOUNT_REGISTRY.public).toMatchObject({ guarded: false, implemented: true });
+    expect(MOUNT_REGISTRY.authenticated).toMatchObject({ guarded: true, implemented: true });
+    expect(MOUNT_REGISTRY.admin).toMatchObject({ guarded: true, implemented: true });
+    expect(MOUNT_REGISTRY.org).toMatchObject({ guarded: true, implemented: false });
+    expect(MOUNT_REGISTRY.team).toMatchObject({ guarded: true, implemented: false });
   });
 
   it("resolves legacy aliases to canonical mounts", () => {

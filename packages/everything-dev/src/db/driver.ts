@@ -1,6 +1,8 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { pgliteDefaultUrlForSlug } from "./binding";
 import { pluginMigrationSlug } from "./core";
 
 export interface DatabaseDriver<TSchema extends Record<string, unknown>> {
@@ -154,18 +156,21 @@ function buildPoolConfig(url: string, namespace: string | undefined) {
   };
 }
 
-async function ensureNamespaceExists(pool: PoolLike, namespace: string): Promise<void> {
+async function ensureNamespaceExists(
+  pool: PoolLike,
+  namespace: string,
+  lockKey: string,
+): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     try {
-      // Same journal-scoped advisory lock the migration runner holds, so this
-      // CREATE SCHEMA cannot race a concurrent migration run (the runner also
-      // creates the schema inside its locked transaction). Xact-scoped: the
-      // lock releases at COMMIT/ROLLBACK or on connection death.
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-        "drizzle.__drizzle_migrations",
-      ]);
+      // Same journal-scoped advisory lock the migration runner holds (the
+      // workspace's own journal, ADR 0045), so this CREATE SCHEMA cannot race
+      // a concurrent migration run (the runner also creates the schema inside
+      // its locked transaction). Xact-scoped: the lock releases at
+      // COMMIT/ROLLBACK or on connection death.
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lockKey]);
       await client.query(`CREATE SCHEMA IF NOT EXISTS "${namespace}"`);
       await client.query("COMMIT");
     } catch (error) {
@@ -189,6 +194,39 @@ function createCloseHandler(pool: PoolLike): () => Promise<void> {
 }
 
 /**
+ * PGlite is a single-connection, single-instance engine: every instance keeps
+ * a private buffer cache and there is no cross-instance coordination, so two
+ * live instances on one data dir checkpoint stale pages over each other's
+ * committed data — heap/index divergence, invisible rows, duplicate-key
+ * violations on empty tables (ADR 0044). This process-level registry refuses
+ * a second concurrent open instead of corrupting silently; sequential
+ * close→reopen stays legal.
+ */
+const openPgliteDirs = new Set<string>();
+
+/**
+ * The guard key is the decoded, absolute filesystem path of the data dir —
+ * `pglite:.bos/db/x` (cwd-relative), `pglite:file:///abs/x`, and any other
+ * spelling of one dir must collide. `file://` URLs decode via `fileURLToPath`;
+ * feeding the raw URL to `resolve`/`mkdirSync` would treat `file:` as a
+ * relative directory name and create junk.
+ */
+function pgliteGuardKey(rawDir: string): string | undefined {
+  if (rawDir === ":memory:" || rawDir.endsWith("/:memory:")) return undefined;
+  const withoutScheme = rawDir.startsWith("file://") ? fileURLToPath(rawDir) : rawDir;
+  return resolve(withoutScheme);
+}
+
+function pgliteDoubleOpenError(dataDir: string): Error {
+  return new Error(
+    `[db] PGlite data dir "${dataDir}" is already open in this process — refusing a second ` +
+      "instance on the same dir (multiple live PGlite instances silently corrupt committed " +
+      "data, ADR 0044). Give each workspace its own data dir: per-identity *_DATABASE_URL " +
+      `values (${pgliteDefaultUrlForSlug("your-plugin")}) or a postgres:// URL.`,
+  );
+}
+
+/**
  * Create a drizzle database driver for a plugin, choosing the engine by URL
  * scheme: `pglite:` / `:memory:` → embedded PGlite, anything else → postgres
  * (`pg.Pool`).
@@ -198,26 +236,51 @@ function createCloseHandler(pool: PoolLike): () => Promise<void> {
  * only, and `drizzle-orm` appears as a runtime import for the `drizzle` entry
  * points. The `namespace` option expresses every topology the platform needs:
  * `plugin_<slug>` on a shared database, undefined for public-schema (api) or
- * dedicated-database (auth) workloads.
+ * dedicated-database (auth) workloads. `journalLockKey` is the advisory-lock
+ * coordinate the migration runner holds for this workspace (its own journal,
+ * ADR 0045) — namespace creation serializes against it.
  */
 export async function createDatabaseDriver<TSchema extends Record<string, unknown>>(
   url: string,
   schema: TSchema,
   namespace?: string,
+  journalLockKey?: string,
 ): Promise<DatabaseDriver<TSchema>> {
   if (url.startsWith("pglite:") || url === ":memory:") {
     const { drizzle } = await import("drizzle-orm/pglite");
     const { PGlite } = await import("@electric-sql/pglite");
     const rawDir = url === ":memory:" ? ":memory:" : url.replace("pglite:", "");
     const dataDir = rawDir.endsWith("/:memory:") || rawDir === ":memory:" ? "memory://" : rawDir;
-    if (dataDir !== "memory://") {
-      mkdirSync(dirname(dataDir), { recursive: true });
+    const guardKey = pgliteGuardKey(rawDir);
+
+    if (guardKey) {
+      if (openPgliteDirs.has(guardKey)) throw pgliteDoubleOpenError(dataDir);
+      openPgliteDirs.add(guardKey);
     }
-    const pglite = new PGlite(dataDir);
-    if (namespace) {
-      await pglite.exec(`CREATE SCHEMA IF NOT EXISTS "${namespace}"`);
-      await pglite.exec(`SET search_path TO "${namespace}", public`);
+
+    let pglite: InstanceType<typeof PGlite>;
+    try {
+      if (guardKey) {
+        // PGlite mkdirs only the leaf component — the whole prefix must exist.
+        mkdirSync(guardKey, { recursive: true });
+      }
+      pglite = new PGlite(dataDir);
+    } catch (error) {
+      if (guardKey) openPgliteDirs.delete(guardKey);
+      throw error;
     }
+
+    try {
+      if (namespace) {
+        await pglite.exec(`CREATE SCHEMA IF NOT EXISTS "${namespace}"`);
+        await pglite.exec(`SET search_path TO "${namespace}", public`);
+      }
+    } catch (error) {
+      await pglite.close().catch(() => {});
+      if (guardKey) openPgliteDirs.delete(guardKey);
+      throw error;
+    }
+
     const db = drizzle(pglite, { schema: schema as never }) as unknown as PgDatabase<
       PgQueryResultHKT,
       TSchema
@@ -226,6 +289,7 @@ export async function createDatabaseDriver<TSchema extends Record<string, unknow
       db,
       close: async () => {
         await pglite.close();
+        if (guardKey) openPgliteDirs.delete(guardKey);
       },
     };
   }
@@ -238,7 +302,7 @@ export async function createDatabaseDriver<TSchema extends Record<string, unknow
   });
 
   if (namespace) {
-    await ensureNamespaceExists(pool, namespace);
+    await ensureNamespaceExists(pool, namespace, journalLockKey ?? "drizzle.__drizzle_migrations");
   }
 
   const db = drizzle(pool as never, { schema: schema as never }) as unknown as PgDatabase<

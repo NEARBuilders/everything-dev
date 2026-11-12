@@ -1,13 +1,14 @@
-import { createRouter, isRedirect } from "@tanstack/react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRouter, isRedirect, redirect } from "@tanstack/react-router";
 import {
-  constructTree,
+  type ConstructInput,
+  constructTree as constructEngineTree,
   digestOf,
   type ResolvedPlugin,
   type RouteOptionsBundle,
   type RouteRecord,
   SUPPORTED_MANIFEST_VERSION,
-} from "../../src/ui/manifest/index";
+} from "every-plugin/ui/manifest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 interface TestPlugin {
   key: string;
@@ -31,11 +32,18 @@ const makePlugin = (plugin: TestPlugin): ResolvedPlugin => ({
   },
 });
 
-const construct = (plugins: TestPlugin[], rootOptions?: RouteOptionsBundle) =>
-  constructTree({
+const guardStub = async () => undefined;
+
+const construct = (
+  plugins: TestPlugin[],
+  rootOptions?: RouteOptionsBundle,
+  guards?: ConstructInput["guards"],
+) =>
+  constructEngineTree({
     name: "app",
     plugins: plugins.map((plugin) => ({ key: plugin.key, mfName: plugin.key })),
     resolve: async (ref) => makePlugin(plugins.find((plugin) => plugin.key === ref.key)!),
+    guards: { authenticated: guardStub, admin: guardStub, ...guards },
     ...(rootOptions ? { rootOptions } : {}),
   });
 
@@ -49,7 +57,8 @@ const route = (id: string, path: string, extra: Partial<RouteRecord> = {}): Rout
 describe("constructTree", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("mount routes compose the registry gate BEFORE the declaration's beforeLoad", async () => {
+  it("mount routes compose the registry guard BEFORE the declaration's beforeLoad", async () => {
+    const order: string[] = [];
     const core: TestPlugin = {
       key: "ui",
       routes: [
@@ -59,24 +68,43 @@ describe("constructTree", () => {
       optionsById: {
         _authenticated: {
           component: () => null,
-          beforeLoad: () => ({ fromDeclaration: "yes" }),
+          beforeLoad: () => {
+            order.push("declared");
+            return { fromDeclaration: "yes" };
+          },
         },
       },
     };
 
-    const tree = await construct([core]);
+    const tree = await construct([core], undefined, {
+      authenticated: async () => {
+        order.push("guard");
+        throw new Error("guard said no");
+      },
+    });
     const mount = (tree.rootRoute as unknown as { children: Array<Record<string, any>> })
       .children[0]!;
     const beforeLoad = mount.options.beforeLoad as (args: unknown) => Promise<unknown>;
 
-    const gateThrow = () => beforeLoad({ context: {}, location: { pathname: "/", searchStr: "" } });
-    expect(gateThrow).toThrow();
+    await expect(
+      beforeLoad({ context: {}, location: { pathname: "/", searchStr: "" } }),
+    ).rejects.toThrow("guard said no");
+    expect(order).toEqual(["guard"]);
 
-    const returned = await beforeLoad({
-      context: { user: { id: "u1" } },
-      location: { pathname: "/", searchStr: "" },
+    const passing = await construct([core], undefined, {
+      authenticated: async () => {
+        order.push("guard");
+        return { fromGuard: true };
+      },
     });
-    expect(returned).toEqual({ fromDeclaration: "yes" });
+    const passingBeforeLoad = (
+      passing.rootRoute as unknown as { children: Array<Record<string, any>> }
+    ).children[0]!.options.beforeLoad as (args: unknown) => Promise<unknown>;
+    order.length = 0;
+    await expect(
+      passingBeforeLoad({ context: {}, location: { pathname: "/", searchStr: "" } }),
+    ).resolves.toEqual({ fromDeclaration: "yes" });
+    expect(order).toEqual(["guard", "declared"]);
   });
 
   it("layout routes pass loader/beforeLoad/head/staticData through to the constructed route", async () => {
@@ -330,7 +358,7 @@ describe("constructTree", () => {
     expect(tree.nav.items.find((item) => item.label === "Hidden")).toBeUndefined();
   });
 
-  it("session gate redirects unauthenticated users with a redirect-back search param", async () => {
+  it("passes beforeLoad args through to the mount guard and propagates its redirect", async () => {
     const core: TestPlugin = {
       key: "ui",
       routes: [
@@ -338,84 +366,49 @@ describe("constructTree", () => {
         route("_authenticated/settings", "/settings", { parentId: "_authenticated" }),
       ],
     };
-    const tree = await construct([core]);
-
-    const mount = (
-      tree.rootRoute as unknown as { children: Array<{ options: Record<string, unknown> }> }
-    ).children[0]!;
-    const beforeLoad = mount.options.beforeLoad as (args: unknown) => void;
-
-    let thrown: unknown;
-    try {
-      beforeLoad({ context: {}, location: { pathname: "/settings", searchStr: "" } });
-    } catch (error) {
-      thrown = error;
-    }
-    expect(isRedirect(thrown)).toBe(true);
-    expect((thrown as { options: { to: string } }).options.to).toBe("/login");
-    expect((thrown as { options: { search: unknown } }).options.search).toEqual({
-      redirect: "/settings",
-    });
-
-    expect(() =>
-      beforeLoad({ context: { user: { id: "u1" } }, location: { pathname: "/settings" } }),
-    ).not.toThrow();
-  });
-
-  it("admin gate sends anonymous users to login and non-admins home", async () => {
-    const core: TestPlugin = {
-      key: "ui",
-      routes: [mountLayout("admin"), route("_admin/panel", "/panel", { parentId: "_admin" })],
+    const seen: Array<Record<string, unknown>> = [];
+    const guard = async (args: { context: unknown; location: unknown }) => {
+      seen.push(args as Record<string, unknown>);
+      throw redirect({ to: "/login", search: { redirect: "/settings" } as never });
     };
-    const tree = await construct([core]);
 
+    const tree = await construct([core], undefined, { authenticated: guard });
     const beforeLoad = (
       tree.rootRoute as unknown as { children: Array<{ options: Record<string, unknown> }> }
-    ).children[0]!.options.beforeLoad as (args: unknown) => void;
+    ).children[0]!.options.beforeLoad as (args: unknown) => Promise<unknown>;
 
-    const redirectOf = (args: unknown): { to: string } | undefined => {
-      try {
-        beforeLoad(args);
-        return undefined;
-      } catch (error) {
-        expect(isRedirect(error)).toBe(true);
-        return (error as { options: { to: string } }).options;
-      }
+    const args = {
+      context: { queryClient: {} },
+      location: { pathname: "/settings", searchStr: "" },
     };
-
-    expect(redirectOf({ context: {}, location: { pathname: "/panel", searchStr: "" } })?.to).toBe(
-      "/login",
-    );
-    expect(
-      redirectOf({
-        context: { user: { id: "u1", role: "member" } },
-        location: { pathname: "/panel", searchStr: "" },
-      })?.to,
-    ).toBe("/");
-    expect(
-      redirectOf({
-        context: { user: { id: "u1", role: "admin" } },
-        location: { pathname: "/panel" },
-      }),
-    ).toBeUndefined();
+    await expect(beforeLoad(args)).rejects.toSatisfy(isRedirect);
+    expect(seen).toEqual([args]);
   });
 
-  it("reads the gate user from either context.user or context.session.user", async () => {
-    const core: TestPlugin = {
+  it("fails construction loudly when a guarded mount has no guard, while ungated mounts construct", async () => {
+    const guarded: TestPlugin = {
       key: "ui",
       routes: [
         mountLayout("authenticated"),
-        route("_authenticated/x", "/x", { parentId: "_authenticated" }),
+        route("_authenticated/settings", "/settings", { parentId: "_authenticated" }),
       ],
     };
-    const tree = await construct([core]);
-    const beforeLoad = (
-      tree.rootRoute as unknown as { children: Array<{ options: Record<string, unknown> }> }
-    ).children[0]!.options.beforeLoad as (args: unknown) => void;
+    await expect(
+      constructEngineTree({
+        name: "app",
+        plugins: [{ key: "ui", mfName: "ui" }],
+        resolve: async () => makePlugin(guarded),
+      }),
+    ).rejects.toThrow(/mount "authenticated" requires a guard/);
 
-    expect(() =>
-      beforeLoad({ context: { session: { user: { id: "u1" } } }, location: { pathname: "/x" } }),
-    ).not.toThrow();
+    const ungated: TestPlugin = { key: "ui", routes: [mountLayout("public")] };
+    await expect(
+      constructEngineTree({
+        name: "app",
+        plugins: [{ key: "ui", mfName: "ui" }],
+        resolve: async () => makePlugin(ungated),
+      }),
+    ).resolves.toBeDefined();
   });
 
   it("shadows a plugin's duplicate mount declaration (core wins)", async () => {
@@ -527,7 +520,7 @@ describe("constructTree", () => {
     const third = await construct([changed]);
     expect(third.digest).not.toBe(first.digest);
 
-    const renamed = await constructTree({
+    const renamed = await constructEngineTree({
       name: "app",
       plugins: [{ key: "ui", mfName: "ui-tenant" }],
       resolve: async () => makePlugin(core),

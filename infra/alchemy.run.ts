@@ -36,6 +36,9 @@ export default Alchemy.Stack(
             "Workers R2 Storage Bucket Item Write",
           ],
           resources: {
+            // accountId/bucketId are alchemy Output proxies at code time;
+            // String() would capture the proxy, not the resolved value.
+            // eslint-disable-next-line typescript/restrict-template-expressions
             [`com.cloudflare.edge.r2.bucket.${accountId}/${bucketId}`]: "*",
           },
         },

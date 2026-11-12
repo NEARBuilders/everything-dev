@@ -395,7 +395,7 @@ describe("buildRuntimeConfig nodes field", () => {
     const result = await buildRuntimeConfig(
       {
         account: "test.near",
-        extends: "dev.everything.near/dev.everything.dev",
+        extends: "dev.everything.near/everything.dev",
         app: {
           host: {
             name: "host",

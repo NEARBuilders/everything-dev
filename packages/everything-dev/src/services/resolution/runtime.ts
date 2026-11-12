@@ -15,7 +15,11 @@ import type {
 import { fetchJsonOrNull } from "../../utils/http-client";
 import { getNetworkIdForAccount } from "../../utils/network";
 import { fetchApiPluginManifest } from "../codegen/api-contract";
-import { type ResolvedSlotVersion, resolveSlotVersion } from "../deploy/version-manifest";
+import {
+  type ResolvedRemoteVersion,
+  resolvedIntegrityMap,
+  resolveRemoteVersion,
+} from "../deploy/version-manifest";
 import { manifestPluginsToNodes } from "../registry/dag";
 import {
   ConfigExtendsError,
@@ -25,6 +29,7 @@ import {
   LOCAL_PREFIX,
   type ResolvedComposableReference,
   resolveComposableReference,
+  resolveContractOrigin,
 } from "./load";
 import { type BosEnv, isPlainObject, resolveExtendsRef } from "./merge";
 
@@ -324,20 +329,20 @@ export const buildRuntimeConfigEffect = Effect.fn("buildRuntimeConfig")(function
 });
 
 /**
- * Version-manifest derivation (atomic-deploys 04): for every remote slot,
+ * Version-manifest derivation (atomic-deploys 04): for every remote remote,
  * resolve its `pin` (fetch + SRI-verify the pinned manifest, process-cached
  * per pin) and stamp the derived entry-level fields — `entryUrl` (hashed
  * container entry), the browser-manifest `entry`, and entry-level
  * `integrity`/`ssrIntegrity`/`ssrEntryUrl` — so consumers load immutable
  * hashed bytes without knowing the pointer indirection.
  *
- * Pinned remote slots derive in every environment, development included —
+ * Pinned remote remotes derive in every environment, development included —
  * hash-canonical bundles never serve the fixed-name dev entry, so a dev
- * consumer pointing at remote production slots needs the same `entryUrl`
- * stamps or its readiness probe 404s forever. Unpinned remote slots skip
+ * consumer pointing at remote production remotes needs the same `entryUrl`
+ * stamps or its readiness probe 404s forever. Unpinned remote remotes skip
  * silently in development (a local-links resolution has nothing to pin);
  * outside development they fail loud — the deploy train pins every
- * workspace it uploads, so a manifest-less slot there is a
+ * workspace it uploads, so a manifest-less remote there is a
  * pre-atomic-deploy config.
  */
 async function deriveVersionManifestFields(
@@ -349,53 +354,64 @@ async function deriveVersionManifestFields(
 
   const derive = async (
     label: string,
-    slotConfig: { pin?: unknown } | undefined,
-    slot: { url?: string; remoteUrl?: string; source?: string } | undefined,
-    apply: (resolved: ResolvedSlotVersion) => void,
+    slotConfig: { digest?: unknown } | undefined,
+    remote:
+      | {
+          url?: string;
+          remoteUrl?: string;
+          source?: string;
+          digest?: { manifest: string; integrity: string };
+        }
+      | undefined,
+    apply: (resolved: ResolvedRemoteVersion) => void,
   ): Promise<void> => {
-    if (!slot || slot.source !== "remote" || !slot.url) return;
+    if (!remote || remote.source !== "remote" || !remote.url) return;
     // A config without a production form (a dev resolution materialized
     // under NODE_ENV=production) has no deployment artifacts to pin — the
-    // slot URL is the local listening fallback. Pin enforcement is for
+    // remote URL is the local listening fallback. Pin enforcement is for
     // published configs.
     const slotWithProduction = slotConfig as { production?: unknown } | undefined;
     if (!slotWithProduction || slotWithProduction.production === undefined) return;
-    const rawPin = slotConfig?.pin as { manifest?: unknown; integrity?: unknown } | undefined;
-    const pin =
-      rawPin &&
-      typeof rawPin.manifest === "string" &&
-      rawPin.manifest &&
-      typeof rawPin.integrity === "string" &&
-      rawPin.integrity
-        ? { manifest: rawPin.manifest, integrity: rawPin.integrity }
+    const rawDigest = slotConfig?.digest as { manifest?: unknown; integrity?: unknown } | undefined;
+    const digest =
+      rawDigest &&
+      typeof rawDigest.manifest === "string" &&
+      rawDigest.manifest &&
+      typeof rawDigest.integrity === "string" &&
+      rawDigest.integrity
+        ? { manifest: rawDigest.manifest, integrity: rawDigest.integrity }
         : undefined;
-    if (!pin) {
+    if (!digest) {
       if (isDev) return;
       throw new Error(
-        `slot "${label}" (${slot.url}) pins no version manifest — remote slots must pin ` +
+        `remote "${label}" (${remote.url}) carries no version-manifest digest — remote remotes must pin ` +
           `a version manifest outside development (pre-atomic-deploy config; redeploy required)`,
       );
     }
-    // The pin resolves against the slot's REMOTE base — the host slot's `url`
+    // The pin resolves against the remote's REMOTE base — the host remote's `url`
     // is its own listening origin (the bytes it would serve don't exist
     // there); its `remoteUrl` carries the deployment bundle base.
-    let resolved: ResolvedSlotVersion;
+    let resolved: ResolvedRemoteVersion;
     try {
-      resolved = await resolveSlotVersion({ base: slot.remoteUrl ?? slot.url, pin });
+      resolved = await resolveRemoteVersion({ base: remote.remoteUrl ?? remote.url, digest });
     } catch (cause) {
       if (isDev) {
         warnOutsideEffect(
-          `[Config] Version-manifest pin for "${label}" (${pin.manifest}) failed to resolve, ` +
+          `[Config] Version-manifest digest for "${label}" (${digest.manifest}) failed to resolve, ` +
             `continuing unpinned (development): ${cause instanceof Error ? cause.message : String(cause)}`,
         );
         return;
       }
       throw cause;
     }
+    // The serving-generation digest derives from the pointer inputs — stamp
+    // the normalized pin coordinates onto the slot so the runtime config is
+    // self-describing (ADR 0046 ticket 04).
+    remote.digest = { manifest: digest.manifest, integrity: digest.integrity };
     apply(resolved);
   };
 
-  const applyUi = (ui: RuntimePluginConfig["ui"], r: ResolvedSlotVersion): void => {
+  const applyUi = (ui: RuntimePluginConfig["ui"], r: ResolvedRemoteVersion): void => {
     if (!ui) return;
     ui.entryUrl = r.entryUrl;
     ui.entry = r.browserManifestUrl ?? ui.entry;
@@ -404,6 +420,14 @@ async function deriveVersionManifestFields(
     ui.ssrEntryUrl = r.ssrEntryUrl;
     ui.ssrIntegrity = r.ssrIntegrity ?? ui.ssrIntegrity;
     ui.manifestIntegrity = r.files?.[MANIFEST_FILENAME] ?? ui.manifestIntegrity;
+    // The compose manifest rides the pin's immutable version directory (#826)
+    // — reading the fixed name at the mutable slot root re-introduces the
+    // generation skew the parity check exists to catch. Legacy pins (no dir)
+    // leave it unset: the compose falls back to the slot root.
+    if (r.dir) {
+      ui.manifestUrl = `${r.base.replace(/\/$/, "")}/${r.dir}/${MANIFEST_FILENAME}`;
+    }
+    ui.sharedVersions = r.sharedVersions;
   };
 
   await derive("app.host", config.app.host, result.host, (r) => {
@@ -414,11 +438,13 @@ async function deriveVersionManifestFields(
   await derive("app.api", config.app.api, result.api, (r) => {
     result.api.entryUrl = r.entryUrl;
     result.api.integrity = r.entryIntegrity;
+    result.api.integrityMap = resolvedIntegrityMap(r);
   });
   if (result.auth) {
     await derive("app.auth", config.app.auth, result.auth, (r) => {
       result.auth!.entryUrl = r.entryUrl;
       result.auth!.integrity = r.entryIntegrity;
+      result.auth!.integrityMap = resolvedIntegrityMap(r);
     });
     await derive(
       "app.auth.ui",
@@ -430,7 +456,7 @@ async function deriveVersionManifestFields(
   for (const [key, plugin] of Object.entries(result.plugins ?? {})) {
     let pluginConfig = config.plugins?.[key];
     // The auth mirror (config.ts adds plugins.auth when the authored config
-    // has no plugins.auth entry) derives from the app.auth slot — it is the
+    // has no plugins.auth entry) derives from the app.auth remote — it is the
     // only compose surface for the auth ui, and its pins live on app.auth.
     const isAuthMirror =
       key === "auth" && result.auth && (plugin === result.auth || plugin.url === result.auth.url);
@@ -441,6 +467,7 @@ async function deriveVersionManifestFields(
     await derive(`plugins.${key}`, pluginConfig, plugin, (r) => {
       plugin.entryUrl = r.entryUrl;
       plugin.integrity = r.entryIntegrity;
+      plugin.integrityMap = resolvedIntegrityMap(r);
     });
     await derive(
       `plugins.${key}.ui`,
@@ -490,6 +517,25 @@ const resolveRuntimePluginsEffect = Effect.fn("resolveRuntimePlugins")(function*
     entries,
     ({ pluginId, normalized }) =>
       Effect.gen(function* () {
+        const hasProxy = typeof normalized.proxy === "string" && normalized.proxy.length > 0;
+        const conflicted = (["extends", "development", "production", "ui"] as const).filter(
+          (field) => normalized[field] !== undefined,
+        );
+        if (hasProxy && conflicted.length > 0) {
+          throw new ConfigExtendsError({
+            message: `Plugin "${pluginId}" declares proxy (call-only) alongside ${conflicted.join(", ")} — a call-only entry declares proxy + contract (+ secrets) only; the proxy value is the traffic endpoint.`,
+          });
+        }
+        if (normalized.contract && !hasProxy) {
+          throw new ConfigExtendsError({
+            message: `Plugin "${pluginId}" declares contract without proxy — contract is the call-only types locator; add proxy: "<live app origin>" to point the client at the traffic endpoint.`,
+          });
+        }
+
+        if (hasProxy) {
+          return yield* resolveCallOnlyEntry(pluginId, normalized, baseDir, env);
+        }
+
         const resolvedReference = yield* Effect.tryPromise({
           try: () => resolveComposableReference(normalized, baseDir, env, `plugins.${pluginId}`),
           catch: (cause) => new ConfigExtendsError({ message: String(cause), cause }),
@@ -628,8 +674,56 @@ function buildRuntimePluginConfig(
 }
 
 /**
+ * Resolve one call-only entry: the proxy value is the traffic endpoint and
+ * the `contract` locator resolves to the types origin. The structural guards
+ * (conflicting fields, contract presence) run in the resolution loop; this
+ * assumes they passed.
+ */
+const resolveCallOnlyEntry = Effect.fn("resolveCallOnlyEntry")(function* (
+  pluginId: string,
+  source: BosPluginRef,
+  baseDir: string,
+  env: BosEnv,
+): Effect.fn.Return<[string, RuntimePluginConfig], ConfigExtendsError> {
+  if (typeof source.contract !== "string" || source.contract.length === 0) {
+    throw new ConfigExtendsError({
+      message: `Plugin "${pluginId}" declares proxy (call-only) without a contract locator — add contract: "bos://account/gateway#app.api" pointing at the deployed app whose API it consumes.`,
+    });
+  }
+
+  const contractUrl = yield* Effect.tryPromise({
+    try: () => resolveContractOrigin(source.contract!, baseDir, env),
+    catch: (cause) =>
+      new ConfigExtendsError({
+        message: `Plugin "${pluginId}" contract locator failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        cause,
+      }),
+  });
+
+  const proxyUrl = source.proxy!.replace(/\/$/, "");
+  return [
+    pluginId,
+    {
+      name: resolvePluginRuntimeName(source.name, undefined, pluginId),
+      url: proxyUrl,
+      // "" is the honest "no artifact": call-only entries federation-load
+      // nothing, so there is no mf-manifest to point at — but the entry
+      // field itself is required by FederationEntrySchema.
+      entry: "",
+      source: "remote",
+      port: parsePort(proxyUrl),
+      proxy: proxyUrl,
+      contractUrl,
+      secrets: normalizeStringArray(source.secrets),
+      connectSrc: normalizeStringArray(source.connectSrc),
+      dependsOn: source.dependsOn ? normalizeStringArray(source.dependsOn) : undefined,
+    },
+  ] as [string, RuntimePluginConfig];
+});
+
+/**
  * Resolve a plugin entry's associated ui surface (`plugins.<id>.ui` / legacy
- * `plugins.<id>.app.ui`) into the runtime ui config. Extracted so app-slot
+ * `plugins.<id>.app.ui`) into the runtime ui config. Extracted so app-remote
  * entries (app.auth) resolve their ui the same way.
  */
 function buildRuntimeUiConfig(

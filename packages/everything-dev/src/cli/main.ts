@@ -2,20 +2,24 @@ import { dirname } from "node:path";
 import process from "node:process";
 import { Data, Effect, Exit } from "effect";
 import { findConfigPath } from "../config";
+import { secretsRenderers } from "../handlers/secrets";
 import bosPlugin from "../plugin";
 import { createPluginRuntime } from "../sdk";
 import { installBundleFetchFromEnv } from "../services/resolution/resolver";
 import { printBanner } from "../utils/banner";
 import { formatUnknownError } from "../utils/errors";
 import { findCommandDescriptor } from "./catalog";
+import { cleanRenderers } from "./commands/clean";
 import type { CommandContext } from "./commands/context";
 import { dbRenderers } from "./commands/db";
 import { runDev, runStart } from "./commands/dev";
 import { runInit } from "./commands/init";
 import { inspectRenderers } from "./commands/inspect";
 import { lifecycleRenderers } from "./commands/lifecycle";
+import { lockRenderers } from "./commands/lock";
 import { publishRenderers, rollbackPreCall } from "./commands/publish";
 import { scaffoldRenderers } from "./commands/scaffold";
+import { seedPreCall, seedRenderers } from "./commands/seed";
 import { resolveFrameworkPackage } from "./framework-version";
 import { printCommandHelp, printHelp } from "./help";
 import { parseCommandInput } from "./parse";
@@ -31,15 +35,26 @@ const customRunners: Record<string, (ctx: CommandContext) => Promise<void>> = {
 
 const preCalls: Record<string, (ctx: CommandContext) => Promise<void>> = {
   rollback: rollbackPreCall,
+  seed: seedPreCall,
 };
 
 const renderers = {
+  ...cleanRenderers,
   ...dbRenderers,
   ...inspectRenderers,
   ...lifecycleRenderers,
+  ...lockRenderers,
   ...publishRenderers,
   ...scaffoldRenderers,
+  ...seedRenderers,
+  ...secretsRenderers,
 };
+
+const printError = (message: string): void => {
+  console.error(message);
+};
+
+const envOf = (name: string): string | undefined => process.env[name];
 
 const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
   try: async (): Promise<void> => {
@@ -61,7 +76,7 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
 
     const commandMatch = findCommandDescriptor(invocationArgs);
     if (!commandMatch) {
-      console.error(`Unknown command: ${command}`);
+      printError(`Unknown command: ${command}`);
       process.exit(1);
     }
 
@@ -90,7 +105,9 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
     const displayVersion = edResolved?.installedVersion
       ? `${edResolved.installedVersion}${edResolved.isLinked ? " (linked)" : ""}`
       : undefined;
-    if (!process.env.BOS_NO_BANNER) {
+    // --json promises machine-parseable stdout — the banner would corrupt it.
+    const jsonOutput = (parsedInput as { json?: unknown }).json === true;
+    if (!jsonOutput && !envOf("BOS_NO_BANNER")) {
       printBanner("everything-dev", displayVersion);
     }
 
@@ -141,7 +158,7 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
         descriptor.key !== "publish" &&
         descriptor.key !== "deploy"
       ) {
-        console.error(`[CLI] ${formatUnknownError(result.error)}`);
+        printError(`[CLI] ${formatUnknownError(result.error)}`);
         process.exit(1);
       }
 
@@ -160,7 +177,7 @@ export const runCli = async (): Promise<void> => {
     for (const reason of reasons) {
       if (reason?._tag !== "Fail") continue;
       const failure = (reason as { error?: unknown }).error;
-      console.error(`[CLI] ${formatUnknownError(failure)}`);
+      printError(`[CLI] ${formatUnknownError(failure)}`);
     }
     process.exit(1);
   }

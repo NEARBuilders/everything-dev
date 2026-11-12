@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge, SectionHeader } from "@/components";
 
 interface VersionEndpointResponse {
-  fingerprint?: string;
-  slots?: Record<string, string>;
+  deploymentDigest?: string;
+  remotes?: Record<string, string>;
   watch?: { lastOutcome?: string };
 }
 
@@ -34,13 +34,13 @@ export function VersionCard() {
       <SectionHeader title="Deployed version" sectionTestId="admin-version-heading" />
       {query.isLoading ? (
         <p className="text-muted-foreground text-sm">Loading…</p>
-      ) : query.isError || !version?.fingerprint ? (
+      ) : query.isError || !version?.deploymentDigest ? (
         <p className="text-muted-foreground text-sm">Version endpoint unreachable.</p>
       ) : (
         <dl className="mt-2 space-y-1 text-sm">
           <div className="flex items-center gap-2">
-            <dt className="text-muted-foreground">Fingerprint</dt>
-            <dd className="font-mono">{version.fingerprint}</dd>
+            <dt className="text-muted-foreground">Serving digest</dt>
+            <dd className="font-mono">{version.deploymentDigest}</dd>
             {outcomeMeta && (
               <Badge
                 variant={
@@ -55,13 +55,13 @@ export function VersionCard() {
               </Badge>
             )}
           </div>
-          {Object.keys(version.slots ?? {}).length > 0 && (
+          {Object.keys(version.remotes ?? {}).length > 0 && (
             <div>
-              <dt className="text-muted-foreground">Slots</dt>
+              <dt className="text-muted-foreground">Remotes</dt>
               <dd className="mt-1 space-y-0.5">
-                {Object.entries(version.slots ?? {}).map(([slot, pin]) => (
-                  <div key={slot} className="flex gap-2 font-mono text-xs">
-                    <span className="text-muted-foreground">{slot}</span>
+                {Object.entries(version.remotes ?? {}).map(([remote, pin]) => (
+                  <div key={remote} className="flex gap-2 font-mono text-xs">
+                    <span className="text-muted-foreground">{remote}</span>
                     <span>{pin}</span>
                   </div>
                 ))}

@@ -76,6 +76,7 @@ describe("constructTree over the auth route shape", () => {
         { key: "ui", mfName: "ui" },
         { key: "auth", mfName: "auth-ui" },
       ],
+      guards: { authenticated: async () => undefined, admin: async () => undefined },
       resolve: async (ref) => {
         if (ref.key === "ui")
           return { key: "ui", manifest: CORE_MANIFEST, routeConfig: coreRouteConfig };

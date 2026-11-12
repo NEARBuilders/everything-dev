@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type BosConfig, BosConfigSchema } from "../../types";
 import { readLocalAuthoredConfigInput } from "./load";
@@ -54,7 +54,13 @@ export function writeResolvedConfig(
   } catch {
     // file doesn't exist yet
   }
-  writeFileSync(resolvedPath, content);
+  // Atomic rename, not a plain write: concurrent dev sessions in one config
+  // dir are a supported flow, and a plain write can hand the other session a
+  // half-written file (torn read) — a missing plugins.localPath then flips
+  // the contract-bridge sweep into deleting that plugin's fresh gen files.
+  const tempPath = `${resolvedPath}.${process.pid}.tmp`;
+  writeFileSync(tempPath, content);
+  renameSync(tempPath, resolvedPath);
 }
 
 export function resolveBosConfigPath(configDir: string): string {

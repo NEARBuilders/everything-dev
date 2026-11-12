@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   writeFileSync as fsWriteFileSync,
@@ -8,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 let testDir: string;
 
@@ -295,5 +296,184 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
     expect(existsSync(authClientPath)).toBe(true);
     const authClient = readFileSync(authClientPath, "utf-8");
     expect(authClient).toContain("export type PluginsClient = Record<string, never>;");
+  });
+});
+
+describe("writeGeneratedFiles — degraded auth resolution still writes auth-types targets", () => {
+  it("overwrites a stale plugin auth-types.gen.ts with stub imports when auth failed to resolve", async () => {
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
+    testDir = mkdtempSync(join(tmpdir(), "api-contract-degraded-"));
+
+    const apiSrc = join(testDir, "api", "src");
+    const templateLib = join(testDir, "plugins", "_template", "src", "lib");
+    const contractPath = join(apiSrc, "contract.ts");
+    writeFile(contractPath, "export type ContractType = { ping: string };");
+
+    const staleContent = `export type * from "../../../auth/src/auth-export.ts";
+import type { InferOutput } from "../../../auth/src/contract.d.ts";
+`;
+    writeFile(join(templateLib, "auth-types.gen.ts"), staleContent);
+
+    writeGeneratedFiles({
+      configDir: testDir,
+      sources: [makeContractSource("api", contractPath)],
+      pluginKeys: ["template"],
+      authSource: null,
+      authExportPath: null,
+      apiDependsOn: undefined,
+      pluginLocalPaths: { template: join(testDir, "plugins", "_template") },
+    });
+
+    const authDir = join(testDir, ".bos", "generated", "auth");
+    expect(existsSync(join(authDir, "auth-export.d.ts"))).toBe(true);
+    expect(existsSync(join(authDir, "contract.d.ts"))).toBe(true);
+
+    const templateAuthTypes = readFileSync(join(templateLib, "auth-types.gen.ts"), "utf-8");
+    expect(templateAuthTypes).not.toBe(staleContent);
+    expect(templateAuthTypes).toContain(".bos/generated/auth/auth-export.d.ts");
+
+    const uiAuthTypes = readFileSync(
+      join(testDir, "ui", "src", "lib", "auth-types.gen.ts"),
+      "utf-8",
+    );
+    expect(uiAuthTypes).toContain(".bos/generated/auth/auth-export.d.ts");
+  });
+});
+
+describe("syncApiContractBridge — call-only plugin entries (#848)", () => {
+  const CONTRACT_SOURCE =
+    "export type ContractType = { getProjectBySlug(input: { slug: string }): { slug: string } };";
+  // The production shape this feature exists for: the CONTRACT origin is the
+  // stamped artifact CDN (serves plugin.manifest.json), the proxy origin is
+  // the live app domain (serves /api/rpc) — different origins, two locators.
+  const CONTRACT_ORIGIN =
+    "https://cdn.everything.dev/bundles/nearbuilding.near/feedback.nearbuilders.org/api";
+  const PROXY_ORIGIN = "https://feedback.nearbuilders.org";
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  function serveContractAtContractOrigin({
+    manifestSha,
+    bodySha,
+  }: {
+    manifestSha?: string;
+    bodySha?: string;
+  } = {}) {
+    const actualSha = createHash("sha256").update(CONTRACT_SOURCE).digest("hex");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === `${CONTRACT_ORIGIN}/plugin.manifest.json`) {
+        return new Response(
+          JSON.stringify({
+            schemaVersion: 1,
+            kind: "every-plugin/manifest",
+            plugin: { name: "feedback-plugin", version: "1.0.0" },
+            runtime: { remoteEntry: "/remoteEntry.js" },
+            contract: {
+              kind: "orpc",
+              types: {
+                path: "./contract.d.ts",
+                exportName: "contract",
+                typeName: "ContractType",
+                ...(manifestSha !== undefined ? { sha256: manifestSha } : { sha256: actualSha }),
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${CONTRACT_ORIGIN}/contract.d.ts`) {
+        return new Response(
+          bodySha !== undefined ? "export type ContractType = tampered;" : CONTRACT_SOURCE,
+          { status: 200, headers: { "content-type": "text/plain" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+  }
+
+  function callOnlyRuntimeConfig() {
+    return {
+      api: { name: "api", url: "", entry: "/mf-manifest.json", source: "local" as const },
+      plugins: {
+        feedback: {
+          name: "feedback",
+          url: PROXY_ORIGIN,
+          entry: "",
+          source: "remote" as const,
+          proxy: PROXY_ORIGIN,
+          contractUrl: CONTRACT_ORIGIN,
+        },
+      },
+    } as any;
+  }
+
+  it("fetches the sha256-verified contract from the CONTRACT origin — never the proxy origin", async () => {
+    const { syncApiContractBridge } = await import("../../src/services/codegen/api-contract");
+    serveContractAtContractOrigin();
+    testDir = mkdtempSync(join(tmpdir(), "api-contract-call-only-test-"));
+    writeFile(
+      join(testDir, "api", "src", "contract.ts"),
+      "export type ContractType = { ping: string };",
+    );
+    mkdirSync(join(testDir, "api", "src", "lib"), { recursive: true });
+    mkdirSync(join(testDir, "ui", "src", "lib"), { recursive: true });
+
+    const bridge = await syncApiContractBridge({
+      configDir: testDir,
+      runtimeConfig: callOnlyRuntimeConfig(),
+      apiBaseUrl: "",
+    });
+
+    const feedbackStatus = bridge.status.find((s) => s.key === "feedback");
+    expect(feedbackStatus?.source).toBe("remote");
+    expect(feedbackStatus?.url).toBe(CONTRACT_ORIGIN);
+    expect(feedbackStatus?.error).toBeUndefined();
+
+    const fetchedUrls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((call) =>
+      String(call[0]),
+    );
+    expect(fetchedUrls.some((url) => url.startsWith(CONTRACT_ORIGIN))).toBe(true);
+    expect(fetchedUrls.some((url) => url.startsWith(PROXY_ORIGIN))).toBe(false);
+
+    const contractPath = join(testDir, ".bos", "generated", "plugins", "feedback", "contract.d.ts");
+    expect(readFileSync(contractPath, "utf-8")).toBe(CONTRACT_SOURCE);
+
+    const apiTypes = readFileSync(join(testDir, "ui", "src", "lib", "api-types.gen.ts"), "utf-8");
+    expect(apiTypes).toContain("feedbackContract");
+    expect(apiTypes).toContain("feedback:");
+
+    const pluginsTypes = readFileSync(
+      join(testDir, "api", "src", "lib", "plugins-types.gen.ts"),
+      "utf-8",
+    );
+    expect(pluginsTypes).toContain("feedback: PluginClientEntry<feedbackContract>");
+  });
+
+  it("fails the plugin loudly when the fetched contract fails checksum verification", async () => {
+    const { syncApiContractBridge } = await import("../../src/services/codegen/api-contract");
+    serveContractAtContractOrigin({ bodySha: "deadbeef" });
+    testDir = mkdtempSync(join(tmpdir(), "api-contract-call-only-bad-test-"));
+    writeFile(
+      join(testDir, "api", "src", "contract.ts"),
+      "export type ContractType = { ping: string };",
+    );
+
+    const bridge = await syncApiContractBridge({
+      configDir: testDir,
+      runtimeConfig: callOnlyRuntimeConfig(),
+      apiBaseUrl: "",
+    });
+
+    const feedbackStatus = bridge.status.find((s) => s.key === "feedback");
+    expect(feedbackStatus?.source).toBe("failed");
+    expect(feedbackStatus?.error).toContain("checksum");
+    expect(
+      readFileSync(join(testDir, "ui", "src", "lib", "api-types.gen.ts"), "utf-8"),
+    ).not.toContain("feedback:");
   });
 });

@@ -1,5 +1,4 @@
 ---
-"@everything-dev/auth-plugin": minor
 "better-near-auth": minor
 ---
 

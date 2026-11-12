@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  clearSlotVersionCache,
-  resolveSlotVersion,
+  clearRemoteVersionCache,
+  resolveRemoteVersion,
 } from "../../src/services/deploy/version-manifest";
 
 const sri = (content: string) => `sha384-${createHash("sha384").update(content).digest("base64")}`;
@@ -31,17 +31,17 @@ const okFetch = async (input: string | URL) => {
 
 const slot = {
   base: manifestBase,
-  pin: {
+  digest: {
     manifest: "versions/8f3ac1d2feedbeef.json",
     integrity: sri(manifestJson),
   },
 };
 
-describe("resolveSlotVersion", () => {
+describe("resolveRemoteVersion", () => {
   it("fetches + verifies the version manifest and derives the entry URLs", async () => {
-    clearSlotVersionCache();
+    clearRemoteVersionCache();
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
-    const resolved = await resolveSlotVersion({ ...slot, fetchImpl });
+    const resolved = await resolveRemoteVersion({ ...slot, fetchImpl });
     expect(resolved.entryUrl).toBe(`${manifestBase}${versionManifest.entry}`);
     expect(resolved.entryIntegrity).toBe("sha384-entry");
     expect(resolved.browserManifestUrl).toBe(
@@ -51,35 +51,39 @@ describe("resolveSlotVersion", () => {
     expect(resolved.ssrIntegrity).toBe("sha384-ssr");
   });
 
-  it("caches per pin: the same slot pin fetches the manifest exactly once", async () => {
-    clearSlotVersionCache();
+  it("caches per digest: the same remote digest fetches the manifest exactly once", async () => {
+    clearRemoteVersionCache();
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
-    await resolveSlotVersion({ ...slot, fetchImpl });
-    await resolveSlotVersion({ ...slot, fetchImpl });
+    await resolveRemoteVersion({ ...slot, fetchImpl });
+    await resolveRemoteVersion({ ...slot, fetchImpl });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("throws on SRI mismatch (nothing cached, nothing derived)", async () => {
-    clearSlotVersionCache();
+    clearRemoteVersionCache();
     const fetchImpl = (async () => new Response(manifestJson, { status: 200 })) as typeof fetch;
     await expect(
-      resolveSlotVersion({ ...slot, pin: { ...slot.pin, integrity: "sha384-wrong" }, fetchImpl }),
+      resolveRemoteVersion({
+        ...slot,
+        digest: { ...slot.digest, integrity: "sha384-wrong" },
+        fetchImpl,
+      }),
     ).rejects.toThrow(/Integrity/i);
   });
 
   it("never refetches a verified pin — the cache is the last-known-good", async () => {
-    clearSlotVersionCache();
+    clearRemoteVersionCache();
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
-    const first = await resolveSlotVersion({ ...slot, fetchImpl });
+    const first = await resolveRemoteVersion({ ...slot, fetchImpl });
     const failing = (async () => {
       throw new Error("unreachable");
     }) as typeof fetch;
-    const second = await resolveSlotVersion({ ...slot, fetchImpl: failing });
+    const second = await resolveRemoteVersion({ ...slot, fetchImpl: failing });
     expect(second).toEqual(first);
   });
 });
 
-describe("resolveSlotVersion — staged namespace preference", () => {
+describe("resolveRemoteVersion — staged namespace preference", () => {
   const stagedManifest = {
     version: "deadbeefcafe0123",
     entry: "remoteEntry.freshface0badde42.js",
@@ -97,7 +101,7 @@ describe("resolveSlotVersion — staged namespace preference", () => {
 
   beforeEach(() => {
     bundleRoot = mkdtempSync(path.join(tmpdir(), "staged-slots-"));
-    clearSlotVersionCache();
+    clearRemoteVersionCache();
   });
 
   afterEach(() => {
@@ -111,9 +115,9 @@ describe("resolveSlotVersion — staged namespace preference", () => {
     stage("ui", "freshface0badde42.json", stagedManifestJson);
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
 
-    const resolved = await resolveSlotVersion({
+    const resolved = await resolveRemoteVersion({
       ...slot,
-      pin: { manifest: "versions/stale-old-pin.json", integrity: sri(stagedManifestJson) },
+      digest: { manifest: "versions/stale-old-pin.json", integrity: sri(stagedManifestJson) },
       fetchImpl,
     });
 
@@ -127,7 +131,7 @@ describe("resolveSlotVersion — staged namespace preference", () => {
     stage("ui", "8f3ac1d2feedbeef.json", stagedManifestJson);
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
 
-    const resolved = await resolveSlotVersion({ ...slot, fetchImpl });
+    const resolved = await resolveRemoteVersion({ ...slot, fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(resolved.entryUrl).toBe(`${manifestBase}${versionManifest.entry}`);
@@ -138,7 +142,7 @@ describe("resolveSlotVersion — staged namespace preference", () => {
     stage("other-workspace", "freshface0badde42.json", stagedManifestJson);
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
 
-    const resolved = await resolveSlotVersion({ ...slot, fetchImpl });
+    const resolved = await resolveRemoteVersion({ ...slot, fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(resolved.entryUrl).toBe(`${manifestBase}${versionManifest.entry}`);
@@ -148,7 +152,7 @@ describe("resolveSlotVersion — staged namespace preference", () => {
     delete process.env.BOS_BUNDLE_DIR;
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
 
-    const resolved = await resolveSlotVersion({ ...slot, fetchImpl });
+    const resolved = await resolveRemoteVersion({ ...slot, fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(resolved.entryUrl).toBe(`${manifestBase}${versionManifest.entry}`);
@@ -166,9 +170,9 @@ describe("resolveSlotVersion — staged namespace preference", () => {
     utimesSync(newer, new Date(1), new Date(1));
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
 
-    const resolved = await resolveSlotVersion({
+    const resolved = await resolveRemoteVersion({
       ...slot,
-      pin: { manifest: "versions/stale-old-pin.json", integrity: sri(stagedManifestJson) },
+      digest: { manifest: "versions/stale-old-pin.json", integrity: sri(stagedManifestJson) },
       fetchImpl,
     });
 
@@ -180,7 +184,7 @@ describe("resolveSlotVersion — staged namespace preference", () => {
     mkdirSync(path.join(bundleRoot, "a.near", "g.app", "ui", "chunks"), { recursive: true });
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
 
-    const resolved = await resolveSlotVersion({ ...slot, fetchImpl });
+    const resolved = await resolveRemoteVersion({ ...slot, fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(resolved.entryUrl).toBe(`${manifestBase}${versionManifest.entry}`);
@@ -191,7 +195,7 @@ describe("resolveSlotVersion — staged namespace preference", () => {
     stage("ui", "broken0000000000aa.json", "{ not json");
     const fetchImpl = vi.fn(okFetch) as typeof fetch;
 
-    const resolved = await resolveSlotVersion({ ...slot, fetchImpl });
+    const resolved = await resolveRemoteVersion({ ...slot, fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(resolved.entryUrl).toBe(`${manifestBase}${versionManifest.entry}`);

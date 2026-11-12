@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  compactCrossSubDomainCookies,
+  compactIpAddress,
+  compactRateLimit,
+} from "../../src/auth-instance";
+import {
   buildRelayerConfig,
   buildSubAccountConfig,
   ensureOrigin,
@@ -8,7 +13,7 @@ import {
   validatePermissionGrants,
 } from "../../src/config";
 import type { AuthPluginSecrets, AuthPluginVariables } from "../../src/config-schemas";
-import { permissionsSchema } from "../../src/config-schemas";
+import { authVariablesSchema, permissionsSchema } from "../../src/config-schemas";
 import { TEST_PERMISSIONS } from "../helpers";
 
 const baseSecrets: AuthPluginSecrets = {
@@ -279,6 +284,103 @@ describe("normalizeAuthConfig", () => {
     process.env.NODE_ENV = "test";
   });
 
+  it("accepts a valid rateLimit + ipAddress variables block (#688)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      rateLimit: { enabled: true, window: 60, max: 500, storage: "database" },
+      ipAddress: { ipAddressHeaders: ["cf-connecting-ip"], trustedProxies: ["192.0.2.10"] },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts a dot-prefixed crossSubDomainCookies domain (#668)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      crossSubDomainCookies: { enabled: true, domain: ".nearbuilders.org" },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts a disabled crossSubDomainCookies block without a domain (#668)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      crossSubDomainCookies: { enabled: false },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects enabled crossSubDomainCookies without a domain (#668)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      crossSubDomainCookies: { enabled: true },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects a bare (non-dot-prefixed) crossSubDomainCookies domain (#668)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      crossSubDomainCookies: { enabled: true, domain: "nearbuilders.org" },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects an unknown rateLimit storage (#688)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      rateLimit: { storage: "secondary-storage" },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects non-positive rateLimit window/max (#688)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      rateLimit: { window: 0, max: -1 },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("compacts the rateLimit mapping to better-auth's option shape — absent fields fall through", () => {
+    expect(compactRateLimit(undefined)).toEqual({});
+    expect(compactRateLimit({})).toEqual({});
+    expect(compactRateLimit({ enabled: true, window: 60, max: 500, storage: "database" })).toEqual({
+      rateLimit: { enabled: true, window: 60, max: 500, storage: "database" },
+    });
+    expect(compactRateLimit({ storage: "database" })).toEqual({
+      rateLimit: { storage: "database" },
+    });
+  });
+
+  it("compacts the ipAddress mapping — default header, opt-in trusted proxies (#338)", () => {
+    expect(compactIpAddress(undefined)).toEqual({ ipAddressHeaders: ["x-forwarded-for"] });
+    expect(compactIpAddress({ ipAddressHeaders: ["cf-connecting-ip"] })).toEqual({
+      ipAddressHeaders: ["cf-connecting-ip"],
+    });
+    expect(
+      compactIpAddress({ ipAddressHeaders: ["x-real-ip"], trustedProxies: ["192.0.2.10"] }),
+    ).toEqual({ ipAddressHeaders: ["x-real-ip"], trustedProxies: ["192.0.2.10"] });
+    // an empty trustedProxies list is not an opt-in
+    expect(compactIpAddress({ ipAddressHeaders: ["x-real-ip"], trustedProxies: [] })).toEqual({
+      ipAddressHeaders: ["x-real-ip"],
+    });
+  });
+
+  it("compacts the crossSubDomainCookies mapping — absent and disabled blocks emit nothing (#668)", () => {
+    expect(compactCrossSubDomainCookies(undefined)).toEqual({});
+    expect(compactCrossSubDomainCookies({ enabled: false })).toEqual({});
+    expect(compactCrossSubDomainCookies({ enabled: false, domain: ".nearbuilders.org" })).toEqual(
+      {},
+    );
+    expect(compactCrossSubDomainCookies({ enabled: true, domain: ".nearbuilders.org" })).toEqual({
+      crossSubDomainCookies: { enabled: true, domain: ".nearbuilders.org" },
+    });
+    // no domain: better-auth falls back to the base URL's root domain
+    expect(compactCrossSubDomainCookies({ enabled: true })).toEqual({
+      crossSubDomainCookies: { enabled: true },
+    });
+  });
+
   it("produces a valid auth config with required fields", () => {
     const { authConfig, apiKeyHeaders } = normalizeAuthConfig(baseVariables, baseSecrets);
     expect(authConfig.secret).toBe("test-secret");
@@ -294,6 +396,60 @@ describe("normalizeAuthConfig", () => {
       baseSecrets,
     );
     expect(authConfig.organizationMembershipLimit).toBe(1000);
+  });
+
+  it("carries the rateLimit variables through (#688)", () => {
+    const { authConfig } = normalizeAuthConfig(
+      {
+        ...baseVariables,
+        rateLimit: { enabled: true, window: 60, max: 500, storage: "database" },
+      },
+      baseSecrets,
+    );
+    expect(authConfig.rateLimit).toEqual({
+      enabled: true,
+      window: 60,
+      max: 500,
+      storage: "database",
+    });
+  });
+
+  it("carries the ipAddress variables through (#688)", () => {
+    const { authConfig } = normalizeAuthConfig(
+      {
+        ...baseVariables,
+        ipAddress: {
+          ipAddressHeaders: ["cf-connecting-ip"],
+          trustedProxies: ["192.0.2.10", "10.0.0.0/24"],
+        },
+      },
+      baseSecrets,
+    );
+    expect(authConfig.ipAddress).toEqual({
+      ipAddressHeaders: ["cf-connecting-ip"],
+      trustedProxies: ["192.0.2.10", "10.0.0.0/24"],
+    });
+  });
+
+  it("carries the crossSubDomainCookies variables through (#668)", () => {
+    const { authConfig } = normalizeAuthConfig(
+      {
+        ...baseVariables,
+        crossSubDomainCookies: { enabled: true, domain: ".nearbuilders.org" },
+      },
+      baseSecrets,
+    );
+    expect(authConfig.crossSubDomainCookies).toEqual({
+      enabled: true,
+      domain: ".nearbuilders.org",
+    });
+  });
+
+  it("leaves rateLimit, ipAddress, and crossSubDomainCookies absent when unconfigured", () => {
+    const { authConfig } = normalizeAuthConfig(baseVariables, baseSecrets);
+    expect(authConfig.rateLimit).toBeUndefined();
+    expect(authConfig.ipAddress).toBeUndefined();
+    expect(authConfig.crossSubDomainCookies).toBeUndefined();
   });
 
   it("serves mainnet for a mainnet runtime account", () => {
@@ -490,10 +646,19 @@ describe("normalizeAuthConfig", () => {
     expect(apiKeyHeaders).toEqual(["x-api-key"]);
   });
 
-  it("sets isProduction based on NODE_ENV", () => {
+  it("sets isProduction from the served origin protocol (#635)", () => {
+    process.env.NODE_ENV = "production";
+    const { authConfig } = normalizeAuthConfig(
+      { ...baseVariables, baseUrl: "https://everything.dev" },
+      baseSecrets,
+    );
+    expect(authConfig.isProduction).toBe(true);
+  });
+
+  it("localhost http is not production even with NODE_ENV=production — no secure cookies in dev (#635)", () => {
     process.env.NODE_ENV = "production";
     const { authConfig } = normalizeAuthConfig(baseVariables, baseSecrets);
-    expect(authConfig.isProduction).toBe(true);
+    expect(authConfig.isProduction).toBe(false);
   });
 });
 

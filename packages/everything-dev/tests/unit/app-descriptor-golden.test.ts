@@ -3,7 +3,7 @@ import everythingDevApp from "../../../../bos.app";
 import { App, Plugin } from "../../src/descriptor/constructors";
 import { resolveApp } from "../../src/descriptor/resolve";
 
-const PIPELINE_FIELDS = ["production", "integrity", "ssr", "ssrIntegrity", "pin"] as const;
+const PIPELINE_FIELDS = ["production", "integrity", "ssr", "ssrIntegrity", "digest"] as const;
 
 function stripPipeline(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripPipeline);
@@ -80,6 +80,12 @@ describe("descriptor golden fixture — bos.app.ts ↔ bos.config.json", () => {
     expect(resolved.account).toBe("child.example");
     expect(resolved.domain).toBe("child.example");
     expect(canonicalize(resolved.app?.auth?.variables?.siwn)).toEqual({
+      // the root's authored relayer bring-up (#772) rides the extends lineage:
+      // the flat relayer fields + rpcUrl merge into every child's flattened siwn
+      rpcUrl: "https://rpc.mainnet.near.org",
+      // reads stay on the fast endpoint (PR #806) — the fastnear incident was
+      // broadcast drops, not bad reads
+      readRpcUrl: "https://free.rpc.fastnear.com",
       recipients: { mainnet: "child.example", testnet: "child.testnet" },
       permissions: {
         statements: {
@@ -122,6 +128,9 @@ describe("descriptor golden fixture — bos.app.ts ↔ bos.config.json", () => {
         },
       },
       relayer: {
+        whitelistedContracts: ["dev.everything.near"],
+        maxGasPerTransaction: "300000000000000",
+        maxDepositPerTransaction: "0",
         mainnet: {
           whitelistedContracts: ["child.example"],
           maxGasPerTransaction: "400000000000000",

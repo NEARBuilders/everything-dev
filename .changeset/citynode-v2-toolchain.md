@@ -1,13 +1,5 @@
 ---
 "every-plugin": major
-"host": minor
-"ui": minor
-"api": minor
-"@everything-dev/registry-plugin": minor
-"@everything-dev/auth-plugin": minor
-"@everything-dev/proposals-plugin": minor
-"@everything-dev/votes-plugin": minor
-"@every-plugin/template": minor
 "everything-dev": minor
 ---
 

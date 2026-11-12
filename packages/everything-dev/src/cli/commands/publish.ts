@@ -93,7 +93,8 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     if (result.path) console.log(`  ${colors.dim("Path:")} ${result.path}`);
     if (result.production) console.log(`  ${colors.dim("Production:")} ${result.production}`);
     if (result.version) console.log(`  ${colors.dim("Version:")} ${result.version}`);
-    if (result.fingerprint) console.log(`  ${colors.dim("Fingerprint:")} ${result.fingerprint}`);
+    if (result.pointerDigest)
+      console.log(`  ${colors.dim("Pointer digest:")} ${result.pointerDigest}`);
     console.log();
     return;
   },
@@ -192,7 +193,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
         for (const check of rollbackResult.verification) {
           const mark = check.ok ? colors.green(icons.ok) : colors.error(icons.err);
           const reason = check.reason ? colors.dim(` — ${check.reason}`) : "";
-          console.log(`  ${mark} ${check.slot}${reason}`);
+          console.log(`  ${mark} ${check.remote}${reason}`);
         }
       }
       console.log();
@@ -217,6 +218,45 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
+  promote: async (result, _ctx) => {
+    const promoteResult = result as any;
+    if (promoteResult.status === "error") {
+      console.log();
+      console.log(colors.error(`${icons.err} Promote failed`));
+      if (promoteResult.error) {
+        console.log(`  ${colors.dim("Error:")} ${promoteResult.error}`);
+      }
+      if (promoteResult.verification) {
+        console.log();
+        for (const check of promoteResult.verification) {
+          const mark = check.ok ? colors.green(icons.ok) : colors.error(icons.err);
+          const reason = check.reason ? colors.dim(` — ${check.reason}`) : "";
+          console.log(`  ${mark} ${check.remote}${reason}`);
+        }
+      }
+      console.log();
+      process.exit(1);
+    }
+
+    if (promoteResult.status === "dry-run") {
+      console.log();
+      console.log(colors.cyan(`${icons.ok} Promote dry run complete`));
+      console.log(`  ${colors.dim("Registry URL:")} ${promoteResult.registryUrl}`);
+      console.log();
+      return;
+    }
+
+    console.log();
+    console.log(colors.green(`${icons.ok} Promoted — the recorded deployment is live again`));
+    console.log(`  ${colors.dim("Registry URL:")} ${promoteResult.registryUrl}`);
+    if (promoteResult.txHash) {
+      console.log(`  ${colors.dim("Transaction:")} ${promoteResult.txHash}`);
+    }
+    console.log(`  ${colors.dim("Lockfile:")} bos.lock.json now freezes the promoted composition`);
+    console.log();
+    return;
+  },
+
   deploy: async (result, _ctx) => {
     const deployResult = result as any;
     if (deployResult.status === "list") {
@@ -230,8 +270,8 @@ export const publishRenderers: Record<string, ResultRenderer> = {
       console.log();
       return;
     }
-    if (deployResult.fingerprint) {
-      console.log(`  ${colors.dim("Fingerprint:")} ${deployResult.fingerprint}`);
+    if (deployResult.pointerDigest) {
+      console.log(`  ${colors.dim("Pointer digest:")} ${deployResult.pointerDigest}`);
     }
     if (deployResult.status === "dry-run") {
       console.log();

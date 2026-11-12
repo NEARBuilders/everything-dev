@@ -4,9 +4,16 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeSessionHandle } from "../../src/services/auth/session";
 
-const { ensureDelegateKeyMock, submitRegistryWriteDelegatedMock } = vi.hoisted(() => ({
+const {
+  ensureDelegateKeyMock,
+  submitRegistryWriteDelegatedMock,
+  classifyTransactionOutcomeMock,
+  checkPublishKeyHealthMock,
+} = vi.hoisted(() => ({
   ensureDelegateKeyMock: vi.fn(),
   submitRegistryWriteDelegatedMock: vi.fn(),
+  classifyTransactionOutcomeMock: vi.fn(),
+  checkPublishKeyHealthMock: vi.fn(),
 }));
 
 vi.mock("../../src/services/auth/delegate-signer", () => ({
@@ -14,25 +21,39 @@ vi.mock("../../src/services/auth/delegate-signer", () => ({
   submitRegistryWriteDelegated: submitRegistryWriteDelegatedMock,
 }));
 
+vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/auth/near-signer")>();
+  return {
+    ...actual,
+    classifyTransactionOutcome: classifyTransactionOutcomeMock,
+    checkPublishKeyHealth: checkPublishKeyHealthMock,
+  };
+});
+
 const { fetchBosConfigFromFastKvMock } = vi.hoisted(() => ({
   fetchBosConfigFromFastKvMock: vi.fn(),
 }));
 
 vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
+  // the registry serves canonical payloads — local: dev targets stripped
+  // (#584); the fixtures here are published-shape
+  const canonical = async (...args: Parameters<typeof fetchBosConfigFromFastKvMock>) =>
+    stripLocalDevelopmentTargets(await fetchBosConfigFromFastKvMock(...args));
   return {
     ...actual,
-    fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
-    fetchPublishedConfigFromFastKv: fetchBosConfigFromFastKvMock,
+    fetchBosConfigFromFastKv: canonical,
+    fetchPublishedConfigFromFastKv: canonical,
   };
 });
 
 import { publishToFastKv } from "../../src/services/deploy/train";
+import { stripLocalDevelopmentTargets } from "../../src/services/resolution/merge";
 import type { BosConfig } from "../../src/types";
 
 const bosConfig = {
   account: "dev.everything.near",
-  domain: "dev.everything.dev",
+  domain: "everything.dev",
   app: {
     host: { development: "local:host", production: "https://host.example" },
     ui: { development: "local:ui", production: "https://ui.example" },
@@ -72,6 +93,7 @@ describe("publishToFastKv publish.auth guard", () => {
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), "bos-publish-guard-"));
+    checkPublishKeyHealthMock.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -176,11 +198,12 @@ describe("publishToFastKv publish.auth guard", () => {
     writeFileSync(join(configDir, "bos.config.json"), JSON.stringify(bosConfig, null, 2));
 
     fetchBosConfigFromFastKvMock.mockReset();
-    // preflight reachability read → miss, isConfigAlreadyPublished → miss,
-    // then the confirmation loop reads the raw on-disk config
+    // Behavior-keyed: every registry read misses until the relay submit has
+    // happened, then the read-back serves the raw on-disk config for the
+    // confirm legs — another pre-submit train read must not re-choreograph
+    // this mock.
     fetchBosConfigFromFastKvMock.mockImplementation(async () => {
-      const calls = fetchBosConfigFromFastKvMock.mock.calls.length;
-      if (calls <= 2) return null;
+      if (submitRegistryWriteDelegatedMock.mock.calls.length === 0) return null;
       return JSON.parse(readFileSync(join(configDir, "bos.config.json"), "utf-8")) as BosConfig;
     });
 
@@ -212,10 +235,14 @@ describe("publishToFastKv publish.auth guard", () => {
     };
     const entryKeys = Object.keys(submitted.args);
     expect(entryKeys).toHaveLength(2);
-    expect(entryKeys[0]).toBe("apps/dev.everything.near/dev.everything.dev/bos.config.json");
-    expect(entryKeys[1]).toMatch(/^apps\/dev\.everything\.near\/dev\.everything\.dev\/manifests\//);
+    expect(entryKeys[0]).toBe("apps/dev.everything.near/everything.dev/bos.config.json");
+    expect(entryKeys[1]).toMatch(/^apps\/dev\.everything\.near\/everything\.dev\/deploys\//);
     expect(submitted.relayEndpoint).toBe("http://localhost:3003/api/auth/near/relay");
     expect(submitted.apiKey).toBe("api_test");
     expect(submitted.delegatePrivateKey).toBe("ed25519:delegate-secret");
+    // the tx-status probe queries by (hash, sender) and only the train's own
+    // direct-key broadcast answers it — a relayed tx moves the relayer's
+    // signature, so wallet mode must never consult it
+    expect(classifyTransactionOutcomeMock).not.toHaveBeenCalled();
   });
 });

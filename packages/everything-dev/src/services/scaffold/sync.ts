@@ -1,11 +1,19 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { glob } from "glob";
 import { parse as parseYaml } from "yaml";
 import type { SyncResult } from "../../contract";
 import { materializeViaLayer } from "../../infra/materializer";
 import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
-import { resolvePlatformManifest } from "../platform/manifest";
+import { type ResolvedPlatformManifest, resolvePlatformManifest } from "../platform/manifest";
 import { loadInProcessDescriptor } from "../resolution/load";
 import { isPlainObject as isPlainObjectFromMerge, resolveExtendsRef } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
@@ -16,7 +24,6 @@ import {
   buildChildAgentsMd,
   buildChildRootScripts,
   extractSkillsBlock,
-  personalizeConfig,
   releaseRefCandidates,
   resolveSourceDir,
   runPnpmInstall,
@@ -44,7 +51,18 @@ export interface TemplateSyncOptions {
    * the three-way comparison cannot resolve aborts the whole run — nothing is
    * written, not even the clean updates. */
   force?: boolean;
+  /** The approved write set (the interactive upgrade's file selection). When
+   * present it is the exhaustive filter over updated/added/conflicted:
+   * nothing outside it is written, a conflicted file outside it is preserved
+   * (never an abort), and its baseline keeps the OLD hash — so the skip stays
+   * sticky while the template is unchanged and conflicts again (re-asking the
+   * user) when the template moves. */
+  overwrite?: string[];
   noInstall?: boolean;
+  /** The release the caller already resolved — the upgrade train injects its
+   * single resolution so sync never re-derives (and never reads the authored
+   * release it exists to move). Absent → resolve from the authored config. */
+  resolvedRelease?: ResolvedPlatformManifest;
 }
 
 type PackageJson = Record<string, unknown>;
@@ -57,6 +75,25 @@ function computeLocalHash(projectDir: string, filePath: string): string | null {
     return computeHash(content);
   } catch {
     return null;
+  }
+}
+
+/** Backup dirs are timestamped per sync that overwrites local edits —
+ * bounded to the newest KEEP so upgrade sediment can't accumulate forever.
+ * ISO-format names sort lexicographically = chronologically. */
+const SYNC_BACKUP_KEEP = 10;
+
+function pruneSyncBackups(projectDir: string): void {
+  const root = join(projectDir, ".bos", "sync-backup");
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return;
+  }
+  const dirs = entries.filter((name) => /^\d{4}-\d{2}-\d{2}T/.test(name)).sort();
+  for (const name of dirs.slice(0, Math.max(0, dirs.length - SYNC_BACKUP_KEEP))) {
+    rmSync(join(root, name), { recursive: true, force: true });
   }
 }
 
@@ -73,6 +110,8 @@ function backupFiles(projectDir: string, filePaths: string[]): string | null {
     mkdirSync(dirname(dest), { recursive: true });
     copyFileSync(src, dest);
   }
+
+  pruneSyncBackups(projectDir);
 
   return backupDir;
 }
@@ -256,6 +295,17 @@ export function normalizeChildManifest(pkg: PackageJson, catalog: Record<string,
 function toSourcePath(sourceDir: string, destPath: string): string | null {
   if (destPath.startsWith(".github/")) {
     const templatePath = destPath.replace(/^\.github\//, ".github/templates/");
+    if (existsSync(join(sourceDir, templatePath))) {
+      return templatePath;
+    }
+  }
+
+  // api children get the slim shell from `.github/templates/api/` at init —
+  // sync resolves through the same mirror so both distribution paths hand out
+  // the same child-facing bytes. The parent's own `api/` workspace is its
+  // domain shell (e.g. the dev root secret wiring) and is not child shape.
+  if (destPath.startsWith("api/")) {
+    const templatePath = destPath.replace(/^api\//, ".github/templates/api/");
     if (existsSync(join(sourceDir, templatePath))) {
       return templatePath;
     }
@@ -489,6 +539,18 @@ function hasPluginsWorkspace(projectDir: string): boolean {
   return false;
 }
 
+/**
+ * Whether a plugin's `drizzle.config.ts` rides the sync: plugins carry a
+ * database seam (`src/db`) or already have a config to reconcile. Gating on
+ * `src/db` alone stranded config-only plugins on stale template bytes.
+ */
+export function shouldSyncPluginDrizzleConfig(projectDir: string, pluginKey: string): boolean {
+  const pluginDir = join(projectDir, "plugins", pluginKey);
+  return (
+    existsSync(join(pluginDir, "src", "db")) || existsSync(join(pluginDir, "drizzle.config.ts"))
+  );
+}
+
 export async function syncTemplate(
   projectDir: string,
   options: TemplateSyncOptions = {},
@@ -548,9 +610,13 @@ export async function syncTemplate(
 
   // ADR 0034 pt 4: release-scoped sync — the platform manifest is the chain's
   // release authority. An unresolved manifest means the child was never
-  // pinned to a release; pulling main/moving HEAD on top of released bytes
-  // would drift the snapshot, so this fails loud instead.
-  const platform = await resolvePlatformManifest({ configDir: projectDir, localConfig });
+  // aligned to a release; pulling main/moving HEAD on top of released bytes
+  // would drift the snapshot, so this fails loud instead. The upgrade train
+  // injects its already-resolved release; standalone use resolves from the
+  // authored config.
+  const platform = options.resolvedRelease
+    ? options.resolvedRelease
+    : await resolvePlatformManifest({ configDir: projectDir, localConfig });
   if (!platform) {
     return {
       status: "error",
@@ -560,8 +626,8 @@ export async function syncTemplate(
       conflicted: [],
       error:
         "No platform release manifest resolved (" +
-        `platform pin missing in ${join(projectDir, "bos.app.ts")} and its extends chain) — ` +
-        "run `bos upgrade` to pin a release, or `bos status` to inspect the chain",
+        `no authored release in ${join(projectDir, "bos.app.ts")} and its extends chain) — ` +
+        "run `bos upgrade` to stamp a release, or `bos status` to inspect the chain",
     };
   }
   const releaseTag = releaseRefCandidates(platform.manifest.frameworkVersion);
@@ -633,7 +699,7 @@ export async function syncTemplate(
 
     // Sync drizzle.config.ts from api into each DB-enabled plugin
     for (const pluginKey of childPlugins) {
-      if (!existsSync(join(projectDir, "plugins", pluginKey, "src", "db"))) continue;
+      if (!shouldSyncPluginDrizzleConfig(projectDir, pluginKey)) continue;
       const sourceFile = "api/drizzle.config.ts";
       if (!existsSync(join(sourceDir, sourceFile))) continue;
       destToSource.set(`plugins/${pluginKey}/drizzle.config.ts`, sourceFile);
@@ -669,7 +735,7 @@ export async function syncTemplate(
           sourceDir,
           projectDir,
           filePath,
-          undefined,
+          destPath,
           childScripts,
           workflowPin,
         ),
@@ -686,8 +752,13 @@ export async function syncTemplate(
       }
 
       const snapshotHash = snapshotFiles[destPath];
+      // No baseline + local divergence ⇒ conflict, never a silent template
+      // win (ADR 0047): an unrecorded file's history is unknown — the
+      // template version may clobber real work. The remedies are explicit:
+      // record a baseline (`bos lock` + commit) or take the template
+      // (`--force`, with a backup).
       if (!snapshotHash) {
-        updated.push(destPath);
+        conflicted.push(destPath);
         continue;
       }
 
@@ -704,18 +775,34 @@ export async function syncTemplate(
       conflicted.push(destPath);
     }
 
-    const account = (localConfig.account as string) || extendsAccount;
-    const domain = (localConfig.domain as string) || extendsGateway;
     const overrides: Array<"ui" | "api" | "host" | "plugins"> = [];
     if (withUi) overrides.push("ui");
     if (withApi) overrides.push("api");
     if (withHost) overrides.push("host");
     if (withPlugins) overrides.push("plugins");
 
+    // The approved write set (interactive upgrade): when present, files
+    // outside it are preserved — recorded as skipped, never an abort.
+    const selection = options.overwrite ? new Set(options.overwrite) : undefined;
+    if (selection) {
+      const diverged = [...updated, ...added, ...conflicted];
+      const preserved = diverged.filter((destPath) => !selection.has(destPath));
+      skipped.push(...preserved);
+    }
+
     // Conflicts never silently clobber: without --force a conflicted file
     // aborts the whole run before any write — the clean updates and additions
-    // wait for a resolution, so a snapshot never half-advances.
-    if (conflicted.length > 0 && !options.force && !options.dryRun) {
+    // wait for a resolution, so a snapshot never half-advances. An approved
+    // write set resolves conflicts per-file instead (selected ⇒ written with
+    // a backup; preserved ⇒ kept local).
+    if (conflicted.length > 0 && !options.force && !options.dryRun && !options.overwrite) {
+      const unbaselined = conflicted.filter((destPath) => !snapshotFiles[destPath]);
+      const baselineNote =
+        unbaselined.length > 0
+          ? ` — ${unbaselined.length} of them have no recorded baseline (bos.lock.json's ` +
+            "template.sync): record one with `bos lock` + commit, or take the template once " +
+            "with --force and they baseline cleanly afterwards"
+          : "";
       return {
         status: "conflicted",
         updated: [],
@@ -724,7 +811,8 @@ export async function syncTemplate(
         conflicted,
         error:
           "Local edits conflict with the upstream template (run `bos upgrade --force` to " +
-          `overwrite — backups land in .bos/sync-backup/): ${conflicted.join(", ")}`,
+          `overwrite — backups land in .bos/sync-backup/): ${conflicted.join(", ")}` +
+          baselineNote,
       };
     }
 
@@ -743,7 +831,9 @@ export async function syncTemplate(
       };
     }
 
-    const filesToWrite = [...updated, ...added, ...conflicted];
+    const filesToWrite = options.overwrite
+      ? [...updated, ...added, ...conflicted].filter((destPath) => selection?.has(destPath))
+      : [...updated, ...added, ...conflicted];
 
     let backupDir: string | undefined;
     if (filesToWrite.length > 0) {
@@ -755,17 +845,11 @@ export async function syncTemplate(
       }
     }
 
-    await personalizeConfig(projectDir, {
-      extendsAccount,
-      extendsGateway,
-      account,
-      domain,
-      overrides,
-      plugins: childPlugins,
-      workspaceOpts: { sourceDir },
-      mode: "sync",
-      existingConfig: localConfig,
-    });
+    // The authored config is never rewritten by sync: in sync mode
+    // personalizeConfig only wrote back the child's own values while
+    // re-serializing the whole file (dropping hand formatting, comments, and
+    // remote-only attachments). The child's extends/account/domain come from
+    // its own config read above, so there is nothing to personalize.
 
     await syncResolvedSharedDeps({
       configDir: projectDir,
@@ -778,10 +862,19 @@ export async function syncTemplate(
     }
 
     const newSnapshotFiles: Record<string, string> = {};
+    const divergedFromTemplate = new Set([...updated, ...conflicted]);
     for (const destPath of destToSource.keys()) {
       const hash = computeLocalHash(projectDir, destPath);
       if (hash) {
-        newSnapshotFiles[destPath] = hash;
+        // A preserved file keeps its OLD baseline: the local bytes were
+        // deliberately kept over the template, so while the template is
+        // unchanged the next sync preserves again — and when the template
+        // moves, the three-way comparison conflicts (re-asking) instead of
+        // the skip silently going stale.
+        newSnapshotFiles[destPath] =
+          selection && divergedFromTemplate.has(destPath) && !selection.has(destPath)
+            ? (snapshotFiles[destPath] ?? hash)
+            : hash;
       }
     }
 

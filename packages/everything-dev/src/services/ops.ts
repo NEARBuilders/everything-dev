@@ -7,8 +7,8 @@ import { probePortBindable } from "../infra/ports";
 import { readDevLatestLog, resolveDevLatestFile } from "./dev/logs";
 import { killProcessGroupEscalating, reapGroup } from "./processes/kill";
 import { isPidAlive, readRegistry, unregisterPid } from "./processes/registry";
+import { pointerDigest } from "./registry/digest";
 import { fetchBosConfigFromFastKv } from "./registry/fastkv";
-import { pointerFingerprint } from "./registry/fingerprint";
 import type { ResolutionSession } from "./resolution/session";
 import { getStatus } from "./status";
 import { computeDeployedVersionStatus, type DeployedVersionStatus } from "./version/status";
@@ -16,16 +16,16 @@ import { computeDeployedVersionStatus, type DeployedVersionStatus } from "./vers
 export class OpsService extends Context.Service<
   OpsService,
   {
-    status: (session: ResolutionSession | null) => Effect.Effect<StatusResult, unknown>;
+    status: (session: ResolutionSession | null) => Effect.Effect<StatusResult, never>;
     logs: (
       input: { tail?: number | undefined; service?: string | undefined },
       configDir: string,
-    ) => Effect.Effect<LogsResult, unknown>;
+    ) => Effect.Effect<LogsResult, never>;
     kill: (input: {
       all?: boolean | undefined;
       configDir?: string | undefined;
       signal?: "SIGTERM" | "SIGKILL" | undefined;
-    }) => Effect.Effect<KillResult, unknown>;
+    }) => Effect.Effect<KillResult, never>;
   }
 >()("bos/OpsService") {
   static Live = Layer.succeed(
@@ -57,7 +57,7 @@ export class OpsService extends Context.Service<
             envFile: "missing" as const,
             error: error instanceof Error ? error.message : "Unknown error",
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
       logs: (input, configDir) =>
         Effect.tryPromise({
@@ -85,7 +85,7 @@ export class OpsService extends Context.Service<
                 : "Failed to read logs",
             ],
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
       kill: (input) =>
         Effect.tryPromise({
@@ -168,7 +168,7 @@ export class OpsService extends Context.Service<
             skipped: [],
             error: error instanceof Error ? error.message : "Unknown error",
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
     }),
   );
 }
@@ -179,38 +179,38 @@ async function deployedVersionStatus(
   const config = session?.config;
   if (!config?.account || !config.domain) return undefined;
   const { account, domain } = config;
-  let publishedFingerprint: string | undefined;
+  let publishedDigest: string | undefined;
   try {
     const published = await fetchBosConfigFromFastKv<Record<string, unknown>>(
       `bos://${account}/${domain}`,
     );
-    publishedFingerprint = pointerFingerprint(published as never);
+    publishedDigest = pointerDigest(published as never);
   } catch {
     return undefined;
   }
 
   const hostUrl = session?.runtime?.host?.url;
   if (!hostUrl) {
-    return computeDeployedVersionStatus({ publishedFingerprint, servedFingerprint: null });
+    return computeDeployedVersionStatus({ publishedDigest, servedDigest: null });
   }
   try {
     const response = await fetch(new URL("/.well-known/version", hostUrl));
     if (!response.ok) {
       return computeDeployedVersionStatus({
-        publishedFingerprint,
-        servedFingerprint: null,
+        publishedDigest,
+        servedDigest: null,
         servedError: `version endpoint returned ${response.status}`,
       });
     }
-    const body = (await response.json()) as { fingerprint?: string };
+    const body = (await response.json()) as { pointerDigest?: string };
     return computeDeployedVersionStatus({
-      publishedFingerprint,
-      servedFingerprint: body.fingerprint ?? null,
+      publishedDigest,
+      servedDigest: body.pointerDigest ?? null,
     });
   } catch (error) {
     return computeDeployedVersionStatus({
-      publishedFingerprint,
-      servedFingerprint: null,
+      publishedDigest,
+      servedDigest: null,
       servedError: error instanceof Error ? error.message : String(error),
     });
   }

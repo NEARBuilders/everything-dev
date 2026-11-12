@@ -11,6 +11,7 @@ import {
 } from "../../src/infra/port-ownership";
 import { killProcessGroupEscalating, reapGroup } from "../../src/services/processes/kill";
 import { isPidAlive } from "../../src/services/processes/registry";
+import { groupMembersOf } from "../helpers/group-members";
 
 let tempDir = mkdtempSync(join(tmpdir(), "process-kill-"));
 const cleanup: number[] = [];
@@ -138,22 +139,6 @@ describe("process-kill escalation", () => {
     }
   }, 15000);
 });
-
-const groupMembersOf = async (pgid: number): Promise<number[]> => {
-  const { execFile } = await import("node:child_process");
-  const out = await new Promise<string>((resolve, reject) => {
-    execFile("ps", ["-axo", "pid=,pgid="], (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout);
-    });
-  });
-  const members: number[] = [];
-  for (const line of out.split("\n")) {
-    const [pid, group] = line.trim().split(/\s+/);
-    if (Number(group) === pgid) members.push(Number(pid));
-  }
-  return members;
-};
 
 function spawnSleeperWithSigtermIgnored(): { pid: number; wait: Promise<void> } {
   const script = "#!/bin/sh\ntrap '' TERM\nsleep 300\n";

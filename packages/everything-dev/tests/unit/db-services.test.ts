@@ -4,16 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  type DatabaseBinding,
-  DatabaseBindings,
-  type DatabaseBindingsService,
-  DrizzleKit,
-  type DrizzleKitService,
-  makeDatabaseBindings,
-  makeDrizzleKitLive,
-  workspaceIdentityFromWorkspaceDir,
-} from "../../src/db";
+import type { DatabaseBinding, DatabaseBindingsService } from "../../src/db/bindings";
+import { DatabaseBindings, makeDatabaseBindings } from "../../src/db/bindings";
+import type { DrizzleKitService } from "../../src/db/drizzle-kit";
+import { DrizzleKit, makeDrizzleKitLive } from "../../src/db/drizzle-kit";
+import { workspaceIdentityFromWorkspaceDir } from "../../src/db/identity";
 import type { RuntimeConfig } from "../../src/types";
 
 const cleanups: Array<() => void> = [];
@@ -154,11 +149,35 @@ describe("DatabaseBindings.forPluginKey", () => {
     expect(String(error)).toContain('Plugin "nope" not found');
   });
 
-  it("fails loudly naming the missing secret", async () => {
+  it("falls back to the persistent pglite default naming the secret for a local workspace", async () => {
     const widgetsDir = tempWorkspace("@everything-dev/widgets-plugin");
     const bindings = makeBindings(fixtureRuntimeConfig(widgetsDir), {});
+    const binding = await Effect.runPromise(bindings.forPluginKey("widgets"));
+    expect(binding.url).toBe("pglite:.bos/db/widgets");
+    expect(binding.source).toBe("local");
+  });
+
+  it("still fails loudly when the declared secret disagrees with the workspace package name", async () => {
+    const widgetsDir = tempWorkspace("@everything-dev/widgets-plugin");
+    const config = fixtureRuntimeConfig(widgetsDir);
+    config.plugins = {
+      widgets: {
+        key: "widgets",
+        source: "local",
+        localPath: widgetsDir,
+        secrets: ["SOMEONE_ELSES_DATABASE_URL"],
+      },
+    };
+    const bindings = makeBindings(config, {});
     const error = await expectFailure(bindings.forPluginKey("widgets"));
     expect(String(error)).toContain("WIDGETS_DATABASE_URL");
+    expect(String(error)).toContain("disagree");
+  });
+
+  it("still fails for a remote-only plugin with no URL", async () => {
+    const bindings = makeBindings(fixtureRuntimeConfig("/unused"), {});
+    const error = await expectFailure(bindings.forPluginKey("proposals"));
+    expect(String(error)).toContain("remote plugin");
   });
 });
 

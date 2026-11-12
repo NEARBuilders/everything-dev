@@ -50,11 +50,30 @@ It runs inside the **everything-plugin** framework (oRPC + Effect) and is design
 | `siwn.recipient` | `string` | — | Single-network SIWN recipient |
 | `siwn.recipients.mainnet` | `string` | — | Mainnet SIWN recipient |
 | `siwn.recipients.testnet` | `string` | — | Testnet SIWN recipient |
-| `siwn.rpcUrl` | `string` | — | Optional NEAR RPC endpoint |
+| `siwn.rpcUrl` | `string` | — | Optional NEAR RPC endpoint for on-chain writes (relayer broadcasts, rollbacks) |
+| `siwn.readRpcUrl` | `string` | — | Optional NEAR RPC endpoint for on-chain reads (SIWN verification, view calls); falls back to `siwn.rpcUrl` |
 | `siwn.relayer.mainnet.accountId` | `string` | — | Optional mainnet relayer account ID |
 | `siwn.relayer.testnet.accountId` | `string` | — | Optional testnet relayer account ID |
 | `siwn.subAccount.mainnet.parentAccount` | `string` | — | Optional mainnet sub-account parent |
 | `siwn.subAccount.testnet.parentAccount` | `string` | — | Optional testnet sub-account parent |
+| `crossSubDomainCookies.enabled` | `boolean` | `false` | Share the session cookie across sibling subdomains (#668) |
+| `crossSubDomainCookies.domain` | `string` | Root domain of `baseUrl` | Dot-prefixed registrable domain the cookie is scoped to (e.g. `.nearbuilders.org`); **required when enabled** |
+| `onboard.links.next` | `{ href, label? } \| false` | `/build`, "Get build prompts" | First link on the onboard joined screen; `false` hides it |
+| `onboard.links.home` | `{ href, label? }` | `/dashboard`, "Go to Home" | Last link on the onboard joined screen |
+| `onboard.links.explore` | `{ href, label? }` | `/explore`, "Explore communities" | Link on the onboard error and status panels |
+| `onboard.community.url` | `string` | — | App path returning `{ name?, href?, channels?: [{ label, url }] }` for the joined organization; renders "Visit {community}" and channel links |
+
+`onboard` hrefs must be app paths (`/…`) or `https://` URLs. `links.next`, `links.home` and `community.url` replace `{organizationId}` with the joined organization's ID. A failed or invalid `community.url` response shows nothing extra.
+
+`crossSubDomainCookies` scopes the session cookie to a shared registrable domain so sibling subdomains (e.g. `app.example.com` and `api.example.com`) share one session. Absent or disabled config keeps cookies host-scoped.
+
+**Multi-app session sharing** — a family of apps whose sessions roam a shared registrable domain needs all three legs together; the cookie alone is not enough:
+
+1. **Shared cookie** — each app sets `crossSubDomainCookies: { enabled: true, domain: ".example.com" }` where `example.com` covers every app's host. A cookie whose `Domain` does not cover the app's own host is dropped by the browser, which breaks sign-in on that app (the boot warnings flag this, along with localhost hosts, which can never carry a `Domain` attribute).
+2. **Shared secret** — every app on the domain must run the **same `BETTER_AUTH_SECRET`**: the cookie is sealed with it, so a sibling that runs a different secret sees every incoming session as invalid and signs the user out.
+3. **Shared database** — every app's `AUTH_DATABASE_URL` must point at the **same `postgres://` database**. Auth tables live un-namespaced in that database (`namespace: false` — Better Auth's schema owns the public tables), so the shared cookie resolves the same session row everywhere. Without it, the cookie resolves to a session row the sibling cannot see and the request still reads as signed-out. The pglite default is per-identity and dev-only; cross-app session sharing is a `postgres://` setup.
+
+Each app should also cross-list its siblings' origins in `trustedOrigins`. The everything.dev family recipe this configuration mirrors is documented in `docs/adr/0027-apps-decomposition-every-app.md`.
 
 ### Plugin Secrets
 
@@ -111,8 +130,8 @@ The plugin itself does **not** read `process.env`. The host passes all configura
 The plugin uses PostgreSQL via `pg` in production and `@electric-sql/pglite` for local development and tests. `pg` is externalized in the Module Federation bundle and must be provided by the host at runtime.
 
 ```bash
-# Local development (zero-config, no Docker needed)
-AUTH_DATABASE_URL=pglite:./auth-local.db
+# Local development (zero-config, no Docker needed — persistent PGlite data dir)
+AUTH_DATABASE_URL=pglite:.bos/db/auth
 
 # Production (Railway, etc.)
 AUTH_DATABASE_URL=postgres://user:pass@host:5432/dbname
@@ -212,7 +231,7 @@ export default {
         },
       },
       secrets: {
-        AUTH_DATABASE_URL: "pglite:./.local/auth.db",
+        AUTH_DATABASE_URL: "pglite:.bos/db/auth",
         BETTER_AUTH_SECRET: "dev-only-secret",
       },
   } satisfies PluginConfigInput<typeof Plugin>,

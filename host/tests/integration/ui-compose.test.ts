@@ -206,7 +206,7 @@ describe("uiSources", () => {
     const sources = uiSources(configWithPlugin());
     expect(sources.map((source) => source.key)).toEqual(["auth", "ui"]);
     expect(sources.map((source) => source.mfName)).toEqual(["auth-ui", "ui"]);
-    expect(sources.find((source) => source.key === "auth")?.webEntry).toBe(
+    expect(sources.find((source) => source.key === "auth")?.uiEntry).toBe(
       "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
     );
     expect(sources.find((source) => source.key === "ui")?.manifestUrl).toBe(
@@ -227,6 +227,21 @@ describe("uiSources", () => {
       source: "remote",
     };
     expect(uiSources(config).map((source) => source.key)).toEqual(["ui"]);
+  });
+
+  it("prefers the pin-resolved compose manifest URL over the slot-root fixed name (#826)", () => {
+    const config = configWithPlugin();
+    config.ui.manifestUrl =
+      "https://cdn.example.com/base-ui/versions/0123456789abcdef/manifest.gen.json";
+    config.plugins!.auth!.ui!.manifestUrl =
+      "https://cdn.example.com/auth-ui/versions/0123456789abcdef/manifest.gen.json";
+    const sources = uiSources(config);
+    expect(sources.find((source) => source.key === "ui")?.manifestUrl).toBe(
+      "https://cdn.example.com/base-ui/versions/0123456789abcdef/manifest.gen.json",
+    );
+    expect(sources.find((source) => source.key === "auth")?.manifestUrl).toBe(
+      "https://cdn.example.com/auth-ui/versions/0123456789abcdef/manifest.gen.json",
+    );
   });
 });
 
@@ -313,9 +328,9 @@ describe("composeUi", () => {
     expect(variant.clientPayload.manifests).toEqual([AUTH_MANIFEST, CORE_MANIFEST]);
   });
 
-  it("local plugin ui slots carry no manifestUrl — a relative entry resolves against the page origin and registers the wrong container", async () => {
+  it("local plugin ui remotes carry no manifestUrl — a relative entry resolves against the page origin and registers the wrong container", async () => {
     const config = configWithPlugin();
-    // a local plugin ui slot only exists in development (dev targets resolve
+    // a local plugin ui remote only exists in development (dev targets resolve
     // only there) — and the fixed-name fallback is the dev contract
     config.env = "development";
     config.plugins!.auth!.ui = {

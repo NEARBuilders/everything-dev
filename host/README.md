@@ -86,7 +86,7 @@ For the temporary publish registry, use `bos publish` or `bos publish --deploy`.
 | `API_SOURCE` | `local` or `remote` | Based on NODE_ENV |
 | `API_PROXY` | Proxy API requests to another host URL | - |
 | `NETWORK_ID` | Tenant account suffix resolution: `mainnet` or `testnet` | `mainnet` |
-| `AUTH_DATABASE_URL` | PostgreSQL URL for auth | `postgres://everythingdev:everythingdev@localhost:5433/auth_db` |
+| `AUTH_DATABASE_URL` | PostgreSQL URL for auth; defaults to the local persistent `pglite:.bos/db` PGlite (ADR 0038) | `pglite:.bos/db` |
 | `BETTER_AUTH_SECRET` | Secret used for session encryption and key derivation | - |
 | `CORS_ORIGIN` | Comma-separated allowed origins | Host + UI URLs |
 

@@ -1,7 +1,7 @@
 # ADR 0034: The platform release manifest — one pin, everything derived
 
 Date: 2026-10-20
-Status: Proposed
+Status: Accepted (amended 2026-10-23, #546)
 
 Depends on: ADR 0001 (FastKV registry — namespace=signer, action-indexed writes), ADR 0020/0021 (universal runtime image, identity-driven boot), ADR 0031 (package shape), ADR 0032 (framework-owned files inventory), ADR 0033 (database seam).
 
@@ -47,10 +47,168 @@ Considered and rejected: **full runtime shared-scope** (children stop bundling s
 
 7. **Additive, not breaking.** Manifest absent → today's behavior (parent-catalog tarball walk against `main` HEAD). Old children upgrade into this world on their next `bos upgrade`; the `platform` field is a new root config key wired through the authored-config schema, serialization order, and sync's managed-key list so it survives personalization.
 
+## Amendment (2026-10-23, #546 — shared-singleton truth gates)
+
+The first pin cycle exposed the failure class the manifest was designed to
+prevent — it just surfaced at the *composition* end, not the publish end. A
+root republished with a drifted `react` while a pinned child stayed on the
+old install; the child's bundles still claimed to satisfy the parent config,
+and the composition died with the federation runtime's negotiation error
+(`__webpack_modules__[e].call`). Five lessons, now shipped as gates:
+
+1. **Bundles declare what they embed.** Every uploaded workspace's build
+   report records the shared-singleton versions its build actually installed
+   (`sharedVersionRecord` in `every-plugin`'s build plugins); the version
+   manifests carry them, and UI slots stamp `sharedVersions` beside the pin.
+   A pin now names bytes, not a wish.
+2. **The publish train verifies the declaration.** The truth gate
+   (`platformTruthViolations`) cross-checks every workspace's embedded
+   versions against the release manifest's `sharedDeps` and fails the publish
+   (`PublishTrainError` kind `platform-truth`) on disagreement — a stale
+   install can no longer publish a manifest that lies about the uploaded
+   bytes.
+3. **The booted host fails loud.** The boot guard in `ui-compose` raises
+   `SharedSingletonSkewError` when the core-UI provider and consumer slots
+   disagree on strict singletons — the named error replacing the cryptic
+   negotiation crash.
+4. **Pre-flight mirrors exist before the crash.** `bos mf check` gained the
+   UI composition gate (`checkUiCompositionCompat` — the boot guard's mirror,
+   naming slot=version pairs), and `bos platform manifest --check` reports
+   pin drift ("parent platform is X (published), you pinned Y") instead of
+   surfacing the pin-not-found error raw.
+5. **Bundles are traceable to the release that built them.** The build train
+   stamps `MF_BUILD_VERSION` from the installed framework version, so a
+   bundle's provenance is a fact, not a guess.
+
+**Stale-pin semantics, decided empirically:** a root republish overwrites the
+`platform.json` pointer slot; a child pinning a version the chain no longer
+serves resolves only while the fresh `.bos/platform-manifest.json` cache (24h
+TTL) still stands in — past that, resolution fails loud with
+`platform pin <version> not found in the extends chain`. This is accepted
+as-is (the upgrade is the pathway that clears it); the versioned manifest
+history that would make old pins resolvable indefinitely stays a recorded
+future seam below.
+
+The pin lifecycle is exercised end-to-end by
+`packages/everything-dev/tests/integration/platform-upgrade-e2e.test.ts`
+(publish → pin → deploy derivation → stale fail-loud → re-pin → skew replay).
+
+## Amendment (2026-10-28 — release-scoped extends inheritance)
+
+The skew-loud boot (item 3 above) exposed a residual structural gap, observed
+often in the wild: a child pinned to rc.N — its lockfile, and therefore its own
+`ui`/plugin builds, at rc.N — inherits the `app.auth` slot (children never
+author it; `bos init` deletes the whole `app` slot) from the parent's **live
+config pointer**, whose auth bundle moved to rc.N+1 the moment the root
+published. The next child deploy/restart composed auth@rc.N+1 with ui@rc.N and
+degraded health. The platform pin governed image, sync, and compat *reporting*
+— but nothing mapped it onto inherited slot pins: extends inheritance was
+pointer-live, not release-scoped.
+
+Two changes, shipped together, make a pinned child's runtime a deterministic
+function of (child code, pinned release):
+
+1. **The release manifest records its own slot-pin map** (the `slots` field —
+   additive, optional; old readers strip it). The release leg composes it from
+   the release's publish payload: every pinned slot, keyed by dotted config
+   path (`app.auth`, `app.auth.ui`, `plugins.votes.ui`, …), each carrying the
+   slot's production base and its immutable version-manifest pin. Old releases
+   carry no `slots`; old pins stay resolvable forever, so the slots the map
+   does record survive every later root publish.
+2. **The deploy train stamps inherited slots from that map.** Before the
+   boot-check walk, every remote slot the leaf does *not* author (present in
+   the release's `slots` map, not authored by the leaf) is re-pointed at
+   the release's recorded production URL + pin — child-wins over the parent's
+   live config pointer at every consumer boot. A slot is authored only when
+   its entry names a code source (`production`, `development`, `pin`, `extends`, `proxy`,
+   a bare plugin ref, or `ui: false`); an entry carrying only configuration
+   (`variables`, `secrets`, …) is still stamped, its configuration kept
+   (amended 2026-11-01, #679). Slots the child authors stay untouched;
+   a no-`slots` manifest stamps nothing; rollback payloads are canonical and
+   skip stamping.
+
+**Amended 2026-11-02: consumer-boot stamping is the primary plane mechanism**
+(plugins plane included). #679's stamping ran only on the deploy train — a
+child's next deploy — while every consumer (`bos dev`, host boot, tenant
+resolution, type generation) extend-merges the parent's **live** config
+pointer fresh, so local dev of a pinned child kept following the parent's
+newest bytes and skewed anyway. The stamping core moved to
+`services/resolution/release-plane.ts` (one implementation, two seams):
+
+- **Consumer boot** (`ResolutionSession`, default-on when the authored
+  `platform` pin resolves): the extends-merged shape is stamped with the
+  pinned release's recorded slots — `app.*` **and, now, `plugins.*`** —
+  by *merging* `{ production, pin }` into the existing inherited entry,
+  which makes the rc.26 invalid-schema mode impossible (the live entry
+  already carries the slot's full shape). Nothing is created: a slot path
+  absent from the merged shape is post-release provisioned (added by a
+  later parent release), is omitted from the child's plane, and is
+  surfaced by the dev-boot audit instead of being silently live-followed.
+- **Deploy payload** (unchanged semantics, `allowCreate`)
+  : `app.*` only, creating when absent — kept so the published artifact
+  hard-carries the plane even for consumers that never re-resolve.
+- **Pre-`slots` releases**: a manifest without the map stamps nothing;
+  children degrade to live-follow exactly as before the amendment (they
+  remain protected by the composition gate until their next upgrade).
+- **Pinned resolution failures fail loud** (slot-first contract names the
+  key) — the plane never degrades a broken pin into silent skew; the
+  composition gate covers children below the point where a pin exists.
+
+Finally, the deploy train gained the **composition gate** (`PublishTrainError`
+kind `composition`, Layer 1 of the fix): before publish, the extends-merged
+shape is cross-compared on embedded shared singletons — the same check the
+booted host performs, moved to preflight — and a pinned child additionally runs
+`checkPlatformCompat` against **its own** resolved release (never the parent's
+latest). A skewed composition now dies as a red CI run with the `bos upgrade`
+remediation named, instead of as a degraded production boot.
+
+Relaxing the `everything-dev/ui/auth` strict singleton to sonner-style
+tolerance was explicitly rejected: the singleton exists because two divergent
+session-read copies disagreed into redirect loops (d57b8f4); tolerance
+reintroduces that bug class. Children pinned to pre-`slots` releases are
+protected by the composition gate until their next `bos upgrade` + deploy makes
+release-scoping effective.
+
 ## Consequences
 
 - The manual `bump + pin image` chore commit dies; dev/prod framework skew becomes mechanically impossible — one field in, catalog, image, sync source, and compat all derived out.
 - Sha-tags stop mattering to children; digests derive at deploy time from the manifest's tags.
 - Framework releases gain a machine-readable contract; `upgradeTemplate`'s catalog source moves from "walk the parent repo tarball" to one registry read.
 - The citynode correlator-commit class of error is caught at deploy time by the platform check instead of at runtime by a federation failure.
-- Future seams, recorded not built: caret-tolerant `platform` pins (auto-minor within compat) once range resolution proves out; per-dep compat granularity; a versioned manifest history beside the pointer slot (the registry's history API covers this for now).
+- With release-scoped extends inheritance, a root publish can no longer skew or break an un-upgraded platform-pinned child's runtime; child deploys stay green between `bos upgrade`s.
+- Future seams, recorded not built: caret-tolerant `platform` pins (auto-minor within compat) once range resolution proves out; per-dep compat granularity; a versioned manifest history beside the pointer slot (the registry's history API covers this for now — and per the #546 amendment, it is also the fix for stale pins outliving a republish); boot-time release scoping for children pinned to pre-`slots` releases that cannot redeploy.
+
+## Amendment (2026-11-11 — the booted host rides the pin (#874))
+
+The skew-loud boot and release-scoped stamping froze what a child *composes*,
+but one loader never got the memo: the orchestrator's host load read the fixed
+manifest name at the **mutable slot root** — the document every root republish
+overwrites. A pinned child (rc.43 pin, rc.42 image, both healthy) booted the
+root's newest host bytes the day they published, and the fail-loud
+shared-singleton resolver crashed the app with a bare package error — drift
+killing the app once more, through the one slot that had no gate.
+
+Decision, generalizing the #826 rule to boot paths:
+
+1. **Boot-path loads resolve the pin.** The orchestrator resolves the host
+   slot's `digest` through the verify engine and registers the manifest from
+   the pin's immutable coordinates — the hashed browser-manifest copy when
+   the build emitted one, else `versions/<dirId>/mf-manifest.json` (CDN only;
+   staged layouts stay flat), else the slot-root fixed name (legacy pins and
+   dev boots). `pinnedManifestDocumentUrl` in the deploy/version-manifest
+   module is the one implementation, shared with `mf check`'s host probe —
+   the check now grades the composition the boot will actually load.
+2. **The residual skew fails named.** When a pinned host's shared singletons
+   cannot resolve in the booting image, the orchestrator appends the two plane
+   identities (image frameworkVersion, the pin) and the remediation —
+   `Host release skew … bos upgrade && bos deploy` — instead of the bare
+   package error.
+3. **The invariant, now testable:** a root republish cannot move the bytes a
+   pinned child boots. Exercised by the #874 replay — e2e (two generations at
+   one slot root; the boot registers the pin's generation) and the orchestrator
+   unit replay (dev fallback, legacy pins, production resolution failures).
+
+Consequences: children on frozen images stay green across parent publishes —
+the image moves only when the child moves it. Legacy pins (pre-`dir`
+manifests) keep the slot-root tier — protected until their next `bos upgrade`,
+which is the repair that moves them onto immutable coordinates.

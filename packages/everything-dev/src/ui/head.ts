@@ -1,5 +1,5 @@
 import type { ClientRuntimeConfig } from "../types";
-import { type EntrySlot, entryUrls } from "./slot";
+import { entryUrls, type RemoteEntry } from "./remote-entry";
 import type { HeadLink, HeadScript } from "./types";
 
 export interface RemoteScriptsOptions {
@@ -69,13 +69,13 @@ export function getHydrateScript(
 export function getRemoteScripts(options: RemoteScriptsOptions): HeadScript[] {
   const { runtimeConfig, containerName, hydratePath, integrity, cspNonce } = options;
   const assetsUrl = runtimeConfig?.assetsUrl?.replace(/\/$/, "");
-  const slot: EntrySlot = {
+  const remote: RemoteEntry = {
     name: "ui",
     url: assetsUrl,
     entryUrl: runtimeConfig?.ui?.entryUrl,
     integrity,
   };
-  const entrySrc = entryUrls(slot, runtimeConfig?.env ?? "production").web;
+  const entrySrc = entryUrls(remote, runtimeConfig?.env ?? "production").ui;
   const entryScript: HeadScript = {
     src: entrySrc,
     crossOrigin: "anonymous",

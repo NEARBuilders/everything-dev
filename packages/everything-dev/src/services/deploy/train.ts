@@ -3,21 +3,58 @@ import { join } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer, Option } from "effect";
 import { hasFolderFormUi } from "every-plugin/build/ui";
+import type { ManifestSignature } from "every-plugin/version-manifest";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
+import {
+  type ResolvedBootShape,
+  resolveBootShape,
+  verifyBootPayload,
+  verifyResolvedBootShape,
+} from "../../services/resolution/boot-check";
 import { openResolution } from "../../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
-import { ensureCustodyBalance, submitRegistryWriteCustody } from "../auth/custody-signer";
+import {
+  ensureCustodyBalance,
+  signManifestPayloadCustody,
+  submitRegistryWriteCustody,
+} from "../auth/custody-signer";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegate-signer";
-import { submitRegistryWrite } from "../auth/near-signer";
+import {
+  classifyTransactionOutcome,
+  resolveSigningKey,
+  submitRegistryWrite,
+} from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
-import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
-import { pointerFingerprint, slotPins } from "../registry/fingerprint";
-import { mergeAuthoredOverPublished } from "../resolution/merge";
+import {
+  digestOfLockfile,
+  lockfileOf,
+  serializeLockfile,
+  writeLockfileSync,
+} from "../lockfile/schema";
+import type { Manifest } from "../platform/manifest";
+import { ManifestTagSchema } from "../platform/manifest-schema";
+import { type ConfirmLeg, confirmPublish, describeConfirmTimeout } from "../registry/confirm";
+import { DeployRecordSchema } from "../registry/deploy-record";
+import { pointerDigest, remoteDigests } from "../registry/digest";
+import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
+import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
+import {
+  deployAuditKeyOf,
+  getVersionKey,
+  readManifestTag,
+  readVersionRecord,
+} from "../registry/pointer";
+import {
+  mergeAuthoredOverPublished,
+  stripLocalDevelopmentTargets,
+  stripSeedConfig,
+} from "../resolution/merge";
+import { bootSnapshotOf, writeBootSnapshot } from "../snapshot/schema";
 import {
   type BuildTargetsDeps,
   type BuildTargetsInput,
@@ -26,20 +63,31 @@ import {
   buildWorkspaceTargets,
   resolveWorkspaceTarget,
 } from "../workspace/build-train";
+import { classifyPublishedDiff, type PublishedDiff } from "./changed-slots";
+import {
+  resolveReleaseManifestForDeploy,
+  runCompositionGate,
+  stampRemotesFromRelease,
+} from "./composition";
 import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
 import {
+  digestsFromPublishedConfig,
   type PreviousPin,
   pinsFromDeployState,
-  pinsFromPublishedConfig,
   upsertDeployStatePins,
 } from "./diff";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
+import { readFrameworkVersion } from "./image";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
+import { assertSigningIdentityMatches, signManifestPayload } from "./manifest-signature";
+import { computeOwedWork } from "./owed";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
+  compatWindowViolations,
   composePlatformManifestPublishEntry,
   type PlatformManifestPublishEntry,
+  platformTruthViolations,
 } from "./platform-manifest";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
@@ -50,10 +98,6 @@ import {
   sourceLegDirs,
   uploadWorkspaceBundle,
 } from "./upload-leg";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** Best-effort repo HEAD for the version manifest (`gitSha`): non-git
  * contexts (child bundles built outside a repo) omit the field silently —
@@ -66,91 +110,6 @@ async function resolveGitSha(cwd: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
-}
-
-export async function waitForPublishedConfig(opts: {
-  account: string;
-  gateway: string;
-  publishConfig: BosConfigInput;
-  registry?: string;
-  timeoutMs?: number;
-  intervalMs?: number;
-  fetchConfig?: typeof fetchBosConfigFromFastKv;
-  /** The submit's tx hash (#430): once the registry history shows this tx,
-   * the write has landed on-chain — one authoritative read-back decides
-   * instead of repeated deep-equality polling. */
-  txHash?: string;
-  fetchHistory?: typeof fetchConfigHistory;
-}): Promise<void> {
-  const fetchConfig = opts.fetchConfig ?? fetchBosConfigFromFastKv;
-  const envTimeoutMs = Number(process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS);
-  const envIntervalMs = Number(process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS);
-  const timeoutMs =
-    opts.timeoutMs ?? (Number.isFinite(envTimeoutMs) ? envTimeoutMs : undefined) ?? 120_000;
-  const intervalMs =
-    opts.intervalMs ?? (Number.isFinite(envIntervalMs) ? envIntervalMs : undefined) ?? 3_000;
-  const startedAt = Date.now();
-  let lastError: unknown;
-
-  // The tx probe is the cheap poll (#430): while it is informative (returns
-  // entries, tx not yet visible), the config equality read-back waits. After
-  // a bounded run of informative-but-absent probes — or any probe failure —
-  // the wait falls back permanently to plain equality polling, so a registry
-  // whose history never carries the tx still confirms.
-  let txProbeSkips = 0;
-  const TX_PROBE_SKIP_LIMIT = 2;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      let trackByTx = opts.txHash !== undefined && opts.fetchHistory !== undefined;
-      if (trackByTx && txProbeSkips >= TX_PROBE_SKIP_LIMIT) {
-        trackByTx = false;
-      }
-
-      if (trackByTx) {
-        try {
-          const history = await opts.fetchHistory!({
-            accountId: opts.account,
-            gatewayId: opts.gateway,
-            registry: opts.registry,
-            limit: 5,
-          });
-          const txLanded = history.some((entry) => entry.txHash === opts.txHash);
-          if (txLanded) {
-            // The write landed on-chain — the read-back is the authoritative
-            // content check (ADR 0001). A mismatch keeps polling:
-            // replication may lag the tx.
-            txProbeSkips = 0;
-          } else {
-            txProbeSkips += 1;
-            await sleep(intervalMs);
-            continue;
-          }
-        } catch (historyError) {
-          // A history probe failure must not starve the wait — fall back to
-          // the plain equality poll.
-          lastError = historyError;
-        }
-      }
-
-      const verifiedConfig = await fetchConfig<BosConfigInput>(
-        `bos://${opts.account}/${opts.gateway}`,
-        opts.registry,
-      );
-      if (JSON.stringify(verifiedConfig) === JSON.stringify(opts.publishConfig)) {
-        return;
-      }
-    } catch (error) {
-      lastError = error;
-    }
-
-    await sleep(intervalMs);
-  }
-
-  const reason = lastError instanceof Error ? ` Last error: ${lastError.message}` : "";
-  throw new Error(
-    `Timed out waiting for publish confirmation at bos://${opts.account}/${opts.gateway}.${reason}`,
-  );
 }
 
 export async function isConfigAlreadyPublished(opts: {
@@ -218,6 +177,11 @@ export interface DeployTrainInput {
    * config-only guard. Rollbacks use this: the payload is the previous
    * snapshot, already assembled. */
   exactPayload?: boolean;
+  /** Rollback-only pointer restore (#573): a smoke-failed release rolls the
+   * config AND the platform pointer back in the same atomic write. Ignored
+   * unless `exactPayload` — normal deploys cannot smuggle manifest writes
+   * past the release gate. */
+  restorePlatformPointer?: { key: string; value: string };
 }
 
 /**
@@ -274,6 +238,39 @@ export async function runPublishTrain(
   const fullUpload = input.fullUpload === true || process.env.BOS_FULL_UPLOAD === "1";
   const sourcePublish = bosConfig.publish?.sourcePublish === true;
   const gitSha = await resolveGitSha(configDir);
+  // Manifest attribution (ADR 0046 ticket 05): when the authored config
+  // demands it (publish.verification.publicKey), every pinned manifest is
+  // signed by the runtime's existing publish identity — the custody wallet's
+  // TEE-held key or the explicit publish key the registry write uses. The
+  // signing key must equal the configured record; a mismatch fails the train
+  // before anything uploads (rotation is a config publish, never a silent
+  // key swap).
+  const verificationPublicKey = (() => {
+    const verification = bosConfig.publish?.verification;
+    return typeof verification === "object" ? verification.publicKey : undefined;
+  })();
+  let signManifest: ((payload: string) => Promise<ManifestSignature>) | undefined;
+  if (verificationPublicKey) {
+    if (useCustody && plan.custodyWallet) {
+      const custodyWallet = plan.custodyWallet;
+      signManifest = async (payload) => {
+        const signed = await signManifestPayloadCustody(custodyWallet, payload, account);
+        assertSigningIdentityMatches(signed.publicKey, verificationPublicKey);
+        return { algorithm: "ed25519", publicKey: signed.publicKey, value: signed.value };
+      };
+    } else {
+      const resolvedKey = await resolveSigningKey({
+        privateKey: input.privateKey,
+        account,
+        network,
+      });
+      signManifest = async (payload) => {
+        const signed = signManifestPayload(payload, resolvedKey.privateKey);
+        assertSigningIdentityMatches(signed.publicKey, verificationPublicKey);
+        return signed;
+      };
+    }
+  }
   const memoryBackendAbort = () =>
     new PublishTrainError({
       kind: "memory-backend",
@@ -292,7 +289,7 @@ export async function runPublishTrain(
   const prevPins: Record<string, PreviousPin> = fullUpload
     ? {}
     : {
-        ...pinsFromPublishedConfig(
+        ...digestsFromPublishedConfig(
           (plan.publishedConfig ?? {}) as BosConfigInput,
           account,
           gateway,
@@ -331,13 +328,18 @@ export async function runPublishTrain(
   const uploadOneWorkspace = async (
     key: string,
     rawConfig: BosConfigInput,
-  ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail }> => {
+  ): Promise<{
+    entries: DeployResultEntry[];
+    detail: UploadUnitDetail;
+    shared: Record<string, Record<string, string>>;
+  }> => {
     const startedAt = Date.now();
     const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
     if (!ws)
       return {
         entries: [],
         detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
+        shared: {},
       };
 
     const outcome = await uploadWorkspaceBundle({
@@ -351,6 +353,7 @@ export async function runPublishTrain(
       previousPin: prevPins[key],
       ...(sourcePublish ? { source: sourceLegDirs(ws.path) } : {}),
       ...(gitSha ? { gitSha } : {}),
+      ...(signManifest ? { sign: signManifest } : {}),
       deps: deps.storage,
     });
     if (outcome.kind === "error") {
@@ -385,23 +388,24 @@ export async function runPublishTrain(
       kind: ws.kind,
       integrity: outcome.entryIntegrity,
       ssrIntegrity: outcome.ssrEntryIntegrity,
-      pin: outcome.pin,
+      digest: outcome.pin,
     });
 
     // Folder-form plugin ui: the workspace build also produces <plugin>/ui/dist
     // (web remoteEntry + ssr container) — upload it as its own bundle key and
-    // pin <slot>.<key>.ui.* so the host can compose the ui surface in production.
+    // pin <remote>.<key>.ui.* so the host can compose the ui surface in production.
+    let uiOutcomeShared: Record<string, string> | undefined;
     if (hasFolderFormUi(ws.path)) {
       const uiDistDir = join(ws.path, "ui", "dist");
-      const uiSlot = ws.kind === "app" ? "app" : "plugins";
-      const rawSlot = (uiSlot === "app" ? rawConfig.app : rawConfig.plugins) as
+      const section = ws.kind === "app" ? "app" : "plugins";
+      const rawSection = (section === "app" ? rawConfig.app : rawConfig.plugins) as
         | Record<string, Record<string, unknown> | undefined>
         | undefined;
-      const rawUi = rawSlot?.[key]?.ui as Record<string, unknown> | undefined;
+      const rawUi = rawSection?.[key]?.ui as Record<string, unknown> | undefined;
       const uiName = resolveUiRuntimeName(rawUi, join(ws.path, "ui"), key);
       let uiIntegrity: string | undefined;
       let uiSsrIntegrity: string | undefined;
-      let uiPin: (typeof outcome)["pin"] | undefined;
+      let uiDigest: (typeof outcome)["pin"] | undefined;
       if (existsSync(uiDistDir)) {
         const uiOutcome = await uploadWorkspaceBundle({
           account,
@@ -412,6 +416,7 @@ export async function runPublishTrain(
           storageApiKey,
           urlOrigin,
           previousPin: prevPins[`${key}-ui`],
+          ...(signManifest ? { sign: signManifest } : {}),
           deps: deps.storage,
         });
         if (uiOutcome.kind === "error") {
@@ -437,7 +442,8 @@ export async function runPublishTrain(
         }
         uiIntegrity = uiOutcome.entryIntegrity;
         uiSsrIntegrity = uiOutcome.ssrEntryIntegrity;
-        uiPin = uiOutcome.pin;
+        uiDigest = uiOutcome.pin;
+        uiOutcomeShared = uiOutcome.shared;
       } else {
         console.log(
           `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,
@@ -454,7 +460,7 @@ export async function runPublishTrain(
           integrity: uiIntegrity,
           ssrIntegrity: uiSsrIntegrity,
           name: uiName,
-          pin: uiPin,
+          digest: uiDigest,
         }),
       );
     }
@@ -468,6 +474,10 @@ export async function runPublishTrain(
         durationMs: Date.now() - startedAt,
         notes: outcome.detail.notes,
       },
+      shared: {
+        ...(outcome.shared ? { [key]: outcome.shared } : {}),
+        ...(uiOutcomeShared ? { [`${key}-ui`]: uiOutcomeShared } : {}),
+      },
     };
   };
 
@@ -480,6 +490,9 @@ export async function runPublishTrain(
   interface UploadUnitResult {
     entries: DeployResultEntry[];
     detail: UploadUnitDetail;
+    /** Shared-singleton versions per uploaded bundle key (#546) — the truth
+     * gate cross-checks these against the platform release manifest. */
+    shared: Record<string, Record<string, string>>;
   }
   const uploaded = new Map<string, Promise<UploadUnitResult>>();
   // Rejections stay in the map until the drain's allSettled — deleting would
@@ -639,9 +652,13 @@ export async function runPublishTrain(
         Promise.resolve({
           entries: [],
           detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
+          shared: {},
         }),
     ),
   );
+  // Shared-singleton versions per uploaded bundle key (#546) — the truth gate
+  // consumes this before the platform manifest rides the atomic publish.
+  const sharedByWorkspace = new Map<string, Record<string, string>>();
 
   const uploadFailures = settled
     .map((result, index) =>
@@ -656,6 +673,9 @@ export async function runPublishTrain(
     const key = deployTargets[index];
     if (result.status === "fulfilled") {
       platformEntries.push(...result.value.entries);
+      for (const [bundleKey, shared] of Object.entries(result.value.shared)) {
+        sharedByWorkspace.set(bundleKey, shared);
+      }
       render?.uploadOutcome?.({
         key,
         ok: true,
@@ -704,15 +724,99 @@ export async function runPublishTrain(
   if (isStaging) {
     publishPayload = { ...publishPayload, domain: gateway };
   }
+  // Publish canonicalization (#584): the published payload never carries
+  // `local:` development targets — workspace-relative refs are meaningless
+  // across an extends boundary, and children inheriting one cannot spawn it.
+  // The authored surface keeps them for the parent's own dev; children fall
+  // back to the remote's published URL. Rollback payloads are already
+  // canonical — republished verbatim.
+  if (input.exactPayload !== true) {
+    publishPayload = stripLocalDevelopmentTargets(publishPayload);
+    publishPayload = stripSeedConfig(publishPayload);
+  }
+
+  // KEEP: release-scoped extends inheritance (ADR 0034 amendment) — every
+  // remote remote the authored config does not declare is a base-runtime remote
+  // whose bytes re-point at the authored platform pin's release, so the
+  // parent's live config pointer can move (a root rc.N+1 publish) without
+  // skewing a pinned child's composition. Resolution failures warn and
+  // continue unpinned; the composition gate below still cross-checks bytes.
+  let resolvedRelease: Manifest | null = null;
+  if (input.exactPayload !== true) {
+    try {
+      resolvedRelease = await resolveReleaseManifestForDeploy({
+        configDir,
+        authoredConfig: publishRawConfig as Record<string, unknown>,
+      });
+      if (resolvedRelease) {
+        const stamped = stampRemotesFromRelease({
+          payload: publishPayload as Record<string, unknown>,
+          authoredConfig: publishRawConfig as Record<string, unknown>,
+          manifest: resolvedRelease,
+        });
+        if (stamped.stamped.length > 0) {
+          console.log(
+            colors.dim(
+              `  Release-scoped remotes (${resolvedRelease.frameworkVersion}): stamped ${stamped.stamped.join(", ")}`,
+            ),
+          );
+        }
+      }
+    } catch (error) {
+      console.log(
+        colors.dim(
+          `  Note: release-manifest resolution failed — continuing without release-scoped remotes: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  }
+
+  // KEEP: this check re-runs the consumer boot's own walk-merge-parse
+  // (BosConfigSchema via resolvePublishedConfig) with the payload as the leaf,
+  // so it shares one walk with the composition gate below via
+  // verifyResolvedBootShape instead of re-walking.
+  let bootShape: ResolvedBootShape | null = null;
+  try {
+    bootShape = await resolveBootShape(
+      publishPayload,
+      { account, gateway },
+      input.registry ? { registry: input.registry } : undefined,
+    );
+  } catch {
+    // KEEP: re-walked by verifyBootPayload, which owns the chain-failure report
+  }
+  const bootCheck = bootShape
+    ? verifyResolvedBootShape(publishPayload, bootShape)
+    : await verifyBootPayload(
+        publishPayload,
+        { account, gateway },
+        input.registry ? { registry: input.registry } : undefined,
+      );
+  if (!bootCheck.ok) {
+    const detail = bootCheck.issues
+      .slice(0, 5)
+      .map((issue) => `    ${issue.path ? `${issue.path}: ` : ""}${issue.message}`)
+      .join("\n");
+    const chainNote =
+      bootCheck.chain.length > 0 ? ` (extends chain: ${bootCheck.chain.join(" -> ")})` : "";
+    throw new PublishTrainError({
+      kind: "preflight",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error: `Canonicalized publish payload fails a consumer boot${chainNote} — booting it would fail everywhere:\n${detail}`,
+    });
+  }
 
   const pinVerification = await verifyRollbackSnapshot(publishPayload);
   if (pinVerification.verifiable && !pinVerification.ok) {
-    const failures = pinVerification.slots
+    const failures = pinVerification.remotes
       .filter((check) => !check.ok)
-      .map((check) => `    ${check.slot}: ${check.reason}`)
+      .map((check) => `    ${check.remote}: ${check.reason}`)
       .join("\n");
     console.error(
-      `  ${colors.error(icons.err)} Publish blocked — a pinned slot's bytes do not serve at its production URL:\n${failures}`,
+      `  ${colors.error(icons.err)} Publish blocked — a pinned remote's bytes do not serve at its production URL:\n${failures}`,
     );
     throw new PublishTrainError({
       kind: "pin-verification",
@@ -720,69 +824,291 @@ export async function runPublishTrain(
       built,
       skipped,
       deployResults,
-      error: `Publish blocked — pinned slot bytes missing or SRI mismatched:\n${failures}`,
+      error: `Publish blocked — pinned remote bytes missing or SRI mismatched:\n${failures}`,
     });
   }
 
-  const registryKey = `apps/${account}/${gateway}/bos.config.json`;
+  if (input.exactPayload !== true) {
+    // KEEP: a rollback republishes a snapshot that was a valid deploy — the
+    // gate must never block the recovery path (its snapshot's inherited
+    // remotes merge over the parent's moved-on pins; boot-check + pin
+    // verification above already gate the bytes).
+    if (!bootShape) {
+      throw new PublishTrainError({
+        kind: "composition",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error: "the extends walk failed without a boot-check rejection",
+      });
+    }
+    const verifiedRemotes = pinVerification.verifiable
+      ? new Set(pinVerification.remotes.filter((check) => check.ok).map((check) => check.remote))
+      : undefined;
+    const compositionGate = await runCompositionGate({
+      configDir,
+      authoredConfig: publishRawConfig as Record<string, unknown>,
+      resolvedShape: bootShape.config as Record<string, unknown>,
+      resolvedRelease,
+      ...(verifiedRemotes ? { verifiedRemotes } : {}),
+    });
+    if (!compositionGate.ok) {
+      throw new PublishTrainError({
+        kind: "composition",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error:
+          `Publish blocked — a consumer boot would refuse this composition:\n` +
+          compositionGate.violations.map((line) => `    ${line}`).join("\n"),
+      });
+    }
+  }
+
+  const registryKey = keyPathOf({
+    kind: "runtimeConfig",
+    ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+  });
   const publishedAt = new Date().toISOString();
   // version identity printed + returned for every deploy (atomic-deploys 12)
-  const fingerprint = pointerFingerprint(publishPayload as never);
-  const publishSlotPins = slotPins(publishPayload as never);
+  const publishPointerDigest = pointerDigest(publishPayload as never);
+  const publishRemoteDigests = remoteDigests(publishPayload as never);
+  // The published-config diff (#826 follow-up): what changed vs the live
+  // config decides the Railway leg's ui-only skip — SnapshotWatch adopts the
+  // ui surfaces without a restart, so a restart would break the soft-refresh
+  // story it exists to serve. A failed read (first publish, registry
+  // offline) leaves the diff undefined and the legs read cold.
+  let diff: PublishedDiff | undefined;
+  try {
+    const liveConfig = await deps.registry.fetchConfig<BosConfigInput>(
+      `bos://${account}/${gateway}`,
+      input.registry,
+    );
+    diff = classifyPublishedDiff(liveConfig, publishPayload as BosConfigInput);
+  } catch {
+    diff = undefined;
+  }
   const registryEntries: Record<string, string> = {
     [registryKey]: JSON.stringify(publishPayload),
   };
-  const manifestKey = `apps/${account}/${gateway}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
-  // ADR 0034: the platform release manifest rides the same atomic write —
-  // framework-rooted production build trains only (children and config-only
-  // publishes publish nothing). The compat floor is the previous release; a
-  // registry *failure* (vs an absent slot) skips this deploy's manifest —
-  // a silently-widened or silently-tightened floor would publish a wrong
-  // compat window — and the next deploy lands it.
+  // The composition lockfile producer leg (ADR 0042 ticket 04): the train
+  // freezes the exact composition it is about to publish, and the per-deploy
+  // audit record names the lockfile digest — a deployment record then
+  // answers "what exact composition was live". Non-fatal: the lockfile is
+  // provenance, never a gate.
+  let lock: ReturnType<typeof lockfileOf> | null = null;
+  let lockfileDigest: string | null = null;
+  let lockfileSerialized: string | null = null;
+  try {
+    lock = lockfileOf({
+      account,
+      gateway,
+      config: publishPayload as BosConfig,
+      release: (publishPayload as { release?: string }).release ?? null,
+    });
+    lockfileSerialized = serializeLockfile(lock);
+    lockfileDigest = digestOfLockfile(lockfileSerialized);
+  } catch (error) {
+    console.log(
+      colors.dim(
+        `  lockfile leg skipped: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+  }
+  const manifestKey = deployAuditKeyOf(account, gateway, publishedAt);
+  // ADR 0034 + #573: the platform release manifest rides the same atomic
+  // write as the config. The truth gate (shared-singleton cross-check) runs
+  // on every production build deploy — but only the **release leg** writes
+  // keys: the immutable `versions/<version>.json` record plus the
+  // `manifest.json` thin-tag flip. Non-release deploys write no manifest
+  // keys at all. The preflight npm gate guarantees npm is published before
+  // the build (npmOwed is impossible in-train until #575 moves the npm leg
+  // in), so the release classifier is the tag alone — and its read MUST
+  // succeed: an unknown state must never silently classify a release as
+  // non-release (the skip path is deleted, #573). Satellites keep
+  // independent npm releases and are not gating for the platform; the
+  // manifest records the composition as smoke-tested at the release SHA.
+  // A release that cannot complete cleanly burns its counter — never reuse
+  // a version.
   let platformManifest: PlatformManifestPublishEntry | null = null;
   if (!isStaging && input.build) {
+    let pointerVersion: string | null;
     try {
-      const previous = await fetchRegistryKey<{ frameworkVersion?: string }>(
-        account,
-        gateway,
-        "platform.json",
-      );
-      platformManifest = composePlatformManifestPublishEntry({
-        configDir,
-        account,
-        gateway,
-        previousFrameworkVersion: previous?.frameworkVersion,
-        gitSha,
-      });
+      // The tag home serves the thin `{ schemaVersion, version, digest }`
+      // pointer post-cutover — the classifier reads only its version.
+      const tagBytes = await readManifestTag<unknown>(account, gateway, input.registry);
+      pointerVersion = tagBytes ? ManifestTagSchema.parse(tagBytes).version : null;
     } catch (error) {
-      console.warn(
-        `  platform manifest skipped this deploy — the previous release could not be read: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new PublishTrainError({
+        kind: "platform-manifest",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error:
+          `could not read the published platform release — the release classifier and ` +
+          `the compat floor must never be guessed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+    const owed = computeOwedWork({
+      pointer: pointerVersion
+        ? { state: "present", frameworkVersion: pointerVersion }
+        : { state: "absent" },
+      localFrameworkVersion: readFrameworkVersion(configDir),
+    });
+    const releaseLeg = owed.release;
+    console.log(
+      releaseLeg
+        ? colors.cyan(
+            `  Release leg: the platform tag (${owed.detail.pointerFrameworkVersion ?? "unset"}) trails the repo (${owed.detail.localFrameworkVersion}) — the release manifest moves`,
+          )
+        : colors.dim("  No release work owed — the platform manifest stays put"),
+    );
+
+    const composed = composePlatformManifestPublishEntry({
+      configDir,
+      account,
+      gateway,
+      previousFrameworkVersion: pointerVersion ?? undefined,
+      gitSha,
+      publishPayload: publishPayload as Record<string, unknown>,
+    });
+    // The truth gate (#546, extended by #573): runs on EVERY production
+    // deploy against the composed release manifest — a workspace whose
+    // installed shared versions drifted from the catalog (stale install,
+    // misaligned bump) would publish bundles that lie about the compat
+    // window. Refuses loudly until the next rc realigns them.
+    if (composed) {
+      const violations = platformTruthViolations(composed.manifest, sharedByWorkspace);
+      if (violations.length > 0) {
+        throw new PublishTrainError({
+          kind: "platform-truth",
+          registryUrl,
+          built,
+          skipped,
+          deployResults,
+          error:
+            `platform manifest does not match the uploaded bundles:\n` +
+            violations.map((line) => `    ${line}`).join("\n"),
+        });
+      }
+      if (!releaseLeg) {
+        // The published sharedDeps come from the live version record the tag
+        // names — a non-release deploy compares against the bytes children
+        // actually resolve.
+        let publishedSharedDeps: Record<string, { version: string }> | undefined;
+        if (pointerVersion) {
+          try {
+            const record = await readVersionRecord<unknown>(
+              account,
+              gateway,
+              pointerVersion,
+              input.registry,
+            );
+            publishedSharedDeps = record
+              ? (record as { sharedDeps?: Record<string, { version: string }> }).sharedDeps
+              : undefined;
+          } catch {
+            publishedSharedDeps = undefined;
+          }
+        }
+        const windowViolations = compatWindowViolations(publishedSharedDeps, sharedByWorkspace);
+        if (windowViolations.length > 0) {
+          throw new PublishTrainError({
+            kind: "compat-window",
+            registryUrl,
+            built,
+            skipped,
+            deployResults,
+            error:
+              `non-release deploy bakes a chain the pinned compat window doesn't serve — ` +
+              `pinned children would resolve skew under an unchanged platform manifest:\n` +
+              windowViolations.map((line) => `    ${line}`).join("\n"),
+          });
+        }
+      }
+      if (releaseLeg) {
+        const frameworkVersion = composed.manifest.frameworkVersion;
+        const recordKey = getVersionKey(account, gateway, frameworkVersion);
+        let existingRecord: unknown;
+        try {
+          existingRecord = await readVersionRecord<unknown>(
+            account,
+            gateway,
+            frameworkVersion,
+            input.registry,
+          );
+        } catch (error) {
+          throw new PublishTrainError({
+            kind: "platform-manifest",
+            registryUrl,
+            built,
+            skipped,
+            deployResults,
+            error: `the release leg could not verify the version record's immutability (${recordKey}): ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+        if (existingRecord !== null) {
+          const existingValue =
+            typeof existingRecord === "string" ? existingRecord : JSON.stringify(existingRecord);
+          if (existingValue !== composed.record.value) {
+            throw new PublishTrainError({
+              kind: "platform-manifest",
+              registryUrl,
+              built,
+              skipped,
+              deployResults,
+              error: `version ${frameworkVersion} is burned — the immutable record ${recordKey} already holds different bytes. Bump the version and cut a fresh release; never reuse a burned one.`,
+            });
+          }
+          console.log(
+            colors.dim(
+              `  version record ${frameworkVersion} already holds identical bytes — idempotent republish`,
+            ),
+          );
+        }
+        platformManifest = composed;
+      }
     }
   }
-  registryEntries[manifestKey] = JSON.stringify({
-    account,
-    gateway,
-    network,
-    publishedAt,
-    registryUrl,
-    ...(platformManifest
-      ? {
-          platformManifest: {
-            file: platformManifest.key,
-            integrity: platformManifest.integrity,
-          },
-        }
-      : {}),
-  });
+  registryEntries[manifestKey] = JSON.stringify(
+    DeployRecordSchema.parse({
+      account,
+      gateway,
+      network,
+      publishedAt,
+      registryUrl,
+      ...(lockfileDigest && lock
+        ? { lockfile: { digest: lockfileDigest, pointerDigest: lock.pointerDigest } }
+        : {}),
+      ...(platformManifest
+        ? {
+            platformManifest: {
+              version: platformManifest.manifest.frameworkVersion,
+              tag: platformManifest.tag.key,
+              tagIntegrity: platformManifest.tag.integrity,
+              record: platformManifest.record.key,
+              integrity: platformManifest.record.integrity,
+            },
+          }
+        : {}),
+    }),
+  );
   if (platformManifest) {
-    registryEntries[platformManifest.key] = platformManifest.value;
+    // One atomic write (#573): the immutable version record + the thin-tag flip.
+    registryEntries[platformManifest.record.key] = platformManifest.record.value;
+    registryEntries[platformManifest.tag.key] = platformManifest.tag.value;
+  }
+  if (input.exactPayload && input.restorePlatformPointer) {
+    registryEntries[input.restorePlatformPointer.key] = input.restorePlatformPointer.value;
   }
 
   render?.publish?.({
     registryUrl,
-    fingerprint,
-    slotPins: Object.entries(publishSlotPins),
+    pointerDigest: publishPointerDigest,
+    remoteDigests: Object.entries(publishRemoteDigests),
     auditManifestFile: manifestKey.split("/").pop() ?? manifestKey,
   });
 
@@ -790,7 +1116,7 @@ export async function runPublishTrain(
   // config is confirmed published, so the pointer never claims undeployed state.
   const persistDeployState = () => {
     try {
-      const pins = pinsFromPublishedConfig(publishPayload as BosConfigInput, account, gateway);
+      const pins = digestsFromPublishedConfig(publishPayload as BosConfigInput, account, gateway);
       if (Object.keys(pins).length > 0) {
         upsertDeployStatePins(configDir, account, gateway, pins);
       }
@@ -798,6 +1124,60 @@ export async function runPublishTrain(
       console.log(
         colors.dim(
           `  Note: could not update .bos/deploy-state.json — ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  };
+
+  // The lockfile reflects what is live — written (or healed) whenever the
+  // publish state is confirmed, never before.
+  const persistLockfile = () => {
+    if (!lock) return;
+    try {
+      writeLockfileSync(lock, configDir);
+    } catch (error) {
+      console.log(
+        colors.dim(
+          `  Note: could not write bos.lock.json — ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  };
+
+  // The staging leg (ADR 0043): the control plane writes the approved
+  // snapshot for the composition it just confirmed live, so restarts of
+  // this runtime boot from the staged state instead of resolving. Stamped
+  // with the release thin tag (when the release leg ran) and the lockfile
+  // digest (the deployment record's identity). Non-fatal, like every
+  // provenance leg — and AWAITED: a floating write settles after the caller
+  // (a test's teardown, a process exit) has removed the target dir, and the
+  // escaped rejection kills the run.
+  const stageBootSnapshot = async () => {
+    if (!lockfileSerialized) return;
+    try {
+      const manifestTag = platformManifest
+        ? ManifestTagSchema.parse(JSON.parse(platformManifest.tag.value))
+        : null;
+      await writeBootSnapshot(
+        bootSnapshotOf({
+          account,
+          gateway,
+          config: publishPayload as BosConfig,
+          manifestTag,
+          lockfileDigest: lockfileDigest ?? undefined,
+        }),
+        { dir: join(configDir, ".bos", "snapshot") },
+      );
+    } catch (error) {
+      // A deterministic staging failure silently disabled the deploy-integrity
+      // feature for every extends child (#800) — it must not hide in a dim
+      // note. Yellow warning: the deploy itself is unaffected, but the
+      // generation is unstaged and nothing will boot from it.
+      console.log(
+        colors.yellow(
+          `  ! Boot snapshot NOT staged — restarts will resolve from the live registry instead of the pinned generation: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         ),
       );
     }
@@ -819,6 +1199,8 @@ export async function runPublishTrain(
     if (alreadyPublished) {
       console.log("  Already up to date — skipping transaction");
       persistDeployState();
+      persistLockfile();
+      await stageBootSnapshot();
       return {
         status: "published",
         registryUrl,
@@ -829,11 +1211,9 @@ export async function runPublishTrain(
       };
     }
 
-    console.log(`  Submitting transaction on ${network}...`);
-
-    // Auth handles were validated once in preflight (guards once per run,
-    // ticket #422) — the dispatch consumes the plan's handles.
-    const result = await (async (): Promise<{ success: boolean; txHash?: string }> => {
+    const submitOnce = async (): Promise<{ success: boolean; txHash?: string }> => {
+      // Auth handles were validated once in preflight (guards once per run,
+      // ticket #422) — the dispatch consumes the plan's handles.
       if (useCustody) {
         if (!plan.custodyWallet) {
           throw new PublishTrainError({
@@ -848,7 +1228,7 @@ export async function runPublishTrain(
           contract: registryNamespace,
           args: registryEntries,
           custodyWallet: plan.custodyWallet,
-          idempotencyKey: `bos-publish-${fingerprint}`,
+          idempotencyKey: `bos-publish-${publishPointerDigest}`,
         });
       }
       if (useWallet) {
@@ -886,24 +1266,103 @@ export async function runPublishTrain(
         privateKey: input.privateKey,
         strategy,
       });
-    })();
+    };
 
+    console.log(`  Submitting transaction on ${network}...`);
+    let result = await submitOnce();
     if (result.txHash) {
       console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
     }
 
     console.log("  Waiting for publish confirmation...");
     try {
-      await waitForPublishedConfig({
-        account,
-        gateway,
-        publishConfig: publishPayload,
-        registry: input.registry,
-        fetchConfig: deps.registry.fetchConfig,
-        ...(result.txHash
-          ? { txHash: result.txHash, fetchHistory: deps.registry.fetchHistory }
-          : {}),
-      });
+      const confirmLegs: ConfirmLeg[] = [
+        {
+          kind: "runtimeConfig",
+          key: {
+            kind: "runtimeConfig",
+            ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+          },
+          expected: publishPayload,
+        },
+        // The release legs' writes verify like any other — the thin tag and
+        // the immutable version record read back byte-equal through the
+        // pointer transports before the publish counts (the Nov-03 smoke
+        // caught these reads resolving a double-prefixed key; a leg that
+        // never verified is how a broken read hides).
+        ...(platformManifest
+          ? [
+              {
+                kind: "manifest" as const,
+                key: {
+                  kind: "manifest" as const,
+                  ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+                },
+                expected: JSON.parse(platformManifest.tag.value) as unknown,
+                read: () => readManifestTag<unknown>(account, gateway, input.registry),
+              },
+              {
+                kind: "version" as const,
+                key: {
+                  kind: "version" as const,
+                  ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+                  version: platformManifest.manifest.frameworkVersion,
+                },
+                expected: JSON.parse(platformManifest.record.value) as unknown,
+                read: () =>
+                  readVersionRecord<unknown>(
+                    account,
+                    gateway,
+                    platformManifest!.manifest.frameworkVersion,
+                    input.registry,
+                  ),
+              },
+            ]
+          : []),
+      ];
+      const runConfirm = (txHash?: string) =>
+        confirmPublish({
+          legs: confirmLegs,
+          ...(txHash ? { txHash } : {}),
+          // The status probe queries the transaction by (hash, sender) — a
+          // query only this train can answer for its own direct-key
+          // broadcast. Relay (wallet) and custody submissions move someone
+          // else's signed transaction, so the probe would chase the wrong
+          // sender and must not gate the wait.
+          ...(txHash && !useCustody && !useWallet
+            ? {
+                txStatus: (tx: string) => classifyTransactionOutcome(tx, account, network),
+              }
+            : {}),
+          read: (key) => deps.registry.fetchConfig(key.ref, input.registry),
+          history: (key, limit) => {
+            const { accountId, gatewayId } = parseRuntimeRef(key.ref);
+            return deps.registry.fetchHistory({
+              accountId,
+              gatewayId,
+              registry: input.registry,
+              limit,
+              keyPath: keyPathOf(key),
+            });
+          },
+        });
+
+      let verdict = await runConfirm(result.txHash);
+      if (!verdict.ok && verdict.terminalTx) {
+        console.log(colors.yellow(`  ${verdict.lastError ?? "transaction rejected"}`));
+        console.log(
+          colors.yellow("  Resubmitting the identical publish bytes (fresh signing attempt)..."),
+        );
+        result = await submitOnce();
+        if (result.txHash) {
+          console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
+        }
+        console.log("  Waiting for publish confirmation...");
+        verdict = await runConfirm(result.txHash);
+      }
+      if (!verdict.ok) {
+        throw new Error(describeConfirmTimeout(confirmLegs, verdict));
+      }
     } catch (error) {
       throw new PublishTrainError({
         kind: "confirm",
@@ -915,17 +1374,22 @@ export async function runPublishTrain(
       });
     }
     persistDeployState();
+    persistLockfile();
+    await stageBootSnapshot();
 
     return {
       status: "published",
       registryUrl,
       txHash: result.txHash,
-      fingerprint,
-      slotPins: publishSlotPins,
+      pointerDigest: publishPointerDigest,
+      remoteDigests: publishRemoteDigests,
       built,
       skipped,
       deployResults,
       publishConfig: publishPayload,
+      releaseLeg: platformManifest !== null,
+      ...(platformManifest ? { frameworkVersion: platformManifest.manifest.frameworkVersion } : {}),
+      ...(diff ? { diff } : {}),
     };
   } catch (error) {
     if (error instanceof PublishTrainError) throw error;

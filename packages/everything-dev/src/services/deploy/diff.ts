@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { BosConfigInput } from "../../types";
-import { collectSlotPinRefs } from "./rollback";
+import { computeSri } from "../verify/engine";
+import { collectRemoteDescriptors } from "./rollback";
 import type { DistFile } from "./storage";
 
 /**
@@ -40,7 +40,7 @@ export function workspaceKeyOfBase(base: string): string | null {
 
 /** The sha384 SRI the storage route would compute for these bytes. */
 export function localObjectIntegrity(bytes: Uint8Array): string {
-  return `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
+  return computeSri(bytes);
 }
 
 export function localSriMap(files: DistFile[]): Record<string, string> {
@@ -90,18 +90,18 @@ export function pinsFromDeployState(
   return readDeployState(configDir).apps[`${account}/${gateway}`] ?? {};
 }
 
-/** Previous pins by workspace key, from the published config's slot pins. */
-export function pinsFromPublishedConfig(
+/** Previous pins by workspace key, from the published config's remote pins. */
+export function digestsFromPublishedConfig(
   config: BosConfigInput,
   account: string,
   gateway: string,
 ): Record<string, PreviousPin> {
   const pins: Record<string, PreviousPin> = {};
-  for (const ref of collectSlotPinRefs(config)) {
+  for (const ref of collectRemoteDescriptors(config)) {
     const workspace = workspaceKeyOfBase(ref.base);
     const nsMatch = BUNDLE_BASE_PATTERN.exec(`${ref.base.replace(/\/$/, "")}/`);
     if (!workspace || !nsMatch || nsMatch[1] !== account || nsMatch[2] !== gateway) continue;
-    pins[workspace] = ref.pin;
+    pins[workspace] = ref.digest;
   }
   return pins;
 }

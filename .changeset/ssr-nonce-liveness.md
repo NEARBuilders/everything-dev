@@ -1,6 +1,5 @@
 ---
 "everything-dev": patch
-"host": patch
 ---
 
 SSR head/nonce liveness — the stale-head class of CI failure is fixed at both ends:

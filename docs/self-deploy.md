@@ -31,7 +31,7 @@ Run your own host instance on your own NEAR account while inheriting the base pl
      "domain": "citynode.app"
    }
    ```
-   Keep `domain` as `citynode.app` (the gateway). See "Same gateway, own account" below. Optionally pin the framework release your repo tracks — `"platform": "2.0.0-rc.14"` (ADR 0034); absent means latest via `extends`, and `bos upgrade --check` is the drift alarm.
+   Keep `domain` as `citynode.app` (the gateway). See "Same gateway, own account" below. Optionally pin the framework release your repo tracks — `"platform": "2.0.0-rc.14"` (ADR 0034); absent means latest via `extends`, and `bos upgrade --check` is the manual drift alarm.
 
 5. **Deploy:**
     ```bash
@@ -53,6 +53,8 @@ Run your own host instance on your own NEAR account while inheriting the base pl
    | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
 
 7. **Your instance boots** `bos start`, fetches your published config from FastKV at `bos://<your-account>/citynode.app`, loads host/api/auth logic from the base's bundles (stale-if-error cached under `BOS_BUNDLE_CACHE_DIR`), and serves your version live at the Railway-assigned URL. Changes take minutes, not hours.
+
+8. **Rate limiting** — the host limits `/api/*` per client (default 2000 requests / 15 min, plus a stricter 60/15-min bucket for non-exempt mutations). Tune with `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_MS` on your instance (mutation tier: `RATE_LIMIT_MUTATION_MAX`). `GET /api/auth/get-session` is exempt from the general bucket — a 429 must never present as "signed out" (#634). People behind one IP (offices, conference wifi) share a bucket; raise the limit if that's your audience.
 
 ## Same gateway, own account
 

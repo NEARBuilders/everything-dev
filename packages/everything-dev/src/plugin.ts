@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import process from "node:process";
 import * as p from "@clack/prompts";
 import { Context, Effect, Layer } from "effect";
@@ -5,9 +6,12 @@ import { buildScoped, buildScopedContext } from "every-plugin";
 import { cliDeployTrainRender } from "./cli/render/deploy-train";
 import { cliWorkspaceBuildRender } from "./cli/render/workspace-build";
 import { bosContract } from "./contract";
-import { DatabaseBindings, DrizzleKit, makeDatabaseBindings, makeDrizzleKitLive } from "./db";
+import { DatabaseBindings, makeDatabaseBindings } from "./db/bindings";
+import { DrizzleKit, makeDrizzleKitLive } from "./db/drizzle-kit";
+import { migrateLegacyComposeState } from "./env/legacy-databases";
 import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
 import { registerBuild } from "./handlers/build";
+import { registerClean } from "./handlers/clean";
 import { registerConfig } from "./handlers/config";
 import { registerDb } from "./handlers/db";
 import { registerDeploy } from "./handlers/deploy";
@@ -15,11 +19,16 @@ import { registerDev } from "./handlers/dev";
 import { registerImport } from "./handlers/import";
 import { registerInit } from "./handlers/init";
 import { registerKeys } from "./handlers/keys";
+import { registerLock } from "./handlers/lock";
 import { registerOps } from "./handlers/ops";
 import { registerPlugins } from "./handlers/plugins";
 import { registerProcesses } from "./handlers/processes";
+import { registerSecrets } from "./handlers/secrets";
+import { registerSeed } from "./handlers/seed";
 import { registerSmoke } from "./handlers/smoke";
+import { registerTypesGen } from "./handlers/types-gen";
 import { registerUpgrade } from "./handlers/upgrade";
+import { registerVerify } from "./handlers/verify";
 import { createPlugin, z } from "./sdk";
 import { DeviceLoginService } from "./services/auth/device-login";
 import { SessionStore } from "./services/auth/session-store";
@@ -31,6 +40,7 @@ import { DeployTrainRenderService } from "./services/deploy/render";
 import { DeployTrainService } from "./services/deploy/train";
 import { DevFlowService } from "./services/dev/flow";
 import { OpsService } from "./services/ops";
+import { ManifestService } from "./services/platform/manifest";
 import { PluginAdminService } from "./services/plugins-admin";
 import { ProcessesService } from "./services/processes/service";
 import { openResolution, ResolutionSessionService } from "./services/resolution/session";
@@ -65,9 +75,13 @@ export default createPlugin({
   contract: bosContract,
   initialize: (config, _plugins) =>
     Effect.gen(function* () {
-      const session = yield* Effect.promise(() =>
-        openResolution({ path: config.variables.configPath }),
-      );
+      const configPath = config.variables.configPath;
+      // One-time repair of retired local conventions (compose-era URLs, the
+      // shared pre-0044 pglite dir) BEFORE resolution and any env loading —
+      // dotenv never overrides already-set keys, so every consumer in this
+      // process must see the repaired file (ADR 0044).
+      yield* migrateLegacyComposeState(dirname(configPath ?? process.cwd()));
+      const session = yield* Effect.promise(() => openResolution({ path: configPath }));
 
       const projectEnv = yield* buildScoped(ProjectEnv, ProjectEnvLive);
       const effectContext = yield* Effect.context();
@@ -121,6 +135,7 @@ export default createPlugin({
         PluginAdminService.Live.pipe(Layer.provide(deployTrainLayer)),
         DevFlowService.Live,
         InitFlowService.Live,
+        ManifestService.Live,
       );
     }),
   createRouter: (builder) => ({
@@ -129,12 +144,18 @@ export default createPlugin({
     ...registerDev(builder),
     ...registerBuild(builder),
     ...registerDeploy(builder),
+    ...registerLock(builder),
+    ...registerClean(builder),
     ...registerSmoke(builder),
     ...registerKeys(builder),
+    ...registerSecrets(builder),
     ...registerProcesses(builder),
     ...registerInit(builder),
     ...registerImport(builder),
     ...registerUpgrade(builder),
+    ...registerTypesGen(builder),
+    ...registerVerify(builder),
+    ...registerSeed(builder),
     ...registerDb(builder),
     ...registerOps(builder),
   }),

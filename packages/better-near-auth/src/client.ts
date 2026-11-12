@@ -58,7 +58,13 @@ import {
   type ViewContractRequestT,
   type ViewContractResponseT,
 } from "./types.js";
+import {
+  clearWalletSigner,
+  type NearConnectSignerWallet,
+  setWalletSigner,
+} from "./wallet-signer.js";
 
+export type { AuthCallbacks } from "./auth-callbacks.js";
 export {
   getNearAtoms,
   type NearAtomsSource,
@@ -67,10 +73,7 @@ export {
   type NearState,
 } from "./store.js";
 
-export interface AuthCallbacks {
-  onSuccess?: () => void;
-  onError?: (error: Error & { status?: number; code?: string }) => void;
-}
+import type { AuthCallbacks } from "./auth-callbacks.js";
 
 export interface SIWNClientConfig {
   recipient?: string;
@@ -161,23 +164,26 @@ export interface SIWNClientActions {
   };
 }
 
+export { signAgentIntent } from "./agent-connect-client.js";
 export { BOS_CLI_CLIENT_ID, DEFAULT_DEVICE_LINK_CLIENT_ID } from "./constants.js";
 export { isPasskeyWalletAvailable, type PasskeyWalletNetwork } from "./passkey.js";
 
 /**
- * Executor build of NEAR-DevHub/near-connect-passkey (mainnet only). Bump the
- * version on every executor change — near-connect caches executor code in
- * IndexedDB keyed by `id:version`.
+ * Executor build of NEAR-DevHub/near-connect-passkey (mainnet only). The
+ * executor URL is pinned to an immutable commit SHA — a mutable branch ref
+ * would let every fetch serve new sandbox code. Bump the version (and re-pin
+ * a fresh SHA) on every executor change — near-connect caches executor code
+ * in IndexedDB keyed by `id:version`.
  */
 export const passkeyWalletManifest: WalletManifest = {
   id: "passkey",
-  version: "1.0.1",
+  version: "1.0.2",
   name: "Passkey",
   icon: "https://trezu.org/icons/passkey.svg",
   description: "Sign in with Face ID, Touch ID, or your device passcode.",
   website: "https://trezu.org",
   executor:
-    "https://raw.githubusercontent.com/NEAR-DevHub/near-connect-passkey/refs/heads/main/passkey-executor.js",
+    "https://raw.githubusercontent.com/NEAR-DevHub/near-connect-passkey/4974f12113ae7cf6642796a1a8a6563d32f32112/passkey-executor.js",
   type: "sandbox",
   platform: ["web"],
   features: {
@@ -195,6 +201,7 @@ export const passkeyWalletManifest: WalletManifest = {
   },
   permissions: {
     storage: true,
+    webauthn: true,
   },
 };
 
@@ -245,6 +252,14 @@ export const siwnClient = (config: SIWNClientConfig) => {
       .getConnectedWallet()
       .then((connected) => {
         connectedWallets.set(network, connected);
+        if (connected.accounts?.[0]?.accountId) {
+          setWalletSigner({
+            accountId: connected.accounts[0].accountId,
+            publicKey: connected.accounts[0].publicKey ?? null,
+            network,
+            wallet: connected.wallet as NearConnectSignerWallet,
+          });
+        }
         return connected;
       })
       .finally(() => {
@@ -286,7 +301,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
       const NearConnector = await loadConnector();
       const connector = new NearConnector({ network, cspNonce: config.cspNonce });
       for (const manifest of config.wallets ?? []) {
-        await connector.registerWallet(manifest).catch(() => {});
+        await connector.registerWallet(manifest).catch((error) => {
+          console.error(
+            `[siwn] Failed to register wallet "${manifest.name ?? manifest.id}" — it will not appear for sign-in:`,
+            error instanceof Error ? error.message : error,
+          );
+        });
       }
       connectors.set(network, connector);
 
@@ -307,6 +327,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
 
       connector.on("wallet:signOut", () => {
         connectedWallets.delete(network);
+        clearWalletSigner(network);
         if (activeNetwork.get() !== network) return;
         walletConnected.set(false);
         const state = nearState.get();
@@ -335,7 +356,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
             walletConnected.set(true);
           }
         })
-        .catch(() => {});
+        .catch((error) => {
+          console.error(
+            "[siwn] Failed to restore linked NEAR accounts from the session:",
+            error instanceof Error ? error.message : error,
+          );
+        });
 
       initializedNetworks.add(network);
 
@@ -392,7 +418,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
           activeNetwork.set(primary.network);
         }
       }
-    } catch {}
+    } catch (error) {
+      console.error(
+        "[siwn] Failed to restore the linked NEAR account after sign-in:",
+        error instanceof Error ? error.message : error,
+      );
+    }
     sessionRestored = true;
   };
 
@@ -424,7 +455,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
       try {
         const { accounts } = await conn.getConnectedWallet();
         if (accounts?.length) return true;
-      } catch {}
+      } catch (error) {
+        console.warn(
+          "[siwn] Connected-wallet probe failed:",
+          error instanceof Error ? error.message : error,
+        );
+      }
     }
 
     return new Promise<boolean>((resolve) => {
@@ -444,7 +480,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
 
       conn
         .connect()
-        .catch(() => {})
+        .catch((error) => {
+          console.error(
+            "[siwn] Wallet connect prompt failed:",
+            error instanceof Error ? error.message : error,
+          );
+        })
         .finally(() => {
           conn.off("wallet:signIn", signInHandler);
           if (!walletConnected.get()) {
@@ -454,39 +495,95 @@ export const siwnClient = (config: SIWNClientConfig) => {
     });
   };
 
-  const signWithWallet = async (): Promise<SignWithWalletResult> => {
+  const errorWithCode = (
+    message: string,
+    response: {
+      error?: {
+        code?: string;
+        status?: number;
+        error?: { code?: string; status?: number };
+        body?: { code?: string; status?: number };
+      } | null;
+    },
+    fallback: string,
+  ): Error & { code?: string; status?: number } => {
+    const err = new Error(message || fallback) as Error & { code?: string; status?: number };
+    const fe = response.error;
+    err.code = fe?.code ?? fe?.error?.code ?? fe?.body?.code;
+    err.status = fe?.status ?? fe?.error?.status ?? fe?.body?.status;
+    return err;
+  };
+
+  const fetchServerNonce = async (
+    $fetch: BetterFetch,
+    net: NearNetwork,
+    accountId?: string,
+  ): Promise<{ nonceBytes: Uint8Array; nonceHex: string; serverIssued: boolean }> => {
+    try {
+      const response = await $fetch<{ nonce: string }>("/near/nonce", {
+        method: "POST",
+        body: accountId ? { accountId, networkId: net } : { networkId: net },
+      });
+      if (response.error || !response.data?.nonce) {
+        throw new Error(response.error?.message || "nonce endpoint unavailable");
+      }
+      return {
+        nonceBytes: hex.decode(response.data.nonce),
+        nonceHex: response.data.nonce,
+        serverIssued: true,
+      };
+    } catch (error) {
+      console.warn(
+        "[siwn] Server nonce unavailable, falling back to local clock nonce:",
+        error instanceof Error ? error.message : error,
+      );
+      const nonceBytes = generateNonce();
+      return { nonceBytes, nonceHex: hex.encode(nonceBytes), serverIssued: false };
+    }
+  };
+
+  const signWithWallet = async ($fetch: BetterFetch): Promise<SignWithWalletResult> => {
     const net = activeNetwork.get();
     const conn = await requireConnector(net);
     const recipient = getRecipient(net);
 
-    const nonceBytes = generateNonce();
-    const nonceHex = hex.encode(nonceBytes);
     const message = `Sign in to ${recipient}`;
     const callbackUrl = typeof window === "undefined" ? undefined : window.location.href;
 
     let connectedWallet: Awaited<ReturnType<typeof conn.getConnectedWallet>> | null = null;
     try {
       connectedWallet = connectedWallets.get(net) ?? (await getConnectedWallet(net, conn));
-    } catch {}
+    } catch (error) {
+      console.warn(
+        "[siwn] Connected-wallet lookup failed:",
+        error instanceof Error ? error.message : error,
+      );
+    }
 
     if (activeNetwork.get() !== net) {
       throw new Error("NEAR network changed while connecting wallet");
     }
 
+    let nonce: { nonceBytes: Uint8Array; nonceHex: string } | null = null;
     if (connectedWallet?.accounts?.length) {
       const accountId: string = connectedWallet.accounts[0]!.accountId;
       const isTestnetAccount = accountId.endsWith(".testnet");
       const isExpectedNetwork = (net === "testnet") === isTestnetAccount;
       if (!isExpectedNetwork) {
         connectedWallet = null;
+      } else {
+        nonce = await fetchServerNonce($fetch, net, accountId);
       }
+    }
+    if (!nonce) {
+      nonce = await fetchServerNonce($fetch, net);
     }
 
     if (connectedWallet?.accounts?.length) {
       const signMessageParams: SignMessageParamsWithCallback = {
         message,
         recipient,
-        nonce: nonceBytes,
+        nonce: nonce.nonceBytes,
         network: net,
         callbackUrl,
       };
@@ -500,7 +597,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
         signedMessage,
         accountId: signedMessage.accountId,
         publicKey: signedMessage.publicKey,
-        nonceHex,
+        nonceHex: nonce.nonceHex,
         callbackUrl,
       };
     }
@@ -527,7 +624,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
         signMessageParams: {
           message,
           recipient,
-          nonce: nonceBytes,
+          nonce: nonce.nonceBytes,
           callbackUrl,
         } as SignMessageParamsWithCallback,
       });
@@ -547,7 +644,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
       signedMessage: result.value.signedMessage,
       accountId: result.value.accountId,
       publicKey: result.value.publicKey,
-      nonceHex,
+      nonceHex: nonce.nonceHex,
       callbackUrl,
     };
   };
@@ -786,7 +883,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
           const hasAuthenticatedSession = Boolean(sessionData?.user);
           if (hadAuthenticatedSession && !hasAuthenticatedSession) {
             for (const [_net, conn] of connectors) {
-              void conn?.disconnect().catch(() => {});
+              void conn?.disconnect().catch((error) => {
+                console.warn(
+                  "[siwn] Wallet disconnect failed:",
+                  error instanceof Error ? error.message : error,
+                );
+              });
             }
             connectedWallets.clear();
             walletConnected.set(false);
@@ -865,7 +967,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
                     networkId: network,
                   };
                 }
-              } catch {}
+              } catch (error) {
+                console.warn(
+                  "[siwn] Linked-accounts scan failed:",
+                  error instanceof Error ? error.message : error,
+                );
+              }
             }
             return null;
           },
@@ -895,7 +1002,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
               if (conn) {
                 try {
                   await conn.disconnect();
-                } catch {}
+                } catch (error) {
+                  console.warn(
+                    "[siwn] Wallet disconnect failed:",
+                    error instanceof Error ? error.message : error,
+                  );
+                }
               }
             }
             connectedWallets.clear();
@@ -908,7 +1020,8 @@ export const siwnClient = (config: SIWNClientConfig) => {
             const net = activeNetwork.get();
             const recipient = getRecipient(net);
             try {
-              const { signedMessage, accountId, nonceHex, callbackUrl } = await signWithWallet();
+              const { signedMessage, accountId, nonceHex, callbackUrl } =
+                await signWithWallet($fetch);
               const message = `Sign in to ${recipient}`;
 
               await handleAccountConnection(accountId, signedMessage.publicKey, net);
@@ -931,7 +1044,11 @@ export const siwnClient = (config: SIWNClientConfig) => {
               });
 
               if (linkResponse.error) {
-                throw new Error(linkResponse.error.message || "Failed to link NEAR account");
+                throw errorWithCode(
+                  linkResponse.error.message || "",
+                  linkResponse,
+                  "Failed to link NEAR account",
+                );
               }
 
               if (!linkResponse?.data?.success) {
@@ -1102,7 +1219,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
             if (prev !== network) {
               const oldConn = connectors.get(prev);
               if (oldConn) {
-                void oldConn.disconnect().catch(() => {});
+                void oldConn.disconnect().catch((error) => {
+                  console.warn(
+                    "[siwn] Wallet disconnect failed:",
+                    error instanceof Error ? error.message : error,
+                  );
+                });
               }
               connectedWallets.delete(prev);
               walletConnected.set(false);
@@ -1133,7 +1255,8 @@ export const siwnClient = (config: SIWNClientConfig) => {
         signIn: {
           near: async (callbacks?: AuthCallbacks, fetchOptions?: BetterFetchOption) => {
             try {
-              const { signedMessage, accountId, nonceHex, callbackUrl } = await signWithWallet();
+              const { signedMessage, accountId, nonceHex, callbackUrl } =
+                await signWithWallet($fetch);
               const net = activeNetwork.get();
               const recipient = getRecipient(net);
               const message = `Sign in to ${recipient}`;
@@ -1157,7 +1280,11 @@ export const siwnClient = (config: SIWNClientConfig) => {
               );
 
               if (verifyResponse.error) {
-                throw new Error(verifyResponse.error.message || "Failed to verify signature");
+                throw errorWithCode(
+                  verifyResponse.error.message || "",
+                  verifyResponse,
+                  "Failed to verify signature",
+                );
               }
 
               if (!verifyResponse?.data?.success) {

@@ -31,7 +31,7 @@ export function RouterError({
   messages,
   showErrorDetails,
 }: {
-  error: Error;
+  error: unknown;
   reset?: () => void;
   messages?: { title: string; body: string; home: string; retry: string };
   showErrorDetails?: boolean;
@@ -83,7 +83,7 @@ export function RouterError({
           <details className="w-full text-left text-sm text-muted-foreground">
             <summary className="cursor-pointer text-center">Error details</summary>
             <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs">
-              {error.message}
+              {error instanceof Error ? error.message : String(error)}
             </pre>
           </details>
         )}

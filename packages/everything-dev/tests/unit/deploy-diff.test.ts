@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   diffWorkspaceFiles,
+  digestsFromPublishedConfig,
   localObjectIntegrity,
   localSriMap,
   mergedFileIntegrity,
   pinsFromDeployState,
-  pinsFromPublishedConfig,
   readDeployState,
   upsertDeployStatePins,
   workspaceKeyOfBase,
@@ -134,44 +134,44 @@ describe("deploy-state pointer", () => {
   });
 });
 
-describe("pinsFromPublishedConfig", () => {
+describe("digestsFromPublishedConfig", () => {
   const account = "a.near";
   const gateway = "g.test";
-  const pin = { manifest: "versions/aaaaaaaaaaaaaaaa.json", integrity: "sha384-aaa" };
+  const digest = { manifest: "versions/aaaaaaaaaaaaaaaa.json", integrity: "sha384-aaa" };
   const config = {
     app: {
       ui: {
         production: `https://cdn.test/bundles/${account}/${gateway}/ui/`,
-        pin,
+        digest,
       },
     },
     plugins: {
       auth: {
         production: `https://cdn.test/bundles/${account}/${gateway}/auth/`,
-        pin,
+        digest,
         ui: {
           production: `https://cdn.test/bundles/${account}/${gateway}/auth-ui/`,
-          pin,
+          digest,
         },
       },
       remote: {
-        // a pinned slot under a different namespace must be ignored
+        // a stamped remote under a different namespace must be ignored
         production: "https://cdn.test/bundles/other.near/other.test/remote/",
-        pin,
+        digest,
       },
     },
   } as unknown as BosConfigInput;
 
   it("maps bundle bases back to workspace keys, filtered to the namespace", () => {
-    const pins = pinsFromPublishedConfig(config, account, gateway);
+    const pins = digestsFromPublishedConfig(config, account, gateway);
     expect(Object.keys(pins).sort()).toEqual(["auth", "auth-ui", "ui"]);
-    expect(pins.ui).toEqual(pin);
+    expect(pins.ui).toEqual(digest);
   });
 
   it("ignores slots whose production base is not a bundle base", () => {
-    const pins = pinsFromPublishedConfig(
+    const pins = digestsFromPublishedConfig(
       {
-        app: { ui: { production: "https://cdn.test/ui/", pin } },
+        app: { ui: { production: "https://cdn.test/ui/", digest } },
       } as unknown as BosConfigInput,
       account,
       gateway,

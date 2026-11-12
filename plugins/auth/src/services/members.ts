@@ -1,9 +1,9 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
-import { toOrganizationRecord } from "../serializers";
+import { toDate } from "../serializers";
 import type { PluginServices } from "../service-types";
 import {
   canReadMemberEmails,
@@ -18,12 +18,8 @@ import {
   MemberCreateNotPermitted,
   MemberEmailsExportForbidden,
   NoActiveOrganization,
-  OrgApprovalRequired,
-  OrganizationNotPending,
-  OrganizationRequesterMissing,
   OrgNotFound,
   OwnerRoleRequired,
-  RejectionReasonRequired,
 } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
@@ -73,15 +69,6 @@ export class MembersService extends Context.Service<
         organizationId?: string;
       },
     ) => Effect.Effect<InferOutput<"updateMemberRole">, AuthFailure>;
-    listPendingOrganizations: () => Effect.Effect<
-      InferOutput<"listOrganizationRequests">,
-      AuthFailure
-    >;
-    reviewOrganization: (
-      input:
-        | { organizationId: string; decision: "approve" }
-        | { organizationId: string; decision: "reject"; reason: string },
-    ) => Effect.Effect<InferOutput<"reviewOrganization">, AuthFailure>;
   }
 >()("auth/MembersService") {}
 
@@ -96,11 +83,9 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
         canReadMemberEmails(auth, context, organizationId),
       );
       if (!emailAllowed) {
-        return yield* Effect.fail(
-          new MemberEmailsExportForbidden({
-            message: "You do not have permission to export member emails",
-          }),
-        );
+        return yield* new MemberEmailsExportForbidden({
+          message: "You do not have permission to export member emails",
+        });
       }
       const result = yield* attemptAuth(() =>
         auth.api.listMembers({
@@ -171,7 +156,7 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
           userId: m.userId,
           organizationId: m.organizationId,
           role: m.role,
-          createdAt: m.createdAt instanceof Date ? m.createdAt : new Date(m.createdAt),
+          createdAt: toDate(m.createdAt),
           user: m.user
             ? {
                 id: m.user.id,
@@ -196,7 +181,7 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
     ) {
       const organizationId = input.organizationId ?? activeOrganizationId ?? null;
       if (!organizationId) {
-        return yield* Effect.fail(new NoActiveOrganization({ message: "No active organization" }));
+        return yield* new NoActiveOrganization({ message: "No active organization" });
       }
       if (context.user?.role !== "admin") {
         const { permitted, failure } = yield* Effect.promise(() =>
@@ -206,14 +191,12 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
           failure &&
           (failure.code === "INTERNAL_SERVER_ERROR" || failure.code === "SERVICE_UNAVAILABLE")
         ) {
-          return yield* Effect.fail(failure);
+          return yield* failure;
         }
         if (!permitted) {
-          return yield* Effect.fail(
-            new MemberCreateNotPermitted({
-              message: "Only organization owners and admins can add members",
-            }),
-          );
+          return yield* new MemberCreateNotPermitted({
+            message: "Only organization owners and admins can add members",
+          });
         }
         if (input.role === "owner") {
           const caller = yield* attemptDb(() =>
@@ -225,9 +208,9 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
             }),
           );
           if (!parseMemberRoles(caller?.role).includes("owner")) {
-            return yield* Effect.fail(
-              new OwnerRoleRequired({ message: "Only organization owners can add owners" }),
-            );
+            return yield* new OwnerRoleRequired({
+              message: "Only organization owners can add owners",
+            });
           }
         }
       }
@@ -237,17 +220,7 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
         }),
       );
       if (!organization) {
-        return yield* Effect.fail(
-          new OrgNotFound({ message: "Organization not found", organizationId }),
-        );
-      }
-      if (organization.status !== "active") {
-        return yield* Effect.fail(
-          new OrgApprovalRequired({
-            message: "Organization approval is required",
-            action: "add-member",
-          }),
-        );
+        return yield* new OrgNotFound({ message: "Organization not found", organizationId });
       }
       const result = yield* attemptAuth(() =>
         auth.api.addMember({
@@ -264,74 +237,9 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
         userId: result.userId,
         organizationId: result.organizationId,
         role: result.role,
-        createdAt: result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
+        createdAt: toDate(result.createdAt),
       };
     }),
-
-    listPendingOrganizations: () =>
-      attemptDb(() =>
-        db.query.organization.findMany({
-          where: eq(schema.organization.status, "pending"),
-          orderBy: asc(schema.organization.createdAt),
-        }),
-      ).pipe(Effect.map((organizations) => organizations.map(toOrganizationRecord))),
-
-    reviewOrganization: (input) =>
-      attemptDb(() =>
-        db.transaction(async (tx) => {
-          const reason = input.decision === "reject" ? input.reason.trim() : "";
-          if (
-            input.decision !== "approve" &&
-            (input.decision !== "reject" || !reason || reason.length > 2000)
-          ) {
-            throw new RejectionReasonRequired({
-              message: "A rejection reason is required (up to 2000 characters)",
-            });
-          }
-          const [reviewed] = await tx
-            .update(schema.organization)
-            .set({
-              status: input.decision === "approve" ? "active" : "rejected",
-              rejectionReason: input.decision === "reject" ? reason : null,
-            })
-            .where(
-              and(
-                eq(schema.organization.id, input.organizationId),
-                eq(schema.organization.status, "pending"),
-              ),
-            )
-            .returning();
-          if (!reviewed)
-            throw new OrganizationNotPending({
-              message: "Organization is no longer pending or does not exist",
-            });
-          if (input.decision === "approve") {
-            if (!reviewed.requestedBy)
-              throw new OrganizationRequesterMissing({
-                message: "Organization requester is missing",
-              });
-            const members = await tx
-              .update(schema.member)
-              .set({ role: "owner" })
-              .where(
-                and(
-                  eq(schema.member.organizationId, reviewed.id),
-                  eq(schema.member.userId, reviewed.requestedBy),
-                ),
-              )
-              .returning();
-            if (!members.length)
-              await tx.insert(schema.member).values({
-                id: crypto.randomUUID(),
-                organizationId: reviewed.id,
-                userId: reviewed.requestedBy,
-                role: "owner",
-                createdAt: new Date(),
-              });
-          }
-          return reviewed;
-        }),
-      ).pipe(Effect.map(toOrganizationRecord)),
 
     removeMember: (headers, input) =>
       attemptAuth(() =>
@@ -368,7 +276,7 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
         userId: result.userId,
         organizationId: result.organizationId,
         role: result.role,
-        createdAt: result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
+        createdAt: toDate(result.createdAt),
         user: result.user
           ? {
               id: result.user.id,

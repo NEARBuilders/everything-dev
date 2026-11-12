@@ -1,71 +1,58 @@
 /**
- * The platform release manifest (ADR 0034) — one module, the whole release
- * contract: schema, composer, inventory, registry slot, resolution, and the
- * compat check. One composer feeds both publish homes (FastKV pointer slot +
- * in-image staging); the image digest is deliberately absent — it derives from
- * the tags at deploy preflight. The homes' one known divergence is the compat
- * floor: publisher-side (previous release) in FastKV, own version — failing
- * closed — in the image, which cannot read the registry inside the build.
+ * The platform release manifest (ADR 0034) — schema, composer, inventory,
+ * registry key helpers, and the compat check. One composer feeds both publish
+ * homes (FastKV thin tag + in-image staging); the image digest is
+ * deliberately absent — it derives from the tags at deploy preflight. The
+ * homes' one known divergence is the compat floor: publisher-side (previous
+ * release) in FastKV, own version — failing closed — in the image, which
+ * cannot read the registry inside the build.
+ *
+ * Resolution (the machine) and the cache live in `registry/resolution.ts` and
+ * `registry/cache.ts`; the service below re-exposes the resolver through the
+ * machine's compatibility adapter.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Context, Layer } from "effect";
 import {
   SHARED_DEP_SPECS,
   type SharedDependencyConfig,
   shareConfigFor,
 } from "every-plugin/shared-deps-spec";
 import { glob } from "glob";
-import { z } from "zod";
-import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
-import { satisfiesConstraint } from "../federation/service";
-import { fetchRegistryKeyOrNull } from "../registry/fastkv";
-import { fetchParentConfig } from "../resolution/init-source";
+import { compareSemver, satisfiesConstraint } from "../../utils/semver";
+import { resolvePlatformManifest } from "../registry/resolution";
 import { AGENT_SYNC_GLOBS, FRAMEWORK_OWNED_SYNC_FILES } from "../scaffold/ownership";
 
-export const PlatformReleaseManifestSchema = z.object({
-  schemaVersion: z.literal(1),
-  kind: z.literal("everything-dev/platform-manifest"),
-  frameworkVersion: z.string().min(1),
-  everyPluginVersion: z.string().min(1),
-  /** The serving build's repo HEAD (full sha) — omitted when the compose
-   * context has no git (regression image builds, build-arg-less builds). */
-  gitSha: z.string().min(7).optional(),
-  image: z.object({
-    ref: z.string().min(1),
-    tags: z.array(z.string().min(1)),
-  }),
-  catalog: z.record(z.string(), z.string()),
-  sharedDeps: z.record(
-    z.string(),
-    z.object({
-      version: z.string(),
-      requiredVersion: z.union([z.string(), z.boolean()]),
-      singleton: z.boolean(),
-      eager: z.boolean(),
-      strictVersion: z.boolean(),
-      shareScope: z.string(),
-    }),
-  ),
-  templateInventory: z.array(
-    z.object({
-      path: z.string(),
-      sha256: z.string().regex(/^[0-9a-f]{64}$/),
-    }),
-  ),
-  compat: z.object({ minChild: z.string().min(1) }),
-});
-export type PlatformReleaseManifest = z.infer<typeof PlatformReleaseManifestSchema>;
+export type {
+  PlatformManifestCache,
+  ResolvedPlatformManifest,
+} from "../registry/resolution";
+export {
+  type ResolvePlatformManifestOptions,
+  resolvePlatformManifest,
+  walkExtendsChain,
+} from "../registry/resolution";
+export { type Manifest, ManifestSchema } from "./manifest-schema";
+
+import { type Manifest, ManifestSchema } from "./manifest-schema";
+
+/** One recorded release remote (see {@link ManifestSchema.remotes}). */
+export interface RemoteRecord {
+  base: string;
+  digest: { manifest: string; integrity: string };
+}
 
 export interface TemplateInventoryEntry {
   path: string;
   sha256: string;
 }
 
-export function getPlatformManifestKey(accountId: string, gatewayId: string): string {
-  return `apps/${accountId}/${gatewayId}/platform.json`;
-}
+// The release-pointer key derivations moved to `registry/pointer.ts` (the
+// pre-cutover wire quarantine); the post-cutover keys live in the key model
+// (`registry/keys.ts`).
 
 /**
  * The template-source file set a release inventory hashes: the ownership
@@ -131,11 +118,15 @@ export interface ComposePlatformReleaseManifestInputs {
   catalog: Record<string, string>;
   templateInventory: TemplateInventoryEntry[];
   compatMinChild: string;
+  /** The release's own remote-record map — sorted here so identical payloads
+   * compose identical manifest bytes across machines (the burned-version
+   * guard compares serialized bytes). */
+  remotes?: Record<string, RemoteRecord>;
 }
 
 export function composePlatformReleaseManifest(
   inputs: ComposePlatformReleaseManifestInputs,
-): PlatformReleaseManifest {
+): Manifest {
   // The manifest carries only the derivable tag — the exact version tag the
   // tag scheme pushes for semver releases (ADR 0021). Sha-tags are git facts
   // an image build cannot see; derivation (`ref@v<version>` → digest) keys off
@@ -147,7 +138,10 @@ export function composePlatformReleaseManifest(
         `v${semver.major}.${semver.minor}.${semver.patch}${semver.prerelease ? `-${semver.prerelease}` : ""}`,
       ]
     : [];
-  return PlatformReleaseManifestSchema.parse({
+  const remotes = inputs.remotes
+    ? Object.fromEntries(Object.entries(inputs.remotes).sort(([a], [b]) => (a < b ? -1 : 1)))
+    : undefined;
+  return ManifestSchema.parse({
     schemaVersion: 1,
     kind: "everything-dev/platform-manifest",
     frameworkVersion: inputs.frameworkVersion,
@@ -158,11 +152,12 @@ export function composePlatformReleaseManifest(
     sharedDeps: composeSharedDepsFromCatalog(inputs.catalog),
     templateInventory: inputs.templateInventory,
     compat: { minChild: inputs.compatMinChild },
+    ...(remotes ? { remotes } : {}),
   });
 }
 
 /** The one serializer for both publish homes — byte-identical by construction. */
-export function serializePlatformReleaseManifest(manifest: PlatformReleaseManifest): string {
+export function serializePlatformReleaseManifest(manifest: Manifest): string {
   return JSON.stringify(manifest);
 }
 
@@ -175,7 +170,7 @@ export function serializePlatformReleaseManifest(manifest: PlatformReleaseManife
  * dir, then `<pkg>/dist/`). Both candidates are tried; absent or unparsable →
  * null.
  */
-export function readInImagePlatformManifest(): PlatformReleaseManifest | null {
+export function readInImagePlatformManifest(): Manifest | null {
   const moduleFile = fileURLToPath(import.meta.url);
   const candidates = [
     join(moduleFile, "..", "..", "platform-manifest.json"),
@@ -183,7 +178,7 @@ export function readInImagePlatformManifest(): PlatformReleaseManifest | null {
   ];
   for (const path of candidates) {
     try {
-      return PlatformReleaseManifestSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
+      return ManifestSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
     } catch {
       // try the next layout candidate
     }
@@ -202,15 +197,6 @@ function parseSemver(
     patch: Number(match[3]),
     ...(match[4] ? { prerelease: match[4] } : {}),
   };
-}
-
-function compareSemver(a: string, b: string): number {
-  const left = parseSemver(a);
-  const right = parseSemver(b);
-  if (!left || !right) return a === b ? 0 : a < b ? -1 : 1;
-  if (left.major !== right.major) return left.major - right.major;
-  if (left.minor !== right.minor) return left.minor - right.minor;
-  return left.patch - right.patch;
 }
 
 export interface PlatformCompatSubject {
@@ -232,7 +218,7 @@ export interface PlatformCompatViolation {
  * a relaxation of it.
  */
 export function checkPlatformCompat(
-  manifest: PlatformReleaseManifest,
+  manifest: Manifest,
   subject: PlatformCompatSubject,
 ): PlatformCompatViolation[] {
   const violations: PlatformCompatViolation[] = [];
@@ -287,173 +273,53 @@ export function checkPlatformCompat(
 }
 
 /**
- * Resolution (ADR 0034 pt 3): one authored `platform` pin in, one resolved
- * manifest out. Absent pin = latest via extends (nearest chain manifest);
- * explicit pins match exactly or fail loud. The `.bos/platform-manifest.json`
- * cache carries offline dev; network failure with no usable cache → null
- * (today's behavior). All I/O is injectable — the test seam.
+ * The platform release manifest as a Context.Service: the same "module is
+ * the implementation, the tag is the seam" shape as FastKVRegistryService —
+ * CLI handlers `yield*` the tag; pure and standalone callers keep using the
+ * plain functions. Tests provide `Layer.succeed` fakes instead of module
+ * mocks. Resolution comes from `registry/resolution.ts` (the machine's
+ * compatibility adapter).
  */
-export interface ResolvedPlatformManifest {
-  manifest: PlatformReleaseManifest;
-  source: { account: string; gateway: string };
-  fromCache: boolean;
-}
-
-export interface PlatformManifestCache {
-  schemaVersion: 1;
-  kind: "everything-dev/platform-manifest-cache";
-  resolvedAt: string;
-  source: { account: string; gateway: string };
-  manifest: PlatformReleaseManifest;
+export class ManifestService extends Context.Service<
+  ManifestService,
+  {
+    resolvePlatformManifest: typeof resolvePlatformManifest;
+    composePlatformReleaseManifest: typeof composePlatformReleaseManifest;
+    checkPlatformCompat: typeof checkPlatformCompat;
+    readInImagePlatformManifest: typeof readInImagePlatformManifest;
+  }
+>()("everything-dev/platform/manifest") {
+  static readonly Live = Layer.succeed(
+    this,
+    this.of({
+      resolvePlatformManifest,
+      composePlatformReleaseManifest,
+      checkPlatformCompat,
+      readInImagePlatformManifest,
+    }),
+  );
 }
 
 /**
- * How long a cached resolution may stand in for a live fetch. The cache
- * exists for offline dev; without a freshness bound a registry outage (or a
- * stale cache written before the parent's latest publish) silently serves a
- * months-old release manifest — pins derive from it and the mismatch can
- * take an hour to diagnose. Past the TTL the cache is refused: pin-less
- * resolution degrades to "no manifest", pinned resolution fails loud with
- * the pin-not-found error.
+ * The child-side upgrade-path line (`.scratch/catalog-drift/issues/05`):
+ * when the resolved chain head is a NEWER release than this runtime's
+ * authored release, the runtime is servable-but-behind — the dev boot
+ * surfaces the upgrade instead of waiting for a load-time skew to explain
+ * it. Empty (no notice) when either side is unknown, or the release is
+ * current-or-ahead. Never reads npm: the FastKV pointer only advances when
+ * the parent's release leg completed, so "release trails pointer" already
+ * implies "the chain is servable right now" — no transient mid-train state
+ * leaks in.
  */
-export const PLATFORM_MANIFEST_CACHE_TTL_MS = 24 * 60 * 60_000;
-
-export interface ResolvePlatformManifestOptions {
-  configDir: string;
-  localConfig: Record<string, unknown>;
-  fetchManifest?: (account: string, gateway: string) => Promise<PlatformReleaseManifest | null>;
-  fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
-  cacheRead?: () => PlatformManifestCache | null;
-  cacheWrite?: (cached: PlatformManifestCache) => void;
-  /** injectable clock for the cache-freshness check (test seam) */
-  now?: () => number;
-  /** injectable freshness bound (test seam); defaults to {@link PLATFORM_MANIFEST_CACHE_TTL_MS} */
-  cacheTtlMs?: number;
-}
-
-const CACHE_DIR = ".bos";
-const CACHE_FILE = "platform-manifest.json";
-
-/**
- * A cached resolution stands in for a live fetch only while it is fresh:
- * `resolvedAt` inside the TTL, and parseable (a cache with an unparseable
- * timestamp is treated as stale — never trusted).
- */
-function isFresh(cached: PlatformManifestCache, opts: ResolvePlatformManifestOptions): boolean {
-  const now = (opts.now ?? Date.now)();
-  const ttl = opts.cacheTtlMs ?? PLATFORM_MANIFEST_CACHE_TTL_MS;
-  const resolvedAt = Date.parse(cached.resolvedAt);
-  if (Number.isNaN(resolvedAt)) return false;
-  return now - resolvedAt <= ttl;
-}
-
-function defaultCachePath(configDir: string): string {
-  return join(configDir, CACHE_DIR, CACHE_FILE);
-}
-
-function defaultCacheRead(configDir: string): PlatformManifestCache | null {
-  try {
-    const raw = JSON.parse(
-      readFileSync(defaultCachePath(configDir), "utf-8"),
-    ) as PlatformManifestCache;
-    return raw?.kind === "everything-dev/platform-manifest-cache" ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
-function defaultCacheWrite(configDir: string, cached: PlatformManifestCache): void {
-  try {
-    mkdirSync(join(configDir, CACHE_DIR), { recursive: true });
-    writeFileSync(defaultCachePath(configDir), `${JSON.stringify(cached, null, 2)}\n`);
-  } catch {
-    // cache writes never fail the resolution
-  }
-}
-
-function defaultFetchManifest(
-  account: string,
-  gateway: string,
-): Promise<PlatformReleaseManifest | null> {
-  return (async () => {
-    const raw = await fetchRegistryKeyOrNull<unknown>(account, gateway, "platform.json");
-    if (!raw) return null;
-    return PlatformReleaseManifestSchema.parse(raw);
-  })();
-}
-
-function defaultFetchParent(
-  account: string,
-  gateway: string,
-): Promise<Record<string, unknown> | null> {
-  return fetchParentConfig(account, gateway)
-    .then((config) => config as Record<string, unknown>)
-    .catch(() => null);
-}
-
-export async function resolvePlatformManifest(
-  opts: ResolvePlatformManifestOptions,
-): Promise<ResolvedPlatformManifest | null> {
-  const fetchManifest =
-    opts.fetchManifest ?? ((a: string, g: string) => defaultFetchManifest(a, g));
-  const fetchParent = opts.fetchParent ?? defaultFetchParent;
-  const cacheRead = opts.cacheRead ?? (() => defaultCacheRead(opts.configDir));
-  const cacheWrite = opts.cacheWrite ?? ((cached) => defaultCacheWrite(opts.configDir, cached));
-
-  // Walk the extends chain child → root, mirroring upgrade's chain walk.
-  const chain: Array<{ account: string; gateway: string }> = [];
-  const visited = new Set<string>();
-  let cursor: { account: string; gateway: string } | null = null;
-  const extendsRef = getExtendsRef(opts.localConfig);
-  if (typeof extendsRef === "string" && extendsRef.startsWith("bos://")) {
-    const parsed = parseBosRef(extendsRef);
-    if (parsed) cursor = { account: parsed.account, gateway: parsed.gateway };
-  }
-  while (cursor && !visited.has(`bos://${cursor.account}/${cursor.gateway}`)) {
-    visited.add(`bos://${cursor.account}/${cursor.gateway}`);
-    chain.push(cursor);
-    const parentConfig = await fetchParent(cursor.account, cursor.gateway);
-    if (!parentConfig) break;
-    const nextRef = getExtendsRef(parentConfig);
-    if (typeof nextRef !== "string" || !nextRef.startsWith("bos://")) break;
-    const parsed = parseBosRef(nextRef);
-    if (!parsed) break;
-    cursor = { account: parsed.account, gateway: parsed.gateway };
-  }
-
-  const writeCache = (
-    manifest: PlatformReleaseManifest,
-    source: { account: string; gateway: string },
-  ) => {
-    const cached: PlatformManifestCache = {
-      schemaVersion: 1,
-      kind: "everything-dev/platform-manifest-cache",
-      resolvedAt: new Date().toISOString(),
-      source,
-      manifest,
-    };
-    cacheWrite(cached);
-    return { manifest, source, fromCache: false };
-  };
-
-  const pin = typeof opts.localConfig.platform === "string" ? opts.localConfig.platform : undefined;
-
-  for (const node of chain) {
-    const manifest = await fetchManifest(node.account, node.gateway);
-    if (!manifest) continue;
-    if (!pin) return writeCache(manifest, node);
-    if (manifest.frameworkVersion === pin) return writeCache(manifest, node);
-  }
-
-  const cached = cacheRead();
-  if (cached && (!pin || cached.manifest.frameworkVersion === pin) && isFresh(cached, opts)) {
-    return { manifest: cached.manifest, source: cached.source, fromCache: true };
-  }
-
-  if (pin) {
-    throw new Error(
-      `platform pin ${pin} not found in the extends chain${chain.length > 0 ? ` (${chain.map((n) => `bos://${n.account}/${n.gateway}`).join(" → ")})` : ""} — publish the release or clear the pin`,
-    );
-  }
-  return null;
+export function chainHeadPinLagNotice(
+  headFrameworkVersion: string | undefined,
+  authoredRelease: string | undefined,
+): string | undefined {
+  if (!headFrameworkVersion || !authoredRelease) return undefined;
+  if (compareSemver(headFrameworkVersion, authoredRelease) <= 0) return undefined;
+  return (
+    `release upgrade available for this runtime: the chain head advanced to ${headFrameworkVersion}, ` +
+    `this runtime targets ${authoredRelease} — run bos upgrade; until then the authored release ` +
+    `keeps resolving the older chain`
+  );
 }

@@ -4,25 +4,39 @@ import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
-import { upgradeTemplate } from "../cli/upgrade";
+import { planUpgradeInteraction } from "../cli/upgrade-plan";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import { generateCodeArtifacts } from "../services/codegen/artifacts";
-import { checkFederationCompat } from "../services/federation/service";
+import { checkFederationCompat, checkUiCompositionCompat } from "../services/federation/service";
 import { readInstalledFrameworkVersion } from "../services/framework-version";
 import {
-  checkPlatformCompat,
+  ManifestService,
   type PlatformCompatViolation,
-  readInImagePlatformManifest,
-  resolvePlatformManifest,
+  type ResolvedPlatformManifest,
 } from "../services/platform/manifest";
 import { resolvePublishedConfig } from "../services/registry/published";
 import { openResolution } from "../services/resolution/session";
+import { upgradeTemplate } from "../services/scaffold/upgrade";
+import {
+  applyV1Tree,
+  auditV1Tree,
+  GateBlocked,
+  isV2Tree,
+  maintainV1Tree,
+  toPlainFinding,
+} from "../services/scaffold/upgrade-audit";
 import { selectWorkspaceTargets } from "../services/workspace/build-train";
 import { readWorkspaceCatalog } from "../services/workspace/catalog";
 import { findWorkspaceRoot } from "../services/workspace/workspace";
 import type { BosConfig } from "../types";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
+
+const nodeEnvProduction = (): boolean => process.env.NODE_ENV === "production";
+const envOf = (name: string): string | undefined => process.env[name];
+const stageLog = (message: string): void => {
+  console.log(message);
+};
 
 export function registerUpgrade(builder: BosBuilder) {
   return {
@@ -39,190 +53,87 @@ export function registerUpgrade(builder: BosBuilder) {
           }
 
           const projectDir = resolve(dirname(configPath));
-          return await upgradeTemplate(projectDir, input);
+
+          if (input.from === "v1") {
+            if (input.maintain && input.maintain.length > 0) {
+              const migrated: string[] = [];
+              const notes: string[] = [];
+              for (const step of input.maintain) {
+                try {
+                  const result = await maintainV1Tree(projectDir, step, input.dryRun);
+                  for (const path of result.writes) migrated.push(`${step}: wrote ${path}`);
+                  for (const path of result.deletes) migrated.push(`${step}: deleted ${path}`);
+                  for (const note of result.notes) notes.push(`${step}: ${note}`);
+                } catch (error) {
+                  if (!(error instanceof GateBlocked)) throw error;
+                  return {
+                    status: "gate-blocked" as const,
+                    packages: [],
+                    blockers: error.findings.map(toPlainFinding),
+                  };
+                }
+              }
+              return {
+                status: input.dryRun ? ("dry-run" as const) : ("upgraded" as const),
+                packages: [],
+                migrated,
+                notes,
+              };
+            }
+            if (isV2Tree(projectDir)) {
+              return {
+                status: "already-upgraded" as const,
+                packages: [],
+                notes: [
+                  "bos.app.ts present — this tree is already on the v2 train; nothing to audit or apply",
+                ],
+              };
+            }
+            if (input.audit) {
+              const outcome = await auditV1Tree(projectDir);
+              const auditResult = {
+                tier: outcome.tier,
+                findings: outcome.findings,
+                manifest: outcome.manifest,
+              };
+              return outcome.gateBlocked
+                ? {
+                    status: "gate-blocked" as const,
+                    packages: [],
+                    audit: auditResult,
+                    blockers: outcome.findings.filter((f) => f.severity === "blocker"),
+                  }
+                : { status: "audit" as const, packages: [], audit: auditResult };
+            }
+            const outcome = await applyV1Tree(projectDir, input.dryRun);
+            if (!outcome.ok) {
+              return {
+                status: "gate-blocked" as const,
+                packages: [],
+                blockers: outcome.blockers,
+              };
+            }
+            return {
+              status: input.dryRun ? ("dry-run" as const) : ("upgraded" as const),
+              packages: [],
+              migrated: outcome.outcome.migrated,
+              notes: outcome.outcome.notes,
+            };
+          }
+
+          // The interactive plan (TTY only): show the version delta and the
+          // exact files, let the user toggle per file, offer the post-upgrade
+          // clean. `--force` and non-TTY runs keep the classic behavior.
+          // A declined plan reports cancelled — nothing was written.
+          const decision = await planUpgradeInteraction(projectDir, input);
+          if (decision === null) {
+            return { status: "cancelled" as const, packages: [] };
+          }
+          return await upgradeTemplate(projectDir, { ...input, ...decision });
         },
         catch: (error) => ({
           status: "error" as const,
           packages: [],
-          error: error instanceof Error ? error.message : "Unknown error",
-        }),
-      });
-    }),
-
-    typesGen: builder.typesGen.effect(function* (_opts, input) {
-      return yield* Effect.tryPromise({
-        try: async () => {
-          const configPath = findConfigPath();
-          if (!configPath) {
-            return {
-              status: "error" as const,
-              generated: [],
-              fetched: [],
-              skipped: [],
-              failed: [],
-              error: `${MISSING_CONFIG_MESSAGE} in current directory`,
-            };
-          }
-
-          const projectDir = resolve(dirname(configPath));
-          const env =
-            input.env ?? (process.env.NODE_ENV === "production" ? "production" : "development");
-
-          const refreshed = await openResolution({
-            cwd: projectDir,
-            env,
-            remotePlugins: input.remotePlugins,
-          });
-          if (!refreshed?.config || !refreshed.runtime) {
-            return {
-              status: "error" as const,
-              generated: [],
-              fetched: [],
-              skipped: [],
-              failed: [],
-              error: "Failed to load the authored config",
-            };
-          }
-
-          const runtime = refreshed.runtime;
-          const resolvedConfig = refreshed.config;
-
-          if (input.dryRun) {
-            const pluginEntries = Object.entries(runtime.plugins ?? {});
-            const fetched: string[] = [];
-            const skipped: string[] = [];
-            const hasLocalApiWorkspace = existsSync(join(projectDir, "api", "src"));
-
-            if (runtime.api.source !== "local") {
-              fetched.push(`api remote (${runtime.api.url})`);
-            } else {
-              const path = runtime.api.localPath
-                ? ` (${relative(projectDir, runtime.api.localPath)})`
-                : "";
-              skipped.push(`api local${path}`);
-            }
-
-            if (runtime.auth) {
-              if (runtime.auth.source !== "local") {
-                fetched.push(`auth remote (${runtime.auth.url})`);
-              } else {
-                const path = runtime.auth.localPath
-                  ? ` (${relative(projectDir, runtime.auth.localPath)})`
-                  : "";
-                skipped.push(`auth local${path}`);
-              }
-            }
-
-            for (const [key, plugin] of pluginEntries) {
-              if (plugin.url && plugin.source !== "local") {
-                fetched.push(`${key} remote (${plugin.url})`);
-              } else if (plugin.localPath) {
-                skipped.push(`${key} local (${relative(projectDir, plugin.localPath)})`);
-              } else {
-                skipped.push(`${key} no URL resolved`);
-              }
-            }
-
-            const generated = [
-              "ui/src/lib/api-types.gen.ts",
-              "ui/src/lib/auth-types.gen.ts",
-              ".bos/bos.resolved-config.json",
-            ];
-            if (hasLocalApiWorkspace) {
-              generated.push("api/src/lib/plugins-types.gen.ts", "api/src/lib/auth-types.gen.ts");
-            }
-            if (existsSync(join(projectDir, "host", "src"))) {
-              generated.push("host/src/lib/auth-types.gen.ts");
-            }
-            for (const [_key, plugin] of pluginEntries) {
-              const localPath = plugin.localPath;
-              if (!localPath) continue;
-              const pluginSrc = join(localPath, "src", "lib", "plugins-client.gen.ts");
-              if (existsSync(pluginSrc)) {
-                generated.push(relative(projectDir, pluginSrc));
-              }
-            }
-            if (runtime.auth?.localPath) {
-              const authSrc = join(runtime.auth.localPath, "src", "lib", "plugins-client.gen.ts");
-              if (existsSync(authSrc)) {
-                generated.push(relative(projectDir, authSrc));
-              }
-            }
-
-            return {
-              status: "success" as const,
-              generated,
-              fetched,
-              skipped,
-              failed: [],
-            };
-          }
-
-          const artifacts = await generateCodeArtifacts(projectDir, resolvedConfig, {
-            env,
-            extendsChain: [...refreshed.chain],
-            runtimeConfig: runtime,
-            forceRouteTree: true,
-          });
-
-          const hasLocalApiWorkspace = existsSync(join(projectDir, "api", "src"));
-          const generated = ["ui/src/lib/api-types.gen.ts"];
-          if (hasLocalApiWorkspace) {
-            generated.push("api/src/lib/plugins-types.gen.ts", "api/src/lib/auth-types.gen.ts");
-          }
-          if (runtime.auth && (runtime.auth.source !== "local" || runtime.auth.localPath)) {
-            generated.push("ui/src/lib/auth-types.gen.ts");
-          }
-          if (existsSync(join(projectDir, "host", "src"))) {
-            generated.push("host/src/lib/auth-types.gen.ts");
-          }
-          for (const [_key, plugin] of Object.entries(runtime.plugins ?? {})) {
-            const localPath = plugin.localPath;
-            if (!localPath) continue;
-            const pluginSrc = join(localPath, "src", "lib", "plugins-client.gen.ts");
-            if (existsSync(pluginSrc)) {
-              generated.push(relative(projectDir, pluginSrc));
-            }
-          }
-          if (runtime.auth?.localPath) {
-            const authSrc = join(runtime.auth.localPath, "src", "lib", "plugins-client.gen.ts");
-            if (existsSync(authSrc)) {
-              generated.push(relative(projectDir, authSrc));
-            }
-          }
-
-          const contractStatus = artifacts?.contractStatus ?? [];
-          const fetched: string[] = [];
-          const skipped: string[] = [];
-          const failed: string[] = [];
-          for (const entry of contractStatus) {
-            if (entry.source === "remote") {
-              fetched.push(entry.url ? `${entry.key} remote (${entry.url})` : entry.key);
-            } else if (entry.source === "local") {
-              const path = entry.localPath ? ` (${relative(projectDir, entry.localPath)})` : "";
-              skipped.push(`${entry.key} local${path}`);
-            } else if (entry.source === "skipped") {
-              skipped.push(`${entry.key} no URL resolved`);
-            } else if (entry.source === "failed") {
-              const detail = entry.error ? `: ${entry.error}` : "";
-              failed.push(`${entry.key}${detail}`);
-            }
-          }
-
-          return {
-            status: "success" as const,
-            generated: [...generated, ".bos/bos.resolved-config.json"],
-            fetched,
-            skipped,
-            failed,
-          };
-        },
-        catch: (error) => ({
-          status: "error" as const,
-          generated: [],
-          fetched: [],
-          skipped: [],
-          failed: [],
           error: error instanceof Error ? error.message : "Unknown error",
         }),
       });
@@ -258,7 +169,7 @@ export function registerUpgrade(builder: BosBuilder) {
           const resolvedConfig = refreshed.config;
 
           await generateCodeArtifacts(projectDir, resolvedConfig, {
-            env: process.env.NODE_ENV === "production" ? "production" : "development",
+            env: nodeEnvProduction() ? "production" : "development",
             extendsChain: [...refreshed.chain],
             runtimeConfig: runtime,
           });
@@ -373,7 +284,7 @@ export function registerUpgrade(builder: BosBuilder) {
               } catch {}
             }
 
-            console.log(`\n  ${colors.dim("Checking")} ${colors.cyan(entry.label)}`);
+            stageLog(`\n  ${colors.dim("Checking")} ${colors.cyan(entry.label)}`);
             const child = spawnSync("pnpm", args, {
               cwd: entry.dir,
               stdio: "inherit",
@@ -405,6 +316,7 @@ export function registerUpgrade(builder: BosBuilder) {
     }),
 
     mfCheck: builder.mfCheck.effect(function* (_opts, input) {
+      const manifestService = yield* ManifestService;
       return yield* Effect.promise(async () => {
         let authored: BosConfig | null = null;
         try {
@@ -422,8 +334,8 @@ export function registerUpgrade(builder: BosBuilder) {
           // No local authored config (the universal image carries none): fall
           // back to the registry identity — the same source `bos start` boots
           // from in a runtime container.
-          const account = process.env.BOS_ACCOUNT;
-          const gateway = process.env.BOS_GATEWAY;
+          const account = envOf("BOS_ACCOUNT");
+          const gateway = envOf("BOS_GATEWAY");
           if (!account || !gateway) {
             return {
               status: "fail" as const,
@@ -459,56 +371,63 @@ export function registerUpgrade(builder: BosBuilder) {
           timeoutMs: input.timeoutMs,
         });
 
-        // ADR 0034 pt 5 — the platform compat gate, additive to the federation
+        // #546: the UI composition compat gate — sibling UI manifests must
+        // agree on named shared singletons (the mf-check mirror of the
+        // host's boot guard). Absent when no UI remotes exist.
+        const ui = await checkUiCompositionCompat(authored, { timeoutMs: input.timeoutMs });
+
+        // ADR 0034 pt 5 — the release compat gate, additive to the federation
         // check (a sibling, never a relaxation). Absent when no manifest
         // resolves (in-image hosts self-describe; the smoke gate covers them).
-        let platform: { ok: boolean; violations: PlatformCompatViolation[] } | undefined;
+        let manifest: { ok: boolean; violations: PlatformCompatViolation[] } | undefined;
         try {
           const configPath = findConfigPath();
           if (configPath) {
             const projectDir = resolve(dirname(configPath));
-            const resolved = await resolvePlatformManifest({
+            const resolved = await manifestService.resolvePlatformManifest({
               configDir: projectDir,
               localConfig: authored as Record<string, unknown>,
             });
             if (resolved) {
               const root = findWorkspaceRoot(projectDir)?.dir ?? projectDir;
-              const violations = checkPlatformCompat(resolved.manifest, {
+              const violations = manifestService.checkPlatformCompat(resolved.manifest, {
                 platformVersion: readInstalledFrameworkVersion(projectDir, "everything-dev"),
                 catalog: readWorkspaceCatalog(root),
               });
-              platform = { ok: violations.length === 0, violations };
+              manifest = { ok: violations.length === 0, violations };
             }
           }
         } catch (e) {
-          platform = {
+          manifest = {
             ok: false,
             violations: [
               {
                 kind: "minChild",
-                message: `platform manifest resolution failed: ${e instanceof Error ? e.message : String(e)}`,
+                message: `release manifest resolution failed: ${e instanceof Error ? e.message : String(e)}`,
               },
             ],
           };
         }
 
         return {
-          status: report.ok && (platform?.ok ?? true) ? ("ok" as const) : ("fail" as const),
+          status: report.ok && (manifest?.ok ?? true) ? ("ok" as const) : ("fail" as const),
           hostVersion: report.hostVersion,
           hostReachable: report.hostReachable,
           hostReason: report.hostReason,
           remotes: report.remotes,
-          ...(platform ? { platform } : {}),
+          ...(ui.remotes.length > 0 ? { ui: { ok: ui.ok, remotes: ui.remotes } } : {}),
+          ...(manifest ? { manifest } : {}),
         };
       });
     }),
 
-    platformManifest: builder.platformManifest.effect(function* (_opts, input) {
+    manifest: builder.manifest.effect(function* (_opts, input) {
+      const manifestService = yield* ManifestService;
       return yield* Effect.promise(async () => {
         // In-image: the booted host self-describes (ADR 0034 pt 1) — the
         // staged manifest is the release's own bytes; a compat check of the
         // image against itself is trivially consistent.
-        const inImage = readInImagePlatformManifest();
+        const inImage = manifestService.readInImagePlatformManifest();
         if (inImage) {
           return {
             status: "ok" as const,
@@ -528,25 +447,56 @@ export function registerUpgrade(builder: BosBuilder) {
         }
         const projectDir = resolve(dirname(configPath));
         try {
-          const resolved = await resolvePlatformManifest({
-            configDir: projectDir,
-            localConfig:
-              ((await readAuthoredConfigInput()) as Record<string, unknown> | null) ?? {},
-          });
+          const authoredConfig =
+            ((await readAuthoredConfigInput()) as Record<string, unknown> | null) ?? {};
+          let resolved: ResolvedPlatformManifest | null;
+          let drift: { pinned: string; published: string } | undefined;
+          try {
+            resolved = await manifestService.resolvePlatformManifest({
+              configDir: projectDir,
+              localConfig: authoredConfig,
+            });
+          } catch (pinError) {
+            // The authored release names a release the chain no longer serves
+            // — the root republished past it (issue #546). Resolve the latest
+            // published manifest so the report names the drift instead of the
+            // cryptic pin-not-found error.
+            const latest = await manifestService.resolvePlatformManifest({
+              configDir: projectDir,
+              localConfig: { ...authoredConfig, release: undefined },
+            });
+            if (!latest) throw pinError;
+            resolved = latest;
+            const authored =
+              typeof authoredConfig.release === "string" ? authoredConfig.release : undefined;
+            drift = authored
+              ? { pinned: authored, published: latest.manifest.frameworkVersion }
+              : undefined;
+          }
           if (!resolved) {
             return { status: "absent" as const, version: null };
+          }
+          if (drift) {
+            return {
+              status: "fail" as const,
+              version: drift.published,
+              source: `bos://${resolved.source.account}/${resolved.source.gateway}`,
+              drift,
+              error: `parent release is ${drift.published} (published at bos://${resolved.source.account}/${resolved.source.gateway}), you target ${drift.pinned} — run \`bos upgrade\` to realign`,
+            };
           }
           const base = {
             status: "ok" as const,
             version: resolved.manifest.frameworkVersion,
             source: `bos://${resolved.source.account}/${resolved.source.gateway}`,
             fromCache: resolved.fromCache,
+            provenance: resolved.provenance,
           };
           if (!input.check) {
             return base;
           }
           const root = findWorkspaceRoot(projectDir)?.dir ?? projectDir;
-          const violations = checkPlatformCompat(resolved.manifest, {
+          const violations = manifestService.checkPlatformCompat(resolved.manifest, {
             platformVersion: readInstalledFrameworkVersion(projectDir, "everything-dev"),
             catalog: readWorkspaceCatalog(root),
           });

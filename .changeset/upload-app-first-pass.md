@@ -1,5 +1,4 @@
 ---
-"@everything-dev/upload-app": minor
 "everything-dev": minor
 ---
 

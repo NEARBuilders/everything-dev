@@ -1,5 +1,6 @@
 import { DEFAULT_DEVICE_LINK_CLIENT_ID } from "better-near-auth";
 import { z } from "zod";
+import { onboardConfigSchema } from "./onboard-config";
 export const API_KEY_CONFIG_IDS = ["user-keys", "org-keys"] as const;
 
 export const subAccountNetworkSchema = z.object({
@@ -53,6 +54,7 @@ export const permissionsSchema = z.object({
 export const authSiwnBaseSchema = z.object({
   apiKey: z.string().optional(),
   rpcUrl: z.string().optional(),
+  readRpcUrl: z.string().optional(),
   relayer: z
     .object({
       mainnet: relayerNetworkSchema.optional(),
@@ -93,6 +95,23 @@ export const authVariablesSchema = z.object({
   trustedOrigins: z.array(z.string()).optional(),
   apiKeyHeaders: z.array(z.string()).default(["x-api-key"]),
   organizationMembershipLimit: z.number().int().positive().optional(),
+  abuseControl: z
+    .object({
+      rateLimits: z
+        .object({
+          createOrganization: z
+            .object({ window: z.number().int().positive(), max: z.number().int().positive() })
+            .optional(),
+          createOnboardingCode: z
+            .object({ window: z.number().int().positive(), max: z.number().int().positive() })
+            .optional(),
+          redeemOnboardingCode: z
+            .object({ window: z.number().int().positive(), max: z.number().int().positive() })
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   socialProviders: z
     .object({
       github: z
@@ -142,10 +161,65 @@ export const authVariablesSchema = z.object({
       from: z.string(),
     })
     .optional(),
+  onboard: onboardConfigSchema.optional(),
+  rateLimit: z
+    .object({
+      enabled: z.boolean().optional(),
+      window: z.number().int().positive().optional(),
+      max: z.number().int().positive().optional(),
+      storage: z.enum(["memory", "database"]).optional(),
+    })
+    .optional(),
+  ipAddress: z
+    .object({
+      ipAddressHeaders: z.array(z.string()).optional(),
+      trustedProxies: z.array(z.string()).optional(),
+    })
+    .optional(),
+  crossSubDomainCookies: z
+    .object({
+      enabled: z.boolean(),
+      domain: z
+        .string()
+        .trim()
+        .regex(
+          /^\.[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i,
+          'must be a dot-prefixed registrable domain (e.g. ".example.com")',
+        )
+        .optional(),
+    })
+    .refine((cookies) => !cookies.enabled || cookies.domain !== undefined, {
+      message:
+        "domain is required when crossSubDomainCookies is enabled — siblings can only send a cookie scoped to a named domain",
+    })
+    .optional(),
 });
 
 export const authSecretsSchema = z.object({
-  AUTH_DATABASE_URL: z.string(),
+  AUTH_DATABASE_URL: z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      if (value) return value;
+      // Fail closed in production (issues #803/#804): an unset URL here
+      // silently bound a deployed host to a fresh, empty PGlite auth DB —
+      // every user signs in as a brand-new identity and orgs/memberships
+      // appear missing. The zero-config default stays dev-only; an operator
+      // running pglite in production deliberately can set
+      // AUTH_ALLOW_PGLITE_DEFAULT=1.
+      if (process.env.NODE_ENV === "production" && process.env.AUTH_ALLOW_PGLITE_DEFAULT !== "1") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "AUTH_DATABASE_URL is unset in a production host — refusing to bind auth to a fresh, empty PGlite data dir. Set AUTH_DATABASE_URL to a postgres:// URL (or AUTH_ALLOW_PGLITE_DEFAULT=1 to accept the local default deliberately).",
+        });
+        return z.NEVER;
+      }
+      return "pglite:.bos/db/auth";
+    })
+    .describe(
+      "Database connection string. pglite: is a persistent local data dir (.bos/db/<workspace>; dev-only default); postgres:// for production or shared access.",
+    ),
   BETTER_AUTH_SECRET: z.string(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -155,7 +229,15 @@ export const authSecretsSchema = z.object({
   TWILIO_PHONE_NUMBER: z.string().optional(),
   NEAR_RELAYER_PRIVATE_KEY_MAINNET: z.string().optional(),
   NEAR_RELAYER_PRIVATE_KEY_TESTNET: z.string().optional(),
+  NEAR_INTENTS_AGENT_API_KEY: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
+  AUTH_BOOTSTRAP_ADMIN_API_KEY: z
+    .string()
+    .optional()
+    .describe(
+      "Dev/test-only: boot the instance with a platform admin + API key carrying this exact secret, " +
+        "so regression fixtures can seed through the admin routes. Never set in production.",
+    ),
 });
 
 export type AuthPluginVariables = z.infer<typeof authVariablesSchema>;

@@ -26,7 +26,7 @@ import { fetchResponse } from "../../utils/http-client";
 import { computeSnapshotHash } from "../../utils/snapshot-hash";
 import { listWorkspaceSubtreeFiles } from "../../utils/workspace-subtree";
 import { computeSriHash } from "../deploy/integrity";
-import { parseBosUrl } from "../registry/fastkv";
+import { parseRuntimeRef } from "../registry/keys";
 import { resolveExtendsRef } from "../resolution/merge";
 import type { ResolutionIo } from "../resolution/session";
 import { type WalkLink, walkExtendsChain } from "../resolution/session";
@@ -140,8 +140,8 @@ export function parseFromSpec(spec: string): ImportFromSpec {
         `Targeted extends refs are not supported for import sources: ${spec}. Omit the #target and pass the workspace as the positional argument.`,
       );
     }
-    const parsed = parseBosUrl(bosPart);
-    if (parsed.pathSegments.length > 0) {
+    const parsed = parseRuntimeRef(bosPart);
+    if (parsed.path.length > 0) {
       throw new Error(`Unsupported bos:// path — expected bos://<account>/<gateway>: ${spec}`);
     }
     return {
@@ -391,7 +391,7 @@ function buildMergedJournal(
     const raw = upstreamEntryByTag.get(append.fromTag);
     const when =
       typeof raw?.when === "number" && raw.when > appendedWhen ? raw.when : ++appendedWhen;
-    return { ...(raw ?? {}), idx: append.idx, tag: append.toTag, when };
+    return { ...raw, idx: append.idx, tag: append.toTag, when };
   });
   const merged = { ...localRaw.journal, entries: [...localRaw.entries, ...appendedEntries] };
   return `${JSON.stringify(merged, null, 2)}\n`;
@@ -872,7 +872,7 @@ export async function resolvePinnedSource(
   if (!entry) {
     return { warning: `no config entry found for the pinned slot — ${HEAD_FALLBACK_NOTE}` };
   }
-  const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+  const pin = entry.digest as { manifest?: unknown; integrity?: unknown } | undefined;
   const manifest = typeof pin?.manifest === "string" ? pin.manifest : undefined;
   const production = typeof entry.production === "string" ? entry.production : undefined;
   if (!manifest || !production) {

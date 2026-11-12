@@ -33,22 +33,13 @@ export {
   type SourceResult,
 } from "../resolution/init-source";
 
-export const PNPM_PACKAGE_MANAGER = "pnpm@12.10.1";
+import {
+  PNPM_PACKAGE_MANAGER,
+  reconcileWorkspacePosture,
+  type WorkspaceYamlDoc,
+} from "../workspace/catalog-overrides";
 
-/**
- * Transitive-singleton overrides every workspace in the fleet must agree on
- * (ticket 05's deviation log: isolated resolution splits better-auth
- * peer-context identities across the plugin fleet). Values derive from the
- * catalog so sync keeps them current; keys absent from the catalog are left
- * unpinned.
- */
-const CHILD_OVERRIDE_KEYS = [
-  "@better-fetch/fetch",
-  "@rspack/core",
-  "better-auth",
-  "react",
-  "react-dom",
-] as const;
+export { PNPM_PACKAGE_MANAGER };
 
 /**
  * The child's workspace manifest: pnpm-workspace.yaml is canonical (v2, ADR
@@ -61,13 +52,11 @@ export function writeChildWorkspaceYaml(
   next: { packages: string[]; catalog: Record<string, string> },
 ): boolean {
   const yamlPath = join(projectDir, "pnpm-workspace.yaml");
-  let doc: {
+  let doc: WorkspaceYamlDoc & {
     packages?: string[];
-    catalog?: Record<string, string>;
     nodeLinker?: string;
     linkWorkspacePackages?: boolean;
     ignoreScripts?: boolean;
-    overrides?: Record<string, string>;
   } = {};
   if (existsSync(yamlPath)) {
     try {
@@ -117,17 +106,8 @@ export function writeChildWorkspaceYaml(
     changed = true;
   }
 
-  const overrides: Record<string, string> = { ...doc.overrides };
-  for (const key of CHILD_OVERRIDE_KEYS) {
-    if (catalog[key] && overrides[key] !== catalog[key]) {
-      overrides[key] = catalog[key];
-      changed = true;
-    }
-  }
-  if (Object.keys(overrides).length > 0) {
-    doc.overrides = Object.fromEntries(
-      Object.entries(overrides).sort(([a], [b]) => a.localeCompare(b)),
-    );
+  if (reconcileWorkspacePosture(doc as Parameters<typeof reconcileWorkspacePosture>[0])) {
+    changed = true;
   }
 
   if (changed) {
@@ -162,8 +142,6 @@ export const INIT_ROOT_PATTERNS = [
   ".agents/skills/**",
   "skills-lock.json",
   "docs/agents/**",
-  ".changeset/config.json",
-  ".changeset/README.md",
   "README.md",
   "CONTRIBUTING.md",
   ".github/templates/**",
@@ -186,7 +164,6 @@ export function buildInitPatterns(
 
   if (has("ui")) patterns.push("ui/**");
   if (has("api")) patterns.push(API_TEMPLATE_PATTERN);
-  if (has("api") || has("host")) patterns.push(COMPOSE_TEMPLATE_PATTERN);
   if (has("host")) patterns.push("host/**");
   if (has("plugins")) {
     for (const plugin of plugins ?? []) {
@@ -201,15 +178,8 @@ export function buildInitPatterns(
 /** api-override children get the slim generic shell, never the parent's domain API. */
 const API_TEMPLATE_PATTERN = ".github/templates/api/**";
 
-/** Child-sized compose (api + api-test databases) for local compute overrides. */
-const COMPOSE_TEMPLATE_PATTERN = ".github/templates/docker-compose.yml";
-
 export function isApiTemplatePath(filePath: string): boolean {
   return filePath.startsWith(".github/templates/api/");
-}
-
-export function isComposeTemplatePath(filePath: string): boolean {
-  return filePath === COMPOSE_TEMPLATE_PATTERN;
 }
 
 export function buildPluginRouteExclusions(
@@ -274,7 +244,7 @@ const STARTER_SIMPLE_EXCLUSIONS = [
  */
 export function buildStarterRouteExclusions(
   level: StarterLevel,
-  parentConfig: { starter?: ParentStarterConfig } | null | undefined,
+  parentConfig: { starter?: ParentStarterConfig | StarterLevel } | null | undefined,
 ): string[] {
   const excluded = new Set<string>(STARTER_PRODUCT_EXCLUSIONS);
   if (level === "simple") {
@@ -282,7 +252,7 @@ export function buildStarterRouteExclusions(
   }
 
   const starter = parentConfig?.starter;
-  if (starter) {
+  if (starter && typeof starter === "object") {
     for (const entry of starter.exclude ?? []) excluded.add(entry);
     const levelConfig = starter.levels?.[level];
     if (levelConfig) {
@@ -304,9 +274,6 @@ function extractPluginRoutes(entry: unknown): string[] | undefined {
 export function sourcePathToDestinationPath(filePath: string): string {
   if (isApiTemplatePath(filePath)) {
     return filePath.replace(/^\.github\/templates\/api\//, "api/");
-  }
-  if (isComposeTemplatePath(filePath)) {
-    return "docker-compose.yml";
   }
   return filePath.startsWith(".github/templates/")
     ? filePath.replace(/^\.github\/templates\//, ".github/")
@@ -353,7 +320,13 @@ export async function copyFilteredFiles(
     return 0;
   }
 
-  const baseIgnore = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"];
+  const baseIgnore = [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/.bos/**",
+    "**/*.gen.ts",
+  ];
   const ignore = options.ignore ? [...baseIgnore, ...options.ignore] : baseIgnore;
 
   const allFiles = new Set<string>();
@@ -372,11 +345,6 @@ export async function copyFilteredFiles(
   if (!options.overrides.includes("api")) {
     for (const match of allFiles) {
       if (isApiTemplatePath(match)) allFiles.delete(match);
-    }
-  }
-  if (!options.overrides.includes("api") && !options.overrides.includes("host")) {
-    for (const match of allFiles) {
-      if (isComposeTemplatePath(match)) allFiles.delete(match);
     }
   }
 
@@ -404,7 +372,7 @@ function stripProductionFields(entry: Record<string, unknown>): void {
   delete entry.integrity;
   delete entry.ssr;
   delete entry.ssrIntegrity;
-  delete entry.pin;
+  delete entry.digest;
 }
 
 /**
@@ -533,9 +501,6 @@ export function buildChildRootScripts(sections: {
     "lint:fix": "biome check --write .",
     format: "biome format --write .",
     "format:check": "biome format .",
-    changeset: "changeset",
-    version: "changeset version",
-    release: "echo 'Packages versioned - app release handled by workflow'",
     "types:gen": "bos types gen",
     bos: "bos",
   };
@@ -561,7 +526,7 @@ export function buildChildRootScripts(sections: {
   if (sections.ui) testTargets.push("pnpm --dir ui --if-present run test");
   if (sections.plugins) {
     testTargets.push(
-      'for d in plugins/*; do [ -f "$d/package.json" ] && pnpm --dir "$d" --if-present run test; done',
+      'if [ -d plugins ]; then for d in plugins/*; do if [ -f "$d/package.json" ]; then pnpm --dir "$d" --if-present run test; fi; done; fi',
     );
   }
   scripts.test =
@@ -571,12 +536,6 @@ export function buildChildRootScripts(sections: {
 
   // Scripts key off the child's own override selection (what it runs locally),
   // not off resolved-config secrets — a ui-only child gets none of these.
-  if (sections.api || sections.host) {
-    scripts["dev:postgres"] = "docker compose up -d --wait && pnpm run dev";
-    scripts["dev:postgres:down"] = "docker compose down";
-    scripts["dev:postgres:reset"] = "docker compose down -v && docker compose up -d --wait";
-  }
-
   if (sections.ui) {
     scripts["dev:ui"] = "bos dev --ui local --api remote";
   }
@@ -614,9 +573,10 @@ export async function personalizeConfig(
     starter?: StarterLevel;
     /** The platform release's catalog (ADR 0034) — skips the local chain walk. */
     catalog?: Record<string, string>;
-    /** The framework version to pin (ADR 0034) — stamped onto the authored
-     * config; absent in sync mode, the child's existing pin is preserved. */
-    platform?: string;
+    /** The framework version to stamp as the authored release (ADR 0034) —
+     * written onto the authored config; absent in sync mode, the child's
+     * existing release is preserved. */
+    release?: string;
   },
 ): Promise<void> {
   const has = (section: OverrideSection) => opts.overrides.includes(section);
@@ -632,11 +592,12 @@ export async function personalizeConfig(
       delete config.starter;
     }
   };
-  const applyPlatformField = (config: Record<string, unknown>): void => {
-    if (opts.platform !== undefined) {
-      config.platform = opts.platform;
-    } else if (opts.mode !== "sync") {
+  const applyReleaseField = (config: Record<string, unknown>): void => {
+    if (opts.release !== undefined) {
       delete config.platform;
+      config.release = opts.release;
+    } else if (opts.mode !== "sync") {
+      delete config.release;
     }
   };
 
@@ -655,7 +616,7 @@ export async function personalizeConfig(
             "mode",
             "existingConfig",
             "catalog",
-            "platform",
+            "release",
           ].includes(key),
       )
       .map(([key]) => key),
@@ -690,7 +651,7 @@ export async function personalizeConfig(
     }
 
     applyStarter(config);
-    applyPlatformField(config);
+    applyReleaseField(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -788,7 +749,7 @@ export async function personalizeConfig(
     }
 
     applyStarter(config);
-    applyPlatformField(config);
+    applyReleaseField(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -858,13 +819,13 @@ export async function personalizeConfig(
     }
 
     if (opts.mode === "sync" && opts.existingConfig) {
-      // "platform" is managed (ADR 0034): the child's pin survives
+      // "release" is managed (ADR 0034): the child's authored release survives
       // personalization instead of being stripped as an unknown root key.
       const managedRootKeys = new Set([
         "extends",
         "account",
         "domain",
-        "platform",
+        "release",
         "app",
         "plugins",
       ]);
@@ -940,6 +901,10 @@ export async function personalizeConfig(
       "init",
       "prepare",
       "sync-catalog",
+      // #572: children have no changesets — the release lever is root-only
+      "changeset",
+      "version",
+      "release",
       "db:push",
       "db:studio",
       "db:doctor",
@@ -950,9 +915,6 @@ export async function personalizeConfig(
       "test:api",
       "test:integration",
       "test:e2e",
-      "dev:postgres",
-      "dev:postgres:down",
-      "dev:postgres:reset",
       "dev:ui",
       "dev:api",
     ]) {
@@ -1149,19 +1111,85 @@ export async function runPnpmInstall(
   );
 }
 
+/**
+ * The upgrade install: same invocation as a plain install but with the
+ * output captured (relayed live as it streams) so a failure carries the
+ * text the release-age remediation classifies.
+ */
 export async function runPnpmInstallForUpgrade(
   destination: string,
   opts?: {
     spinner?: { message: (msg: string) => void };
   },
 ): Promise<void> {
-  await runWithProgress(
-    "pnpm",
-    ["install", "--force"],
-    destination,
-    opts?.spinner,
-    "Installing dependencies",
-  );
+  const timeout = COMMAND_TIMEOUTS.pnpm ?? 2 * 60_000;
+  const child = execa("pnpm", ["install", "--force"], {
+    cwd: destination,
+    stdio: ["inherit", "pipe", "pipe"],
+    timeout,
+    all: true,
+    env: { ...process.env, BOS_NO_BANNER: "1" },
+  });
+  let captured = "";
+  child.stdout?.on("data", (chunk: Buffer) => process.stdout.write(chunk));
+  child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
+  child.all?.on("data", (chunk: Buffer) => {
+    captured += chunk.toString();
+  });
+
+  if (opts?.spinner) {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      opts.spinner!.message(`Installing dependencies... (${elapsed}s)`);
+    }, 2000);
+    try {
+      await child;
+    } catch (error) {
+      (error as { output?: string }).output = captured;
+      throw error;
+    } finally {
+      clearInterval(interval);
+    }
+    return;
+  }
+  try {
+    await child;
+  } catch (error) {
+    (error as { output?: string }).output = captured;
+    throw error;
+  }
+}
+
+/**
+ * Approve everything pnpm recorded as awaiting approval (dep-shipped agent
+ * skills, build scripts) without an interactive prompt. A fresh tree's first
+ * install records the framework packages' skills as pending — pnpm ≥12.11
+ * gates them behind `pnpm approve` — and leaving them pending leaves an
+ * approval chore (and unlinked skills) on every machine that clones the tree.
+ * The decision persists into the `permissions` block of pnpm-workspace.yaml,
+ * so this converges: the first install/approve writes the policy, later
+ * installs read it. Best-effort by design — older pnpm without `approve`
+ * (or a refusal) must not fail the train; the pending state just remains.
+ */
+export async function runPnpmApproveAll(
+  destination: string,
+  opts?: {
+    spinner?: { message: (msg: string) => void };
+  },
+): Promise<boolean> {
+  try {
+    await runWithProgress(
+      "pnpm",
+      ["approve", "--all"],
+      destination,
+      opts?.spinner,
+      "Approving pnpm permissions",
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function runTypesGen(
@@ -1233,8 +1261,8 @@ export async function scaffoldMinimalProject(
     catalogSourceDir?: string;
     /** the platform release's catalog (ADR 0034) — preferred over the walk */
     catalog?: Record<string, string>;
-    /** the framework version to pin (ADR 0034) */
-    platform?: string;
+    /** the framework version to stamp as the authored release (ADR 0034) */
+    release?: string;
   },
 ): Promise<number> {
   mkdirSync(destination, { recursive: true });
@@ -1249,7 +1277,7 @@ export async function scaffoldMinimalProject(
     ...(opts.title ? { title: opts.title } : {}),
     ...(opts.description ? { description: opts.description } : {}),
     ...(opts.starter ? { starter: opts.starter } : {}),
-    ...(opts.platform ? { platform: opts.platform } : {}),
+    ...(opts.release ? { release: opts.release } : {}),
   };
 
   if (parentConfig.app && typeof parentConfig.app === "object") {
@@ -1354,8 +1382,8 @@ async function resolveWorkspaceRefs(
 
 export async function writeInitSnapshot(
   destination: string,
-  extendsAccount: string,
-  extendsGateway: string,
+  _extendsAccount: string,
+  _extendsGateway: string,
   sourceDir: string,
   patterns: string[],
   options: {
@@ -1365,7 +1393,13 @@ export async function writeInitSnapshot(
     starter?: StarterLevel;
   },
 ): Promise<void> {
-  const baseIgnore = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"];
+  const baseIgnore = [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/.bos/**",
+    "**/*.gen.ts",
+  ];
   const ignore = options.ignore ? [...baseIgnore, ...options.ignore] : baseIgnore;
 
   const allFiles = new Set<string>();
@@ -1384,11 +1418,6 @@ export async function writeInitSnapshot(
   if (!options.overrides.includes("api")) {
     for (const match of allFiles) {
       if (isApiTemplatePath(match)) allFiles.delete(match);
-    }
-  }
-  if (!options.overrides.includes("api") && !options.overrides.includes("host")) {
-    for (const match of allFiles) {
-      if (isComposeTemplatePath(match)) allFiles.delete(match);
     }
   }
 
@@ -1440,7 +1469,6 @@ export async function generateDatabaseMigrations(destination: string): Promise<v
 
 const COMMAND_TIMEOUTS: Record<string, number> = {
   pnpm: 5 * 60_000,
-  docker: 5 * 60_000,
   node_modules: 2 * 60_000,
   tar: 60_000,
 };
@@ -1552,7 +1580,7 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 ### Starting Development
 1. \`pnpm install\`
 2. \`pnpm run dev\`
-3. \`bos dev\` creates \`.env\` on first run and starts local Postgres via docker compose when it is down`);
+3. \`bos dev\` creates \`.env\` on first run; local data is a persistent PGlite data dir (\`.bos/db\`), no docker involved`);
 
   parts.push(`### Debugging Issues
 
@@ -1590,13 +1618,17 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 - No hardcoded colors like \`bg-blue-600\`
 - No code comments in implementation
 - Component file naming: lowercase kebab-case (\`data-table.tsx\`, \`user-profile.tsx\`)
-- Follow existing patterns in neighboring files`);
+- Follow existing patterns in neighboring files
+
+Review-time rules — the write-once goal, type-safety patterns, the workaround protocol, and the comment \`KEEP\`/\`TODO\` conventions — are in [\`docs/agents/coding-standards.md\`](docs/agents/coding-standards.md).`);
 
   parts.push(`### Framework-owned files and the upstream-change protocol (ADR 0032)
 
 The files carrying the \`FRAMEWORK-OWNED\` header (build configs, db/lib plumbing, workflows) are reconciled from the parent template by \`bos upgrade\`: template wins on the next upgrade, local copies are backed up under \`.bos/sync-backup/\`, and **same-version upgrades never touch them** (only the framework version change reconciles them).
 
-**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next upgrade will quietly clobber.`);
+**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next upgrade will quietly clobber.
+
+When the need is a **bug**, a **missing capability**, or a **pattern improvement**, follow [\`docs/agents/change-placement.md\`](docs/agents/change-placement.md) — including its first rule: sync-owned files are a contribution channel, not a fence. A human-facing diagram tour of the whole runtime lives in [\`docs/agents/how-it-fits.md\`](docs/agents/how-it-fits.md); \`/teach\` builds lessons from it.`);
 
   if (has("api")) {
     parts.push(`### Adding API Endpoints
@@ -1638,7 +1670,10 @@ If you hand-edit \`bos.app.ts\`, run \`bos types gen\` or restart \`bos dev\` to
 **Before committing:**
 \`\`\`bash
 ${testCommands.join("\n")}
-\`\`\``);
+\`\`\`
+
+When to write a test, which layer, what the parent framework covers vs what
+this repo must cover: [\`docs/agents/testing.md\`](docs/agents/testing.md).`);
   }
 
   parts.push(`## Common Patterns
@@ -1770,7 +1805,6 @@ function generateGitignore(): string {
 dist/
 .env
 .bos/
-docker-compose.yml
 *.gen.ts
 *.gen.tsx
 `;

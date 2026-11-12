@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const ESC = "\x1b";
@@ -392,11 +392,68 @@ export function formatLogLine(entry: LogEntry): string {
   return [`${head}${first}`, ...rest.map((line) => `${pad}${line}`)].join("\n");
 }
 
+const DATED_LOG_RE = /^dev-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?\.log$/;
+const LATEST_PID_RE = /^dev-latest-\d+\.log$/;
+const LATEST_LEGACY_RE = /^dev-latest\.log$/;
+const FRAMEWORK_LOG_RE = /^framework-\d+\.log$/;
+const REGRESSION_LOG_RE = /^regression-[\w-]+\.log$/;
+
+/** Dated session logs beyond the newest KEEP are pruned each boot, as is
+ * anything older than MAX_AGE — bounded sediment, never unbounded growth.
+ * The patterns cover every writer that lands in .bos/logs: the dev logger's
+ * PID-suffixed names and its pre-#476 PID-less legacy names, the legacy
+ * PID-less dev-latest.log, and the regression stack's framework-<port> /
+ * regression-<mode> wrappers. */
+const PRUNE_KEEP = 20;
+const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Files touched within this window are never pruned — a concurrent live
+ * session may still be appending to its dated log. */
+const PRUNE_SKIP_MS = 24 * 60 * 60 * 1000;
+
+export async function pruneDatedLogs(dir: string): Promise<void> {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  const prunable: Array<{ name: string; mtimeMs: number }> = [];
+  for (const name of names) {
+    if (
+      !DATED_LOG_RE.test(name) &&
+      !LATEST_PID_RE.test(name) &&
+      !LATEST_LEGACY_RE.test(name) &&
+      !FRAMEWORK_LOG_RE.test(name) &&
+      !REGRESSION_LOG_RE.test(name)
+    ) {
+      continue;
+    }
+    try {
+      const mtimeMs = statSync(join(dir, name)).mtimeMs;
+      if (now - mtimeMs > PRUNE_SKIP_MS) prunable.push({ name, mtimeMs });
+    } catch {
+      // vanished concurrently — nothing to prune
+    }
+  }
+  prunable.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  const victims = new Set(
+    prunable.slice(0, Math.max(0, prunable.length - PRUNE_KEEP)).map((c) => c.name),
+  );
+  for (const { name, mtimeMs } of prunable) {
+    if (now - mtimeMs > PRUNE_MAX_AGE_MS) victims.add(name);
+  }
+  for (const name of victims) {
+    await unlink(join(dir, name)).catch(() => {});
+  }
+}
+
 export async function createDevLogger(configDir: string, description: string): Promise<DevLogger> {
   const dir = getLogsDir(configDir);
   if (!existsSync(dir)) {
     await mkdir(dir, { recursive: true });
   }
+  await pruneDatedLogs(dir);
 
   const now = new Date();
   const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -411,9 +468,23 @@ export async function createDevLogger(configDir: string, description: string): P
 
   let chain = Promise.resolve();
   const enqueue = (fn: () => Promise<void>) => {
-    chain = chain.then(fn, fn);
-    return chain;
+    const next = chain.then(fn, fn).catch(() => {});
+    chain = next;
+    return next;
   };
+
+  const isEnoent = (error: unknown): boolean =>
+    typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT";
+  const appendRecovered = async (file: string, line: string) => {
+    try {
+      await appendFile(file, line);
+    } catch (error) {
+      if (!isEnoent(error)) throw error;
+      await mkdir(dir, { recursive: true });
+      await appendFile(file, line);
+    }
+  };
+  let dropping = false;
 
   return {
     logFile,
@@ -421,8 +492,15 @@ export async function createDevLogger(configDir: string, description: string): P
     write: (entry) =>
       enqueue(async () => {
         const line = `${formatLogLine(entry)}\n`;
-        await appendFile(logFile, line);
-        await appendFile(latestFile, line);
+        try {
+          await appendRecovered(logFile, line);
+          await appendRecovered(latestFile, line);
+          dropping = false;
+        } catch {
+          if (dropping) return;
+          dropping = true;
+          console.warn(`[Dev] log file unavailable (${dir}) — dropping entries until it returns`);
+        }
       }),
     readLatest: async (opts) => {
       const text = await readFile(latestFile, "utf8").catch(() => "");

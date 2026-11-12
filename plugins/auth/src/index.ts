@@ -5,17 +5,18 @@ import { z } from "zod";
 export type { AuthServices } from "./auth-export";
 
 import { createAuthInstance } from "./auth-instance";
+import { ensureBootstrapAdmin } from "./bootstrap-admin";
 import { normalizeAuthConfig } from "./config";
 import { authSecretsSchema, authVariablesSchema } from "./config-schemas";
 import { contract } from "./contract";
 import { DatabaseLive, DatabaseTag } from "./db/layer";
+import { createAdminOrganizationHandlers } from "./handlers/admin-organizations";
 import { createAdminUsersHandlers } from "./handlers/admin-users";
 import { createApiKeyHandlers } from "./handlers/api-keys";
 import { createInvitationHandlers } from "./handlers/invitations";
 import { createMemberHandlers } from "./handlers/members";
 import { createNearHandlers } from "./handlers/near";
 import { createOnboardingHandlers } from "./handlers/onboarding";
-import { createOrganizationRequestHandlers } from "./handlers/organization-requests";
 import { createOrganizationHandlers } from "./handlers/organizations";
 import { createPasskeyHandlers } from "./handlers/passkeys";
 import { createSessionHandlers } from "./handlers/session";
@@ -27,8 +28,9 @@ import { createOrganizationMembershipPolicy } from "./organization-membership-po
 import { OrphanSweepLive } from "./orphan-sweep";
 import { AuthServicesTag } from "./service-types";
 import { buildAuthServicesLayer } from "./service-wiring";
+import { createRateLimiter } from "./services/rate-limit";
 import { toError } from "./utils";
-import { socialProviderWarnings } from "./warnings";
+import { cookieDomainWarnings, socialProviderWarnings } from "./warnings";
 
 export default createPlugin.withPlugins<PluginsClient>()({
   variables: authVariablesSchema,
@@ -36,14 +38,14 @@ export default createPlugin.withPlugins<PluginsClient>()({
   secrets: authSecretsSchema,
 
   context: z.object({
-    reqHeaders: z.record(z.string(), z.string()).optional(),
+    reqHeaders: z.record(z.string(), z.string()),
   }),
 
   contract,
 
   servicesTag: AuthServicesTag,
 
-  warnings: socialProviderWarnings,
+  warnings: (config) => [...socialProviderWarnings(config), ...cookieDomainWarnings(config)],
 
   initialize: (config) =>
     Effect.gen(function* () {
@@ -59,12 +61,23 @@ export default createPlugin.withPlugins<PluginsClient>()({
         authConfig.organizationMembershipLimit,
       );
       const onboardingCodeCipher = createOnboardingCodeCipher(authConfig.secret);
+      const rateLimiter = createRateLimiter(config.variables.abuseControl?.rateLimits);
       const permissionRegistry = {
         statements: authConfig.siwn.permissions.statements,
         roleGrants: authConfig.siwn.permissions.roles,
       };
 
       yield* Effect.log("[Auth] Better Auth instance created");
+
+      if (config.secrets.AUTH_BOOTSTRAP_ADMIN_API_KEY) {
+        yield* ensureBootstrapAdmin({
+          db,
+          secret: config.secrets.AUTH_BOOTSTRAP_ADMIN_API_KEY,
+        });
+        yield* Effect.logWarning(
+          "[Auth] bootstrap admin enabled via AUTH_BOOTSTRAP_ADMIN_API_KEY — dev/test seeding only, never set in production",
+        );
+      }
 
       return Layer.mergeAll(
         buildAuthServicesLayer({
@@ -75,6 +88,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
           membershipPolicy,
           onboardingCodeCipher,
           permissionRegistry,
+          rateLimiter,
         }),
         OrphanSweepLive(db),
       );
@@ -87,7 +101,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       ...createSessionHandlers(builder),
       ...createPasskeyHandlers(builder, requireAuth),
       ...createOrganizationHandlers(builder, requireAuth),
-      ...createOrganizationRequestHandlers(builder, requireAuth),
+      ...createAdminOrganizationHandlers(builder, requireAuth),
       ...createMemberHandlers(builder, requireAuth),
       ...createInvitationHandlers(builder, requireAuth),
       ...createApiKeyHandlers(builder, requireAuth),

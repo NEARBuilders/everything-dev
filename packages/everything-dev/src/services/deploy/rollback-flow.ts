@@ -1,11 +1,13 @@
-import { type BosConfigInput, BosConfigSchema, type RuntimeConfig } from "../../types";
+import type { BosConfigInput, RuntimeConfig } from "../../types";
 import {
   type ConfigHistoryEntry,
   fetchBosConfigFromFastKv,
   fetchConfigHistory,
 } from "../registry/fastkv";
+import { getManifestKey, MANIFEST_TAG_REL_KEY } from "../registry/pointer";
+import { verifyBootPayload } from "../resolution/boot-check";
 import { buildRollbackPayload, verifyRollbackSnapshot } from "./rollback";
-import { publishToFastKv } from "./train";
+import { type DeployTrainInput, publishToFastKv } from "./train";
 
 /**
  * The shared rollback flow (ticket #422): the post-publish smoke failure
@@ -59,7 +61,7 @@ export async function fetchLiveConfig(input: {
   account: string;
   domain: string;
   registry?: string;
-}): Promise<unknown | undefined> {
+}): Promise<unknown> {
   try {
     return await fetchBosConfigFromFastKv<unknown>(
       `bos://${input.account}/${input.domain}`,
@@ -81,7 +83,14 @@ export function isSnapshotLive(targetValue: unknown, liveValue: unknown): boolea
 export async function publishRollbackSnapshot(
   targetValue: unknown,
   input: RollbackSnapshotInput,
-  opts?: { skipVerify?: boolean },
+  opts?: {
+    skipVerify?: boolean;
+    restorePlatformPointer?: { key: string; value: string };
+    /** Promote framing (ADR 0042 ticket 05): activate a recorded deployment
+     * without the rollback branding — the payload republishes verbatim with
+     * NO rolledBackFrom stamp (a promotion is not a rollback). */
+    promote?: boolean;
+  },
 ): Promise<RollbackSnapshotOutcome> {
   if (!opts?.skipVerify) {
     const verification = await verifyRollbackSnapshot(targetValue as BosConfigInput);
@@ -89,17 +98,47 @@ export async function publishRollbackSnapshot(
       return {
         ok: false,
         registryUrl: "",
-        error: "rollback refused — a pinned slot's bytes are gone or no longer match their SRI",
+        error: "rollback refused — a pinned remote's bytes are gone or no longer match their SRI",
       };
     }
   }
 
-  const payload = buildRollbackPayload(
-    BosConfigSchema.parse(targetValue),
-    new Date().toISOString(),
+  // The boot verdict is never skippable — skipVerify only stands down the
+  // pin/byte verification (the rollback command vets bytes itself before
+  // passing it), and no other vetting covers boot-ability.
+  const bootCheck = await verifyBootPayload(
+    targetValue,
+    { account: input.account, gateway: input.domain },
+    input.registry ? { registry: input.registry } : undefined,
   );
+  if (!bootCheck.ok) {
+    const detail = bootCheck.issues
+      .map((issue) => `${issue.path ? `${issue.path}: ` : ""}${issue.message}`)
+      .join("; ");
+    const chainNote =
+      bootCheck.chain.length > 0 ? ` (extends chain: ${bootCheck.chain.join(" -> ")})` : "";
+    return {
+      ok: false,
+      registryUrl: "",
+      error: `rollback refused — the target snapshot would not boot${chainNote}: ${detail}`,
+    };
+  }
+
+  // Stamp the raw snapshot verbatim — the historical parse here was both a
+  // crash (host-less child snapshots have no app.host of their own) and
+  // lossy (Zod's strip mode dropped keys the schema didn't know); a
+  // rollback's whole value proposition is byte-faithful republication.
+  // Promote skips the rolledBackFrom brand: activating a recorded deployment
+  // is not a rollback, and the lockfile leg composes from the payload either
+  // way (ADR 0042 ticket 04).
+  const payload = opts?.promote
+    ? (targetValue as BosConfigInput)
+    : buildRollbackPayload(targetValue as BosConfigInput, new Date().toISOString());
   const result = await publishToFastKv({
-    bosConfig: payload,
+    // The declared input type is the parsed BosConfig; the runtime payload is
+    // the raw snapshot — the same declared-vs-runtime split the train's
+    // exactPayload branch documents (train.ts exactPayload).
+    bosConfig: payload as unknown as DeployTrainInput["bosConfig"],
     runtimeConfig: input.runtimeConfig,
     configDir: input.configDir,
     env: input.env,
@@ -112,6 +151,9 @@ export async function publishRollbackSnapshot(
     wallet: input.wallet ?? false,
     registry: input.registry,
     exactPayload: true,
+    ...(opts?.restorePlatformPointer
+      ? { restorePlatformPointer: opts.restorePlatformPointer }
+      : {}),
   });
   if (result.status === "dry-run") {
     return { ok: true, registryUrl: result.registryUrl, dryRun: true };
@@ -126,9 +168,39 @@ export async function publishRollbackSnapshot(
   return { ok: true, registryUrl: result.registryUrl, txHash: result.txHash };
 }
 
+/** The platform-pointer restore for a rollback (#573): the pointer's own
+ * history[1] is the pre-release manifest — the same "previous entry" logic
+ * the config rollback uses. Best-effort: a failed lookup returns undefined
+ * and the drift alarm (#571's cross-check) catches any residue loudly. */
+export async function resolvePointerRestore(
+  account: string,
+  domain: string,
+  registry?: string,
+): Promise<{ key: string; value: string } | undefined> {
+  try {
+    const pointerHistory = await fetchConfigHistory({
+      accountId: account,
+      gatewayId: domain,
+      registry,
+      limit: 5,
+      keyPath: MANIFEST_TAG_REL_KEY,
+    });
+    const previousPointer = pointerHistory[1];
+    if (!previousPointer) return undefined;
+    return {
+      key: getManifestKey(account, domain),
+      value: JSON.stringify(previousPointer.value),
+    };
+  } catch {
+    console.warn("  platform pointer restore unavailable — the drift alarm will catch any residue");
+    return undefined;
+  }
+}
+
 /** The post-publish smoke failure protocol (ADR 0021): roll the registry
  * config back to the previous snapshot — a red boot gate must never leave a
- * new config live against an old image. */
+ * new config live against an old image. #573: the platform pointer rolls
+ * back in the same atomic write. */
 export async function rollbackToPreviousSnapshot(input: RollbackSnapshotInput): Promise<{
   ok: boolean;
   txHash?: string;
@@ -161,7 +233,18 @@ export async function rollbackToPreviousSnapshot(input: RollbackSnapshotInput): 
     };
   }
 
-  const result = await publishRollbackSnapshot(previous.value, input);
+  // The pointer restore mirrors the config rollback: the pointer's history[1]
+  // is the pre-release manifest. Best-effort — a failed restore leaves the
+  // drift alarm to catch the residue loudly.
+  const restorePlatformPointer = await resolvePointerRestore(
+    input.account,
+    input.domain,
+    input.registry,
+  );
+
+  const result = await publishRollbackSnapshot(previous.value, input, {
+    restorePlatformPointer,
+  });
   if (result.ok) {
     return {
       ok: true,

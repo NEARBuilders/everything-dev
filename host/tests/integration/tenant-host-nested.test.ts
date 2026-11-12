@@ -35,6 +35,10 @@ vi.mock("everything-dev/integrity", async () => {
   };
 });
 
+vi.mock("everything-dev/verify", () => ({
+  asDigest: (sri: string) => sri,
+  fetchVerified: () => Promise.resolve(new Uint8Array(0)),
+}));
 vi.mock("../../src/services/binding-resolver", async () => {
   const actual = await vi.importActual<typeof import("../../src/services/binding-resolver")>(
     "../../src/services/binding-resolver",

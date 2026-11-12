@@ -207,7 +207,8 @@ await authClient.near.disconnect();
 | `getProfile` | `(accountId: string) => Promise<Profile \| null>` | — | Custom profile lookup |
 | `validateLimitedAccessKey` | `(args) => Promise<boolean>` | — | Validate FAK when `requireFullAccessKey` is false |
 | `apiKey` | `string` | `process.env.FASTNEAR_API_KEY` | API key for RPC |
-| `rpcUrl` | `string` | — | Custom RPC URL (e.g., sandbox, private node) |
+| `rpcUrl` | `string` | — | Custom RPC URL for on-chain writes (e.g., sandbox, private node) |
+| `readRpcUrl` | `string` | — | Custom RPC URL for on-chain reads (SIWN verification, view calls); falls back to `rpcUrl` |
 | `relayer` | `RelayerConfig` | — | Relayer configuration (see below) |
 
 #### Relayer Configuration
@@ -325,7 +326,14 @@ interface AuthCallbacks {
 | Code | Description |
 |---|---|
 | `UNAUTHORIZED_NONCE_REPLAY` | Nonce already used (replay attack detected) |
-| `UNAUTHORIZED` | Generic auth failure (invalid signature, account mismatch, etc.) |
+| `UNAUTHORIZED_NONCE_EXPIRED` | Nonce timestamp older than the freshness window |
+| `UNAUTHORIZED_NONCE_FROM_FUTURE` | Nonce timestamp more than 60s ahead of the server clock (device clock wrong) |
+| `UNAUTHORIZED_SIGNATURE_INVALID` | NEP-413 signature failed verification |
+| `UNAUTHORIZED_PUBLIC_KEY_INVALID` | Public key malformed (bad encoding or wrong length) |
+| `UNAUTHORIZED_ACCESS_KEY_NOT_FOUND` | Signing key not found on the account on-chain |
+| `UNAUTHORIZED_NOT_FULL_ACCESS_KEY` | Signing key is not a full access key |
+| `VERIFY_RPC_ERROR` | On-chain access-key lookup failed (RPC unavailable) |
+| `UNAUTHORIZED` | Generic auth failure (account mismatch, recipient mismatch, etc.) |
 
 ### Server Endpoints
 
@@ -419,7 +427,8 @@ The plugin detects the network from the account ID:
 ## Security
 
 ### NEP-413 Compliance
-- Proper nonce handling prevents replay attacks
+- Nonces are issued by the server (`/near/nonce`, server clock) during sign-in, so client/server clock skew cannot fail login; the client falls back to a local nonce if the endpoint is unavailable
+- Nonce freshness tolerates up to 60s of future clock skew; older timestamps are rejected with `UNAUTHORIZED_NONCE_EXPIRED`, future timestamps beyond the tolerance with `UNAUTHORIZED_NONCE_FROM_FUTURE`
 - Message format and recipient validation
 - 15-minute server-side nonce expiration with DB replay detection
 
@@ -435,7 +444,7 @@ The plugin detects the network from the account ID:
 - Configurable validation for limited access keys
 
 ### Post-Quantum Keys
-- `ml-dsa-65:` (FIPS 204) full-access keys are accepted on `/api/auth/near/verify` and `/api/auth/near/link-account`. Signature verification is delegated to `@noble/post-quantum`'s `ml_dsa65.verify`, while the on-chain access-key check stays the same as ed25519. The NEP-413 SHA-256 + borsh payload format is unchanged from the ed25519 path.
+- `ml-dsa-65:` (FIPS 204) full-access keys are accepted on `/api/auth/near/verify` and `/api/auth/near/link-account`. Signature verification is delegated to `@noble/post-quantum`'s `ml_dsa65.verify`, while the on-chain access-key check stays the same as ed25519. The NEP-413 payload uses true borsh serialization (1-byte Option discriminant for `callback_url`), matching Rust wallets.
 
 ## Troubleshooting
 

@@ -1,11 +1,22 @@
 import { readFileSync } from "node:fs";
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
+import {
+  createPluginRuntime as createManagedPluginRuntime,
+  type InferRegistryFromEntries,
+  type PluginRegistryEntry,
+  type PluginRuntime,
+  type PluginRuntimeConfig,
+} from "every-plugin";
 import { isEffectCriticalSharedDep } from "every-plugin/build/rspack";
+import { isManifestDocumentUrl, manifestBaseOf } from "every-plugin/ui/manifest/contract";
 import type { BosConfig, BosPluginRef } from "../../types";
 import { fetchRaw } from "../../utils/http-client";
-import { computeSriHash, type IntegrityRegistry } from "../deploy/integrity";
+import { satisfiesConstraint } from "../../utils/semver";
+import type { IntegrityRegistry } from "../deploy/integrity";
+import { pinnedManifestDocumentUrl, resolveRemoteVersion } from "../deploy/version-manifest";
 import { readBundleCache, writeBundleCache } from "../registry/bundle-cache";
+import { computeSri, IntegrityMismatch } from "../verify/engine";
 
 type FederationInstance = ReturnType<typeof createInstance>;
 
@@ -16,16 +27,20 @@ export function patchManifestFetchForSsrPublicPath(mf: FederationInstance): void
   if ((mf as any).__everythingDevPatchedManifestFetch === true) return;
   (mf as any).__everythingDevPatchedManifestFetch = true;
 
+  // Normalizes any manifest document (fixed or hash-named) so the Node-side
+  // snapshot composes absolute URLs. A relative publicPath left in place gets
+  // the runtime's blind `https:` prefix in Node and the entry fetch dies on a
+  // DNS lookup of the file name.
   (mf as any).loaderHook.lifecycle.fetch.on((url: unknown, init: unknown) => {
-    if (typeof url !== "string" || !url.endsWith("/mf-manifest.json")) {
+    if (typeof url !== "string" || !isManifestDocumentUrl(url)) {
       return;
     }
     return fetchRaw(url as string, init as RequestInit, "15 seconds")
       .then((res) => res.json())
       .then((json: any) => {
+        const base = manifestBaseOf(url as string);
         json.metaData = json.metaData ?? {};
-        json.metaData.ssrPublicPath =
-          json.metaData.ssrPublicPath ?? url.replace(/\/mf-manifest\.json$/, "/");
+        json.metaData.ssrPublicPath = json.metaData.ssrPublicPath ?? base;
         if (json.metaData.publicPath === "auto" || json.metaData.publicPath === "") {
           json.metaData.publicPath = "/";
         }
@@ -56,7 +71,7 @@ export function installIntegrityFetchHook(
 
     return fetchRaw(url as string, init as RequestInit, "15 seconds").then(async (res) => {
       const buffer = Buffer.from(await res.arrayBuffer());
-      const computed = computeSriHash(buffer);
+      const computed = computeSri(new Uint8Array(buffer));
 
       if (computed !== expectedHash) {
         // ticket 09 (atomic-deploys): an SRI mismatch is treated like an
@@ -64,7 +79,7 @@ export function installIntegrityFetchHook(
         // same pin when cached) serve instead, and the corrupted bytes are
         // never written into the cache.
         const cached = await readBundleCache(url as string, { cacheDir: options?.cacheDir });
-        if (cached && computeSriHash(Buffer.from(cached)) === expectedHash) {
+        if (cached && computeSri(new Uint8Array(cached)) === expectedHash) {
           console.warn(
             `[SRI] Origin bytes failed verification for ${url} — serving last-known-good from the bundle cache`,
           );
@@ -73,13 +88,19 @@ export function installIntegrityFetchHook(
             headers: { "x-bundle-cache": "stale" },
           });
         }
-        console.error(
-          `[SRI] Integrity check failed in MF fetch pipeline for ${url}\n  Expected: ${expectedHash}\n  Computed: ${computed}`,
-        );
-        return new Response(`Integrity check failed for ${url}`, {
-          status: 500,
-          statusText: "Integrity Check Failed",
+        const mismatch = new IntegrityMismatch({
+          url,
+          expected: expectedHash,
+          actual: computed,
         });
+        console.error(`[SRI] ${mismatch._tag} in the MF fetch pipeline — ${mismatch.message}`);
+        return new Response(
+          `${mismatch._tag}: integrity check failed for ${url} (expected ${expectedHash}, actual ${computed})`,
+          {
+            status: 500,
+            statusText: "Integrity Check Failed",
+          },
+        );
       }
 
       // verified: pin-checked write-through
@@ -96,6 +117,33 @@ export function installIntegrityFetchHook(
       });
     });
   });
+}
+
+export interface HostPluginRuntimeOptions {
+  /** The integrity-in-pipeline registry: resolved artifact URLs → pin SRI.
+   * When present, the MF fetch hook installs inside this factory — the
+   * loader verifies every registered byte at fetch time (#642 revival). */
+  readonly integrityRegistry?: IntegrityRegistry;
+  readonly cacheDir?: string;
+}
+
+export function createPluginRuntime<TRegistry extends Record<string, PluginRegistryEntry>>(
+  config: PluginRuntimeConfig<TRegistry>,
+  options?: HostPluginRuntimeOptions,
+): PluginRuntime<InferRegistryFromEntries<TRegistry>> {
+  const runtime = createManagedPluginRuntime(config);
+  if (options?.integrityRegistry) {
+    try {
+      installIntegrityFetchHook(getFederationInstance(), options.integrityRegistry, {
+        cacheDir: options.cacheDir,
+      });
+    } catch (error) {
+      console.warn(
+        `[SRI] MF instance unavailable for the integrity hook — verification degrades to the entry gates: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return runtime;
 }
 
 export function getFederationInstance(): FederationInstance {
@@ -127,7 +175,7 @@ export async function registerRemote(opts: {
 
   const inferType = (): "manifest" | "script" => {
     if (opts.type) return opts.type;
-    if (opts.entry.endsWith("/mf-manifest.json")) return "manifest";
+    if (isManifestDocumentUrl(opts.entry)) return "manifest";
     if (/\/remoteEntry(\.[a-f0-9]{8,})?\.js$/.test(opts.entry)) return "script";
     return typeof window === "undefined" ? "script" : "manifest";
   };
@@ -192,50 +240,15 @@ export interface FederationCompatReport {
   remotes: FederationCompatRemote[];
 }
 
-function parseSemver(v: unknown): { major: number; minor: number; patch: number } | null {
-  const m = typeof v === "string" ? /^(\d+)\.(\d+)\.(\d+)/.exec(v) : null;
-  return m ? { major: +m[1]!, minor: +m[2]!, patch: +m[3]! } : null;
-}
-
-export function satisfiesConstraint(version: string, constraint: string): boolean {
-  const trimmed = constraint.trim();
-  if (!trimmed) return true;
-  if (!["^", "~", ">", "<", "=", "x"].some((c) => trimmed.startsWith(c))) {
-    return version === trimmed;
-  }
-  const m = /^\s*\^\s*(\d+)\.(\d+)\.(\d+)/.exec(trimmed);
-  if (!m) return true;
-  const v = parseSemver(version);
-  if (!v) return false;
-  if (v.major !== +m[1]!) return false;
-  if (v.minor < +m[2]! || (v.minor === +m[2]! && v.patch < +m[3]!)) return false;
-  const constraintPrerelease = trimmed.match(/-([0-9A-Za-z.-]+)/);
-  const versionPrerelease = /-([0-9A-Za-z.-]+)\s*$/.exec(version);
-  if (constraintPrerelease) {
-    if (!versionPrerelease) return false;
-    const cPre = constraintPrerelease[1]!.split(".");
-    const vPre = versionPrerelease[1]!.split(".");
-    for (let i = 0; i < Math.max(cPre.length, vPre.length); i += 1) {
-      const c = cPre[i] ?? "0";
-      const p = vPre[i] ?? "0";
-      if (c === p) continue;
-      const cNum = /^\d+$/.test(c) ? +c : null;
-      const pNum = /^\d+$/.test(p) ? +p : null;
-      if (cNum !== null && pNum !== null) return cNum < pNum;
-      return cNum === null ? c.localeCompare(p) < 0 : false;
-    }
-    return true;
-  }
-  if (versionPrerelease) return false;
-  return true;
-}
-
 function manifestUrl(remoteUrl: string): string {
   return remoteUrl.endsWith("/") ? `${remoteUrl}mf-manifest.json` : `${remoteUrl}/mf-manifest.json`;
 }
 
 async function fetchManifest(url: string, timeoutMs: number): Promise<unknown> {
-  const res = await fetchRaw(manifestUrl(url), {}, timeoutMs);
+  // A pinned remote's resolved `browserManifestUrl` IS the manifest document
+  // (hashed name); plain remote URLs are bases that the fixed name appends to.
+  const target = url.endsWith(".json") ? url : manifestUrl(url);
+  const res = await fetchRaw(target, {}, timeoutMs);
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   return res.json();
 }
@@ -246,11 +259,125 @@ function listFederationRemotes(bosConfig: BosConfig): Array<{ role: string; url:
     const url = readProductionUrl((bosConfig?.app as Record<string, unknown> | undefined)?.[role]);
     if (url) out.push({ role, url });
   }
-  for (const [id, slot] of Object.entries(bosConfig?.plugins ?? {})) {
-    const url = readProductionUrl(slot);
+  for (const [id, remote] of Object.entries(bosConfig?.plugins ?? {})) {
+    const url = readProductionUrl(remote);
     if (url) out.push({ role: id, url });
   }
   return out;
+}
+
+export interface UiCompositionRemote {
+  remote: string;
+  url: string;
+  reachable: boolean;
+  ok: boolean;
+  reason?: string;
+}
+
+export interface UiCompositionReport {
+  ok: boolean;
+  remotes: UiCompositionRemote[];
+}
+
+/**
+ * The UI composition compat check (#546) — mf check's mirror of the host's
+ * boot guard. The core UI remote is the composition's shared-singleton
+ * provider; plugin UI remotes are consumers. Any singleton named by two or
+ * more UI manifests at different versions fails the composition at
+ * `mf.loadRemote` with the federation runtime's cryptic negotiation error —
+ * this names the remotes and versions instead. Server remotes (api/auth) are
+ * intentionally out of scope: the host-side `checkFederationCompat` covers
+ * them against the host's own core map.
+ */
+export async function checkUiCompositionCompat(
+  bosConfig: BosConfig | null,
+  opts: { timeoutMs?: number } = {},
+): Promise<UiCompositionReport> {
+  const timeoutMs = opts.timeoutMs ?? 15_000;
+
+  const uiRemotes: Array<{ remote: string; url: string }> = [];
+  const pushRemote = (remote: string, entry: unknown): void => {
+    const asRef = entry as { browserManifestUrl?: string; production?: string };
+    const url =
+      typeof asRef?.browserManifestUrl === "string" && asRef.browserManifestUrl
+        ? asRef.browserManifestUrl
+        : readProductionUrl(entry);
+    if (url) uiRemotes.push({ remote, url });
+  };
+  pushRemote("app.ui", (bosConfig?.app as Record<string, unknown> | undefined)?.ui);
+  for (const [id, remote] of Object.entries(bosConfig?.plugins ?? {})) {
+    if (!remote || typeof remote === "string") continue;
+    const ui = (remote as BosPluginRef).ui;
+    if (ui) pushRemote(`plugins.${id}.ui`, ui);
+  }
+
+  if (uiRemotes.length === 0) return { ok: true, remotes: [] };
+
+  const resolved = await Promise.all(
+    uiRemotes.map(async ({ remote, url }) => {
+      try {
+        const manifest = (await fetchManifest(url, timeoutMs)) as RemoteManifest;
+        return { remote, url, reachable: true, shared: manifest.shared ?? [] };
+      } catch (e) {
+        return {
+          remote,
+          url,
+          reachable: false,
+          shared: [] as Array<{ name: string; version?: string }>,
+          reason: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }),
+  );
+
+  const byName = new Map<string, Array<{ remote: string; version: string }>>();
+  for (const entry of resolved) {
+    for (const dep of entry.shared) {
+      if (typeof dep.version !== "string") continue;
+      const uses = byName.get(dep.name) ?? [];
+      uses.push({ remote: entry.remote, version: dep.version });
+      byName.set(dep.name, uses);
+    }
+  }
+
+  const remotes: UiCompositionRemote[] = resolved.map((entry) => {
+    if (!entry.reachable) {
+      return {
+        remote: entry.remote,
+        url: uiRemotes.find((s) => s.remote === entry.remote)!.url,
+        reachable: false,
+        ok: false,
+        reason: entry.reason,
+      };
+    }
+    const skewed = [...byName.entries()].flatMap(([name, uses]) => {
+      const first = uses[0]!;
+      const diverged = uses.find((use) => use.version !== first.version);
+      return diverged ? [name] : [];
+    });
+    if (skewed.length === 0) {
+      return {
+        remote: entry.remote,
+        url: uiRemotes.find((s) => s.remote === entry.remote)!.url,
+        reachable: true,
+        ok: true,
+      };
+    }
+    return {
+      remote: entry.remote,
+      url: uiRemotes.find((s) => s.remote === entry.remote)!.url,
+      reachable: true,
+      ok: false,
+      reason: `shared singleton skew across UI remotes: ${skewed
+        .map((name) => {
+          const uses = byName.get(name)!;
+          return `${name} is ${uses.map((use) => `${use.remote}=${use.version}`).join(", ")}`;
+        })
+        .join("; ")}`,
+    };
+  });
+
+  return { ok: remotes.every((remote) => remote.ok), remotes };
 }
 
 function readProductionUrl(entry: unknown): string | null {
@@ -278,10 +405,30 @@ export async function checkFederationCompat(
   }
 
   const hostUrl = bosConfig.app.host.production;
+  // Probe the pin's immutable coordinates when the slot pins one (#874) —
+  // the fixed name at the mutable slot root answers with the newest bytes,
+  // so the check would grade the composition the boot will never load.
+  // Resolution failure keeps the floating probe (diagnostic surface stays
+  // best-effort; the boot path is where the pin is a contract).
+  let probeUrl = hostUrl;
+  const hostPin = bosConfig.app.host.digest;
+  if (hostPin) {
+    // Probe the pin's immutable coordinates when the slot pins one (#874) —
+    // the fixed name at the mutable slot root serves the newest bytes, so the
+    // check would grade a composition the boot never loads. Resolution failure
+    // keeps the floating probe: this surface is diagnostic and stays
+    // best-effort; the boot path is where the pin is a contract.
+    try {
+      const resolvedPin = await resolveRemoteVersion({ base: hostUrl, digest: hostPin });
+      probeUrl = pinnedManifestDocumentUrl(hostUrl, resolvedPin);
+    } catch {
+      probeUrl = hostUrl;
+    }
+  }
   let hostManifest: RemoteManifest | null = null;
   let hostReason: string | undefined;
   try {
-    hostManifest = (await fetchManifest(hostUrl, timeoutMs)) as RemoteManifest;
+    hostManifest = (await fetchManifest(probeUrl, timeoutMs)) as RemoteManifest;
   } catch (e) {
     hostReason = e instanceof Error ? e.message : String(e);
   }

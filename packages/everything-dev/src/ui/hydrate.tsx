@@ -13,10 +13,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { ClientRuntimeConfig } from "../types";
 import { type ClientServiceConfig, createApiClient } from "./api";
 import { createAuthClient } from "./auth";
+import { constructTree } from "./compose";
 import {
   CORE_UI_PLUGIN_KEY,
   ComposePayloadSchema,
-  constructTree,
   type NavManifest,
   type PluginManifest,
   parsePluginManifest,

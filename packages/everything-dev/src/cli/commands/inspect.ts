@@ -276,13 +276,23 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
         }`,
       );
     }
-    if (result.platform) {
-      for (const v of result.platform.violations) {
-        console.log(`  ${colors.dim("platform".padEnd(10))} ${colors.error("FAIL")} ${v.message}`);
-      }
-      if (result.platform.ok) {
+    if (result.ui) {
+      for (const remote of result.ui.remotes) {
+        const tag = remote.ok ? colors.green("OK  ") : colors.error("FAIL");
         console.log(
-          `  ${colors.dim("platform".padEnd(10))} ${colors.green("OK  ")} release contract satisfied`,
+          `  ${colors.dim(`ui:${remote.remote}`.padEnd(10))} ${tag} ${remote.url}${
+            remote.reason ? `  ↳ ${remote.reason}` : ""
+          }`,
+        );
+      }
+    }
+    if (result.manifest) {
+      for (const v of result.manifest.violations) {
+        console.log(`  ${colors.dim("manifest".padEnd(10))} ${colors.error("FAIL")} ${v.message}`);
+      }
+      if (result.manifest.ok) {
+        console.log(
+          `  ${colors.dim("manifest".padEnd(10))} ${colors.green("OK  ")} release contract satisfied`,
         );
       }
     }
@@ -301,16 +311,99 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  platformManifest: async (result, _ctx) => {
+  verify: async (result, ctx) => {
+    if ((ctx.input as { json?: boolean }).json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === "fail") process.exit(1);
+      return;
+    }
+    console.log();
+    if (result.error) {
+      console.error(`[CLI] ${result.error}`);
+      console.log();
+      process.exit(1);
+    }
+    if (result.freshness) {
+      const tag = result.freshness.behind ? colors.yellow("DRIFT") : colors.green("OK  ");
+      console.log(`  ${colors.dim("release".padEnd(10))} ${tag}  ${result.freshness.message}`);
+    }
+    for (const remote of result.remotes) {
+      const tag =
+        remote.manifestOk && remote.mismatches.length === 0 && remote.signature?.ok !== false
+          ? colors.green("OK  ")
+          : colors.error("FAIL");
+      const scope = remote.legacy ? "legacy" : (remote.dir ?? "dir");
+      const attribution =
+        remote.signature === undefined
+          ? ""
+          : remote.signature.ok
+            ? colors.green("  · signed")
+            : colors.error("  · signature FAIL");
+      console.log(
+        `  ${colors.dim(remote.remote.padEnd(16))} ${tag} ${remote.manifest}  (${scope}, ${remote.filesChecked} files)${attribution}`,
+      );
+      if (remote.manifestReason) {
+        console.log(`    ${colors.error(`↳ manifest: ${remote.manifestReason}`)}`);
+      }
+      if (remote.signature && !remote.signature.ok) {
+        console.log(`    ${colors.error(`↳ signature: ${remote.signature.reason}`)}`);
+      }
+      for (const mismatch of remote.mismatches) {
+        const detail = mismatch.actual
+          ? `expected ${mismatch.expected}, served ${mismatch.actual}`
+          : (mismatch.error ?? "mismatch");
+        console.log(`    ${colors.error(`↳ ${mismatch.file}: ${detail}`)}`);
+      }
+    }
+    for (const entry of result.entries ?? []) {
+      if (entry.ok) continue;
+      console.log(`  ${colors.dim(entry.remote.padEnd(16))} ${colors.error("FAIL")} entry`);
+      console.log(
+        `    ${colors.error(`↳ ${entry.url}: ${entry.reason ?? "verification failed"}`)}`,
+      );
+    }
     console.log();
     if (result.status === "fail") {
-      console.error(`[CLI] ${result.error || "platform manifest resolution failed"}`);
+      console.log(
+        colors.error(
+          "  verify: ✗ a published pin no longer resolves byte-for-byte — mixed-build rot (#826). Run `bos upgrade && bos deploy` to re-pin.",
+        ),
+      );
+      console.log();
+      process.exit(1);
+    }
+    if (result.status === "drift") {
+      console.log(
+        colors.yellow(
+          "  verify: ⚠ behind the parent's release — advisory only, deploys proceed. Run `bos upgrade && bos deploy` to realign.",
+        ),
+      );
+      console.log();
+      return;
+    }
+    console.log(colors.green("  verify: ✓ every published pin resolves byte-for-byte"));
+    console.log();
+  },
+
+  manifest: async (result, _ctx) => {
+    console.log();
+    if (result.status === "fail") {
+      console.error(`[CLI] ${result.error || "release manifest resolution failed"}`);
+      if (result.drift) {
+        console.log();
+        console.log(
+          colors.error(
+            `  parent release is ${result.drift.published} (published), you target ${result.drift.pinned} — run \`bos upgrade\` to realign`,
+          ),
+        );
+      }
+      console.log();
       process.exit(1);
     }
     if (result.status === "absent") {
       console.log(
         colors.yellow(
-          `  ${icons.err} No platform release manifest resolves${result.error ? ` — ${result.error}` : ""}.`,
+          `  ${icons.err} No release manifest resolves${result.error ? ` — ${result.error}` : ""}.`,
         ),
       );
       console.log(
@@ -320,7 +413,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
       return;
     }
     console.log(
-      `  ${colors.dim("Platform")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${result.source}${result.fromCache ? ", cached" : ""})`)}`,
+      `  ${colors.dim("Manifest")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${[result.provenance, result.source, result.fromCache ? "cached" : undefined].filter(Boolean).join(", ")})`)}`,
     );
     if (result.compat) {
       for (const v of result.compat.violations) {
@@ -330,13 +423,13 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
       if (!result.compat.ok) {
         console.log(
           colors.error(
-            "  platform-compat: ✗ the workspace does not satisfy this release's compat contract — bump the framework or clear the pin",
+            "  manifest-compat: ✗ the workspace does not satisfy this release's compat contract — bump the framework or clear the release",
           ),
         );
         console.log();
         process.exit(1);
       }
-      console.log(colors.green("  platform-compat: ✓ workspace satisfies the release contract"));
+      console.log(colors.green("  manifest-compat: ✓ workspace satisfies the release contract"));
     }
     console.log();
     return;

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { DatabaseBinding } from "../../db";
-import { extractExpectedTables } from "../../db";
+import type { DatabaseBinding } from "../../db/bindings";
+import { extractExpectedTables } from "../../db/core";
 
 export interface DoctorReport {
   plugin: string;

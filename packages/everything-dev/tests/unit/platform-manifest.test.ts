@@ -5,10 +5,10 @@ import {
   checkPlatformCompat,
   composePlatformReleaseManifest,
   computeTemplateInventory,
-  getPlatformManifestKey,
-  PlatformReleaseManifestSchema,
+  ManifestSchema,
   serializePlatformReleaseManifest,
 } from "../../src/services/platform/manifest";
+import { getManifestKey } from "../../src/services/registry/pointer";
 
 const tmpRoot = join(import.meta.dirname, ".platform-manifest-fixture");
 
@@ -42,9 +42,9 @@ describe("composePlatformReleaseManifest", () => {
   it("carries the serving build's git sha when the compose context has one (#537) and drops the field when it does not", () => {
     const withSha = composePlatformReleaseManifest({ ...baseInputs, gitSha: "a".repeat(40) });
     expect(withSha.gitSha).toBe("a".repeat(40));
-    expect(
-      PlatformReleaseManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(withSha))),
-    ).toEqual(withSha);
+    expect(ManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(withSha)))).toEqual(
+      withSha,
+    );
     const withoutSha = composePlatformReleaseManifest(baseInputs);
     expect("gitSha" in withoutSha).toBe(false);
   });
@@ -80,16 +80,16 @@ describe("composePlatformReleaseManifest", () => {
 
   it("parses back through the published schema", () => {
     const manifest = composePlatformReleaseManifest(baseInputs);
-    expect(
-      PlatformReleaseManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(manifest))),
-    ).toEqual(manifest);
+    expect(ManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(manifest)))).toEqual(
+      manifest,
+    );
   });
 });
 
-describe("getPlatformManifestKey", () => {
-  it("names the well-known slot beside the published config", () => {
-    expect(getPlatformManifestKey("dev.everything.near", "everything.dev")).toBe(
-      "apps/dev.everything.near/everything.dev/platform.json",
+describe("getManifestKey", () => {
+  it("names the well-known tag beside the published config", () => {
+    expect(getManifestKey("dev.everything.near", "everything.dev")).toBe(
+      "apps/dev.everything.near/everything.dev/manifest.json",
     );
   });
 });

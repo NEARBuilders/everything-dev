@@ -27,10 +27,14 @@ vi.mock("../../src/services/deploy/rollback", async (importOriginal) => {
 
 vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
+  // the registry serves canonical payloads — local: dev targets stripped
+  // (#584); the fixtures here are published-shape
+  const canonical = async (...args: Parameters<typeof fetchBosConfigFromFastKvMock>) =>
+    stripLocalDevelopmentTargets(await fetchBosConfigFromFastKvMock(...args));
   return {
     ...actual,
-    fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
-    fetchPublishedConfigFromFastKv: fetchBosConfigFromFastKvMock,
+    fetchBosConfigFromFastKv: canonical,
+    fetchPublishedConfigFromFastKv: canonical,
   };
 });
 
@@ -39,6 +43,7 @@ vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
   return {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,
+    checkPublishKeyHealth: () => Promise.resolve({ ok: true }),
     submitRegistryWrite: submitRegistryWriteMock,
   };
 });
@@ -53,6 +58,7 @@ vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
 });
 
 import { publishToFastKv } from "../../src/services/deploy/train";
+import { stripLocalDevelopmentTargets } from "../../src/services/resolution/merge";
 
 const bosConfig = {
   account: "dev.everything.near",
@@ -62,7 +68,7 @@ const bosConfig = {
     host: {
       development: "local:host",
       production: "https://host.example",
-      pin: { manifest: "versions/aaaaaaaaaaaaaaaa.json", integrity: "sha384-host" },
+      digest: { manifest: "versions/aaaaaaaaaaaaaaaa.json", integrity: "sha384-host" },
     },
     ui: { development: "local:ui", production: "https://ui.example" },
     api: { development: "local:api", production: "https://api.example" },
@@ -108,13 +114,13 @@ describe("publishToFastKv pin verification gate", () => {
     vi.restoreAllMocks();
   });
 
-  it("blocks the publish when a pinned slot's bytes fail verification", async () => {
+  it("blocks the publish when a pinned remote's bytes fail verification", async () => {
     verifyRollbackSnapshotMock.mockResolvedValue({
       verifiable: true,
       ok: false,
-      slots: [
+      remotes: [
         {
-          slot: "plugins.registry",
+          remote: "plugins.registry",
           manifest: "versions/309a65a9735d13e7.json",
           ok: false,
           reason: "manifest fetch failed: 404",
@@ -134,13 +140,13 @@ describe("publishToFastKv pin verification gate", () => {
     expect(submitRegistryWriteMock).not.toHaveBeenCalled();
   });
 
-  it("publishes when every pinned slot verifies", async () => {
+  it("publishes when every pinned remote verifies", async () => {
     verifyRollbackSnapshotMock.mockResolvedValue({
       verifiable: true,
       ok: true,
-      slots: [
+      remotes: [
         {
-          slot: "app.host",
+          remote: "app.host",
           manifest: "versions/aaaaaaaaaaaaaaaa.json",
           ok: true,
         },
@@ -154,7 +160,7 @@ describe("publishToFastKv pin verification gate", () => {
   });
 
   it("a config with no pins skips the gate", async () => {
-    verifyRollbackSnapshotMock.mockResolvedValue({ verifiable: false, ok: false, slots: [] });
+    verifyRollbackSnapshotMock.mockResolvedValue({ verifiable: false, ok: false, remotes: [] });
 
     const result = await publishToFastKv({ ...baseInput, configDir });
 

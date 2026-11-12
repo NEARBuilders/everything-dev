@@ -2,12 +2,16 @@
 # Local edits are allowed: on the next sync the template version wins and your copy
 # is backed up under `.bos/sync-backup/`. To make a change permanent, file an issue:
 # https://github.com/NEARBuilders/everything-dev/issues
+# Deploy train: preflight → build → upload bundles → publish config + platform
+# manifest → image (pre-pushed digest or local docker build) → post-publish
+# smoke (--smoke) → Railway.
+#
+# Triggers directly on push to main and re-verifies, per run: the commit is
+# still the main tip and the merged diff is runtime-relevant.
 name: Deploy
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -22,18 +26,18 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
   packages: write
 
 jobs:
-  # Deploy gate: only fresh CI runs of a push to main, only while the
-  # validated commit is still the tip of main. Manual dispatches must run
-  # against main; stale runs are skipped (the queued run for the new tip
-  # deploys instead).
+  # Deploy gate: only while the commit is still the tip of main, and only
+  # when the merged diff touches runtime-relevant paths. Manual dispatches
+  # must run against main.
   gate:
     name: Verify deploy is current
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -42,10 +46,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 2
 
-      - name: Verify the CI-validated commit is still the main tip
+      # The queued run for the new tip deploys instead.
+      - name: Verify the deployed commit is still the main tip
         id: tip
         run: |
           git fetch --no-tags origin main
@@ -55,7 +60,7 @@ jobs:
             echo "current=true" >> "$GITHUB_OUTPUT"
           else
             echo "current=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping deploy — main advanced past the CI-validated commit ($SHA → $TIP). The queued run for the new tip deploys instead."
+            echo "::notice::Skipping deploy — main advanced past the validated commit ($SHA → $TIP). The queued run for the new tip deploys instead."
           fi
 
       # Relevance gate: skip the full deploy train when the merged diff touches
@@ -109,7 +114,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -221,24 +226,14 @@ jobs:
     if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    env:
-      NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      BOS_STORAGE_ORIGIN: https://upload.everything.dev
-      BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
-      BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      # Pre-pushed image from the image job — bos deploy skips its local
-      # image build/push and pins the Railway deploy to this digest. BOS_IMAGE
-      # carries the exact pushed ref so the pin pairs with the digest (with a
-      # digest present, ci.image is excluded from ref resolution — it is a
-      # build-time choice, not a pin-time one).
-      BOS_IMAGE: ${{ needs.image.outputs.image }}
-      BOS_IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+    # Secrets and deployment inputs live on the step that consumes them —
+    # not at job level, where every step (including third-party actions')
+    # would see them.
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Guard — no stray bun artifacts
         run: |
@@ -272,21 +267,40 @@ jobs:
       # The Railway deploy leg shells out to the `railway` CLI — runners don't
       # ship it, and a missing binary surfaces as a silent instant exit-1
       # (execa spawn failure mapped to exit code 1 by the deploy's run helper).
-      # Pinned to the current major (matches consumer-deploy.yml); bump deliberately.
+      # Pinned to the exact current release (matches consumer-deploy.yml's
+      # major pin, tightened here); bump deliberately.
       - name: Install Railway CLI
-        run: npm i -g @railway/cli@^5
+        run: npm i -g @railway/cli@5.71.0
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # The post-publish smoke boots the runtime image identity-driven; its
-      # boot surface needs the compose test databases (the smoke-container
-      # idiom: host.docker.internal:5434/5435).
-      - name: Start test databases
-        run: docker compose up -d --wait postgres-api-test postgres-auth-test
-
       - name: Deploy (preflight → build → upload → publish → smoke → Railway pin)
         timeout-minutes: 55
+        env:
+          NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
+          # near-kit's default RPC (free.rpc.fastnear.com) accepts signed
+          # broadcasts and silently drops them — pin the signing stack to an
+          # endpoint with a real transaction pool.
+          NEAR_RPC_URL: https://rpc.mainnet.near.org
+          BOS_STORAGE_ORIGIN: https://upload.everything.dev
+          BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
+          BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Workspace-scoped token + project/environment targeting — the root
+          # repoint (`railway service source connect` to the smoked digest) needs
+          # workspace scope; a project token alone only authorizes the plain
+          # redeploy (same wiring as consumer-deploy.yml).
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+          # Pre-pushed image from the image job — bos deploy skips its local
+          # image build/push and pins the Railway deploy to this digest. BOS_IMAGE
+          # carries the exact pushed ref so the pin pairs with the digest (with a
+          # digest present, ci.image is excluded from ref resolution — it is a
+          # build-time choice, not a pin-time one).
+          BOS_IMAGE: ${{ needs.image.outputs.image }}
+          BOS_IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
         # One command runs the deploy train (ADR 0020/0021, image leg split
         # into the `image` job): staleness-checked prerequisite builds +
         # workspace dists, bundle upload to the R2-backed storage, FastKV

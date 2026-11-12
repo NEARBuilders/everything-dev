@@ -1,6 +1,5 @@
 ---
 "everything-dev": patch
-"host": patch
 ---
 
 Fix bundle-upload timeouts that broke CDN publishes mid-deploy.

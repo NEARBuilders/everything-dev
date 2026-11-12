@@ -12,13 +12,13 @@ import {
   Option,
 } from "effect";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
-import { slotPins } from "everything-dev/fingerprint";
+import { pointerDigest, remoteDigests } from "everything-dev/digest";
 import { type Context, Hono } from "hono";
 import type { AuthVariables } from "./lib/auth";
 import { getCspStrict, SecurityMiddleware } from "./middleware/security";
 import { createStaticAssetProxyHandler } from "./middleware/static-proxy";
 import { setupApiRoutes } from "./routes/api";
-import type { HealthLoadingState } from "./routes/health";
+import { getSnapshotBootHealth, type HealthLoadingState } from "./routes/health";
 import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
@@ -26,7 +26,7 @@ import { HostServerError } from "./services/errors";
 import { FederationLifecycle } from "./services/federation.server";
 import { closeMcpServer } from "./services/mcp";
 import { PluginsService } from "./services/plugins";
-import { deploymentFingerprint, RuntimeSnapshot } from "./services/runtime-snapshot";
+import { deploymentDigest, RuntimeSnapshot } from "./services/runtime-snapshot";
 import { SnapshotCoordinator } from "./services/snapshot-coordinator";
 import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
 import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
@@ -90,6 +90,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     const getBaseConfig = async () =>
       (await Effect.runPromiseWith(effectContext)(snapshot.get)).config;
     const getServingState = () => Effect.runPromiseWith(effectContext)(snapshot.get);
+    const bootedFromSnapshot = process.env.BOS_BOOT_SNAPSHOT === "1";
     const app = new Hono<HonoEnv>();
 
     app.onError((err: unknown, c: Context<HonoEnv>) => {
@@ -130,10 +131,12 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
       }
     }
 
-    app.get("/health", (c: Context<HonoEnv>) => {
+    app.get("/health", async (c: Context<HonoEnv>) => {
       const apiReady = apiProxyMode || Boolean(plugins.api?.router && plugins.status.available);
       const composeOk = !ssrEnabled || compositionHealth.status === "ready";
       const probeFailed = compositionHealth.selfProbe?.status === "failed";
+      const serving = await getServingState();
+      const snapshotBoot = getSnapshotBootHealth(bootedFromSnapshot, serving.pointer !== undefined);
       return c.json(
         {
           status:
@@ -143,6 +146,14 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           api: apiProxyMode || plugins.api ? "ready" : "unavailable",
           auth: plugins.auth ? "ready" : "unavailable",
           ssr: compositionHealth,
+          snapshot: snapshotBoot,
+          ...(serving.restartRequired?.length
+            ? {
+                restartRequired: serving.restartRequired,
+                warning:
+                  "boot-frozen slots changed pin — the swap cannot adopt them; restart to serve the adopted generation",
+              }
+            : {}),
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
           ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
@@ -158,8 +169,15 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           const watch = yield* Effect.serviceOption(SnapshotWatch);
           const lastOutcome = Option.isSome(watch) ? watch.value.lastOutcome : undefined;
           return {
-            fingerprint: state.config.deploymentFingerprint ?? state.fingerprint,
-            slots: state.pointer ? slotPins(state.pointer as never) : {},
+            deploymentDigest: state.config.deploymentDigest ?? state.deploymentDigest,
+            pointerDigest: state.pointer ? pointerDigest(state.pointer as never) : undefined,
+            remotes: state.pointer ? remoteDigests(state.pointer as never) : {},
+            ...(state.restartRequired?.length
+              ? {
+                  restartRequired: state.restartRequired,
+                  note: "boot-frozen slots changed pin — the swap cannot adopt them; restart to serve the adopted generation",
+                }
+              : {}),
             ...(platform
               ? {
                   build: {
@@ -327,7 +345,7 @@ export const runServer = (input: ServerInput): ServerHandle => {
       process.env[key] = value;
     }
   }
-  input.config.deploymentFingerprint = deploymentFingerprint(input.config);
+  input.config.deploymentDigest = deploymentDigest(input.config);
   const ConfigLive = Layer.succeed(ConfigService, input.config);
   const AppLive = Layer.provideMerge(PluginsService.Live, ConfigLive);
   const SnapshotLive = RuntimeSnapshot.layer(

@@ -10,7 +10,9 @@ import {
   type MembershipPolicyTag,
   type OnboardingCodeCipherTag,
   type PluginServices,
+  type RateLimiterTag,
 } from "./service-types";
+import type { AdminOrganizationsService } from "./services/admin-organizations";
 import type { AdminUsersService } from "./services/admin-users";
 import type { ApiKeysService } from "./services/api-keys";
 import type { InvitationsService } from "./services/invitations";
@@ -30,6 +32,7 @@ export type AuthEffectServices =
   | AuthApiTag
   | ApiKeysService
   | AdminUsersService
+  | AdminOrganizationsService
   | DatabaseTag
   | OnboardingCodeCipherTag
   | MembershipPolicyTag
@@ -40,12 +43,13 @@ export type AuthEffectServices =
   | OnboardingService
   | PasskeysService
   | PermissionsService
+  | RateLimiterTag
   | NearService
   | SessionService;
 
 export type AuthHandlerContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & {
-    reqHeaders?: Record<string, string>;
+    reqHeaders: Record<string, string>;
     session?: NonNullable<InferOutput<"getContext">["session"]> | null;
   };
 
@@ -63,7 +67,7 @@ export type RequireAuthMiddleware = DecoratedMiddleware<
     user: AuthSessionUser;
     sessionId: string | null;
     activeOrganizationId: string | null;
-    reqHeaders?: Record<string, string>;
+    reqHeaders: Record<string, string>;
   },
   any,
   any,
@@ -102,6 +106,13 @@ export function createRequireAuth(
       const apiKeyProvided = (apiKeyHeaders ?? []).some(
         (headerName) => context.reqHeaders?.[headerName] !== undefined,
       );
+      if (!context.reqHeaders && !apiKeyProvided) {
+        throw new ORPCError("UNAUTHORIZED", {
+          message:
+            "in-process caller forwarded no credentials — pass reqHeaders from the caller's request (or the host-resolved user); client({ userId }) alone carries no credentials",
+          data: { apiKeyProvided },
+        });
+      }
       throw new ORPCError("UNAUTHORIZED", {
         message: "Authentication required",
         data: { apiKeyProvided },

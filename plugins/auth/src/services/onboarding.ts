@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
-import { Context, Effect } from "effect";
+import { and, desc, eq, gte, isNull, lt, or, sql } from "drizzle-orm";
+import { Clock, Context, Effect } from "effect";
 import { attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
+import { rememberActiveOrganization } from "../personal-organization";
 import { toDate, toOnboardingSummary } from "../serializers";
 import type {
   MembershipPolicyTag,
@@ -21,8 +22,8 @@ import {
   CodeRevoked,
   EventEnded,
   EventTeamCreateFailed,
+  MembershipEnded,
   OrgFull,
-  OrgRequiresApproval,
   PlatformAdminRequired,
   RedeemOrgMissing,
 } from "./domain-errors";
@@ -32,6 +33,14 @@ type Db = PluginServices["db"];
 
 const DEFAULT_MAX_USES = 300;
 const DEFAULT_EXPIRES_IN_HOURS = 24;
+
+function dateFromMillis(ms: number): Date {
+  return new Date(ms);
+}
+
+function resolveExpiry(value: Date | undefined, nowMs: number): Date {
+  return value ? toDate(value) : dateFromMillis(nowMs + DEFAULT_EXPIRES_IN_HOURS * 3_600_000);
+}
 
 type CodeState = "active" | "revoked" | "expired" | "used-up";
 
@@ -70,13 +79,21 @@ export class OnboardingService extends Context.Service<
     createOnboardingCode: (
       context: OrganizerCaller,
       input: {
-        eventId: string;
-        eventName: string;
+        eventId?: string;
+        eventName?: string;
         organizationId?: string;
         maxUses?: number;
-        expiresAt?: Date;
+        expiresAt?: Date | null;
       },
     ) => Effect.Effect<InferOutput<"createOnboardingCode">, AuthFailure>;
+    getStandingOnboardingCode: (
+      context: OrganizerCaller,
+      input: { organizationId?: string; eventId?: string },
+    ) => Effect.Effect<InferOutput<"getStandingOnboardingCode"> | null, AuthFailure>;
+    rotateStandingOnboardingCode: (
+      context: OrganizerCaller,
+      input: { organizationId?: string; eventId?: string },
+    ) => Effect.Effect<InferOutput<"rotateStandingOnboardingCode">, AuthFailure>;
     listOnboardingCodes: (
       context: OrganizerCaller,
       input: { organizationId?: string; eventId?: string },
@@ -120,32 +137,40 @@ export const buildOnboardingService = ({
 }) =>
   OnboardingService.of({
     createOnboardingCode: Effect.fn("OnboardingService.createOnboardingCode")(function* (
-      context: OrganizerCaller,
+      caller: OrganizerCaller,
       input: {
-        eventId: string;
-        eventName: string;
+        eventId?: string;
+        eventName?: string;
         organizationId?: string;
         maxUses?: number;
-        expiresAt?: Date;
+        expiresAt?: Date | null;
       },
     ) {
       const { userId, organizationId } = yield* permissions.requireOrganizer(
-        context,
+        caller,
         input.organizationId,
       );
 
-      const eventName = String(input.eventName).trim();
-      const eventId = String(input.eventId);
-      const now = new Date();
-      const expiresAt = input.expiresAt
-        ? toDate(input.expiresAt)
-        : new Date(now.getTime() + DEFAULT_EXPIRES_IN_HOURS * 3_600_000);
-      if (expiresAt <= now) {
-        return yield* Effect.fail(
-          new EventEnded({
-            message: "This event has ended, so its onboarding code would already be expired",
-          }),
-        );
+      const eventId = input.eventId?.trim() || null;
+      const eventName = input.eventName?.trim() || null;
+      const maxUses = input.maxUses ?? DEFAULT_MAX_USES;
+      const isStanding = maxUses === 0 && input.expiresAt === null;
+      const nowMs = yield* Clock.currentTimeMillis;
+      const now = dateFromMillis(nowMs);
+      const expiresAt = input.expiresAt === null ? null : resolveExpiry(input.expiresAt, nowMs);
+      if (expiresAt !== null && expiresAt.getTime() <= nowMs) {
+        return yield* new EventEnded({
+          message: "This event has ended, so its onboarding code would already be expired",
+        });
+      }
+
+      if (isStanding) {
+        const existing = yield* Effect.promise(() => findStandingCode(db, organizationId, eventId));
+        const encrypted = existing?.encryptedCode ?? null;
+        if (existing !== null && encrypted !== null) {
+          const code = yield* Effect.promise(() => cipher.decrypt(encrypted));
+          return { ...toOnboardingSummary(existing), code };
+        }
       }
 
       const teamId = yield* attemptDb(() =>
@@ -153,33 +178,90 @@ export const buildOnboardingService = ({
       );
       const code = generateCode();
       const encryptedCode = yield* Effect.promise(() => cipher.encrypt(code));
-      const [row] = yield* attemptDb(() =>
-        db
-          .insert(schema.onboardingCode)
-          .values({
-            id: crypto.randomUUID(),
-            codeHash: hashCode(code),
-            encryptedCode,
-            organizationId,
-            eventId,
-            eventName,
-            teamId,
-            role: "member",
-            maxUses: input.maxUses ?? DEFAULT_MAX_USES,
-            usedCount: 0,
-            expiresAt,
-            createdBy: userId,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning(),
+      const row = yield* attemptDb(() =>
+        insertOnboardingCode(db, {
+          codeHash: hashCode(code),
+          encryptedCode,
+          organizationId,
+          eventId,
+          eventName,
+          teamId,
+          maxUses,
+          expiresAt,
+          createdBy: userId,
+          now,
+        }),
       );
-      if (!row) {
-        return yield* Effect.fail(new CodeCreateFailed({ message: "Failed to create code" }));
+      if (row === null) {
+        return yield* new CodeCreateFailed({ message: "Failed to create code" });
       }
 
       return { ...toOnboardingSummary(row), code };
     }),
+
+    getStandingOnboardingCode: Effect.fn("OnboardingService.getStandingOnboardingCode")(function* (
+      caller: OrganizerCaller,
+      input: { organizationId?: string; eventId?: string },
+    ) {
+      const { organizationId } = yield* permissions.requireOrganizer(caller, input.organizationId);
+      const eventId = input.eventId?.trim() || null;
+      const row = yield* Effect.promise(() => findStandingCode(db, organizationId, eventId));
+      const encrypted = row?.encryptedCode ?? null;
+      if (row === null || encrypted === null) return null;
+      const code = yield* Effect.promise(() => cipher.decrypt(encrypted));
+      return { ...toOnboardingSummary(row), code };
+    }),
+
+    rotateStandingOnboardingCode: Effect.fn("OnboardingService.rotateStandingOnboardingCode")(
+      function* (caller: OrganizerCaller, input: { organizationId?: string; eventId?: string }) {
+        const { userId, organizationId } = yield* permissions.requireOrganizer(
+          caller,
+          input.organizationId,
+        );
+        const eventId = input.eventId?.trim() || null;
+        const now = dateFromMillis(yield* Clock.currentTimeMillis);
+        yield* attemptDb(() =>
+          db
+            .update(schema.onboardingCode)
+            .set({ revokedAt: now, updatedAt: now })
+            .where(
+              and(
+                eq(schema.onboardingCode.organizationId, organizationId),
+                isNull(schema.onboardingCode.revokedAt),
+                eq(schema.onboardingCode.maxUses, 0),
+                isNull(schema.onboardingCode.expiresAt),
+                eventId === null
+                  ? isNull(schema.onboardingCode.eventId)
+                  : eq(schema.onboardingCode.eventId, eventId),
+              ),
+            ),
+        );
+
+        const teamId = yield* attemptDb(() =>
+          resolveEventTeamId(db, organizationId, eventId, null),
+        );
+        const code = generateCode();
+        const encryptedCode = yield* Effect.promise(() => cipher.encrypt(code));
+        const row = yield* attemptDb(() =>
+          insertOnboardingCode(db, {
+            codeHash: hashCode(code),
+            encryptedCode,
+            organizationId,
+            eventId,
+            eventName: null,
+            teamId,
+            maxUses: 0,
+            expiresAt: null,
+            createdBy: userId,
+            now,
+          }),
+        );
+        if (row === null) {
+          return yield* new CodeCreateFailed({ message: "Failed to rotate standing code" });
+        }
+        return { ...toOnboardingSummary(row), code };
+      },
+    ),
 
     listOnboardingCodes: Effect.fn("OnboardingService.listOnboardingCodes")(function* (
       context: OrganizerCaller,
@@ -218,12 +300,10 @@ export const buildOnboardingService = ({
         );
         scopedOrganizationId = organizationId;
       } else if (context.user?.role !== "admin") {
-        return yield* Effect.fail(
-          new PlatformAdminRequired({
-            message:
-              "Viewing onboarding stats across all organizations requires a platform admin; pass organizationId for organization-scoped stats",
-          }),
-        );
+        return yield* new PlatformAdminRequired({
+          message:
+            "Viewing onboarding stats across all organizations requires a platform admin; pass organizationId for organization-scoped stats",
+        });
       }
 
       const rows = yield* attemptDb(() =>
@@ -297,9 +377,10 @@ export const buildOnboardingService = ({
           .returning(),
       );
       if (!revoked) {
-        return yield* Effect.fail(
-          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
-        );
+        return yield* new CodeNotFound({
+          message: "Onboarding code not found",
+          codeId: input.codeId,
+        });
       }
       return { success: true };
     }),
@@ -318,14 +399,13 @@ export const buildOnboardingService = ({
         }),
       );
       if (!row) {
-        return yield* Effect.fail(
-          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
-        );
+        return yield* new CodeNotFound({
+          message: "Onboarding code not found",
+          codeId: input.codeId,
+        });
       }
       if (!row.encryptedCode || codeState(row) !== "active") {
-        return yield* Effect.fail(
-          new CodeInactive({ message: "This onboarding code is no longer active" }),
-        );
+        return yield* new CodeInactive({ message: "This onboarding code is no longer active" });
       }
 
       const encryptedCode = row.encryptedCode;
@@ -349,9 +429,10 @@ export const buildOnboardingService = ({
         }),
       );
       if (!row) {
-        return yield* Effect.fail(
-          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
-        );
+        return yield* new CodeNotFound({
+          message: "Onboarding code not found",
+          codeId: input.codeId,
+        });
       }
 
       const joined = yield* attemptDb(() =>
@@ -426,9 +507,7 @@ export const buildOnboardingService = ({
       const userId = context.userId;
       const sessionId = context.sessionId ?? null;
       if (!userId || !sessionId) {
-        return yield* Effect.fail(
-          new AuthenticationRequired({ message: "Authentication required" }),
-        );
+        return yield* new AuthenticationRequired({ message: "Authentication required" });
       }
 
       const codeRow = yield* attemptDb(() =>
@@ -437,7 +516,7 @@ export const buildOnboardingService = ({
         }),
       );
       if (!codeRow) {
-        return yield* Effect.fail(new CodeNotFound({ message: "Onboarding code not found" }));
+        return yield* new CodeNotFound({ message: "Onboarding code not found" });
       }
 
       const organization = yield* attemptDb(() =>
@@ -446,22 +525,22 @@ export const buildOnboardingService = ({
         }),
       );
       const organizationName = organization?.name ?? "";
-      if (organization?.status !== "active") {
-        return yield* Effect.fail(
-          new OrgRequiresApproval({ message: "Organization requires platform-admin approval" }),
-        );
-      }
 
       if (codeRow.revokedAt) {
-        return yield* Effect.fail(new CodeRevoked({ message: "This onboarding code was revoked" }));
+        return yield* new CodeRevoked({ message: "This onboarding code was revoked" });
       }
-      if (toDate(codeRow.expiresAt) < new Date()) {
-        return yield* Effect.fail(new CodeExpired({ message: "This onboarding code has expired" }));
+      const expiresAt = codeRow.expiresAt ? toDate(codeRow.expiresAt) : null;
+      if (expiresAt !== null && expiresAt < dateFromMillis(yield* Clock.currentTimeMillis)) {
+        return yield* new CodeExpired({
+          message: "This onboarding code has expired",
+          expiresAt,
+        });
       }
-      if (codeRow.usedCount >= codeRow.maxUses) {
-        return yield* Effect.fail(
-          new CodeLimitReached({ message: "This onboarding code has reached its limit" }),
-        );
+      if (codeRow.maxUses > 0 && codeRow.usedCount >= codeRow.maxUses) {
+        return yield* new CodeLimitReached({
+          message: "This onboarding code has reached its limit",
+          maxUses: codeRow.maxUses,
+        });
       }
 
       const already = yield* attemptDb(() =>
@@ -473,15 +552,30 @@ export const buildOnboardingService = ({
         }),
       );
       if (already) {
+        const membership = yield* attemptDb(() =>
+          db.query.member.findFirst({
+            where: and(
+              eq(schema.member.userId, userId),
+              eq(schema.member.organizationId, codeRow.organizationId),
+            ),
+          }),
+        );
+        if (!membership) {
+          return yield* new MembershipEnded({
+            message: "You are no longer a member of this organization",
+          });
+        }
         yield* attemptDb(() =>
           db
             .update(schema.session)
             .set({ activeOrganizationId: codeRow.organizationId })
             .where(eq(schema.session.id, sessionId)),
         );
+        yield* attemptDb(() => rememberActiveOrganization(db, userId, codeRow.organizationId));
         return {
           success: true,
           alreadyRedeemed: true,
+          organizationId: codeRow.organizationId,
           organizationName,
           eventName: codeRow.eventName,
         };
@@ -555,13 +649,17 @@ export const buildOnboardingService = ({
             .where(
               and(
                 eq(schema.onboardingCode.id, codeRow.id),
-                sql`${schema.onboardingCode.usedCount} < ${schema.onboardingCode.maxUses}`,
+                or(
+                  sql`${schema.onboardingCode.usedCount} < ${schema.onboardingCode.maxUses}`,
+                  sql`${schema.onboardingCode.maxUses} = 0`,
+                ),
               ),
             )
             .returning();
           if (!updated) {
             throw new CodeLimitReached({
               message: "This onboarding code has reached its limit",
+              maxUses: codeRow.maxUses,
             });
           }
 
@@ -571,30 +669,87 @@ export const buildOnboardingService = ({
             userId,
             createdAt: new Date(),
           });
-        }),
-      );
 
-      yield* attemptDb(() =>
-        db
-          .update(schema.session)
-          .set({ activeOrganizationId: codeRow.organizationId })
-          .where(eq(schema.session.id, sessionId)),
+          await tx
+            .update(schema.session)
+            .set({ activeOrganizationId: codeRow.organizationId })
+            .where(eq(schema.session.id, sessionId));
+          await rememberActiveOrganization(tx, userId, codeRow.organizationId);
+        }),
       );
 
       return {
         success: true,
         alreadyRedeemed: false,
+        organizationId: codeRow.organizationId,
         organizationName,
         eventName: codeRow.eventName,
       };
     }),
   });
 
+async function insertOnboardingCode(
+  db: Db,
+  input: {
+    codeHash: string;
+    encryptedCode: string;
+    organizationId: string;
+    eventId: string | null;
+    eventName: string | null;
+    teamId: string;
+    maxUses: number;
+    expiresAt: Date | null;
+    createdBy: string;
+    now: Date;
+  },
+) {
+  const [row] = await db
+    .insert(schema.onboardingCode)
+    .values({
+      id: crypto.randomUUID(),
+      codeHash: input.codeHash,
+      encryptedCode: input.encryptedCode,
+      organizationId: input.organizationId,
+      eventId: input.eventId,
+      eventName: input.eventName,
+      teamId: input.teamId,
+      role: "member",
+      maxUses: input.maxUses,
+      usedCount: 0,
+      expiresAt: input.expiresAt,
+      createdBy: input.createdBy,
+      createdAt: input.now,
+      updatedAt: input.now,
+    })
+    .returning();
+  return row ?? null;
+}
+
+async function findStandingCode(db: Db, organizationId: string, eventId: string | null) {
+  const [row] = await db
+    .select()
+    .from(schema.onboardingCode)
+    .where(
+      and(
+        eq(schema.onboardingCode.organizationId, organizationId),
+        isNull(schema.onboardingCode.revokedAt),
+        eq(schema.onboardingCode.maxUses, 0),
+        isNull(schema.onboardingCode.expiresAt),
+        eventId === null
+          ? isNull(schema.onboardingCode.eventId)
+          : eq(schema.onboardingCode.eventId, eventId),
+      ),
+    )
+    .orderBy(desc(schema.onboardingCode.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
 async function resolveEventTeamId(
   db: Db,
   organizationId: string,
-  eventId: string,
-  eventName: string,
+  eventId: string | null,
+  eventName: string | null,
 ): Promise<string> {
   const [prior] = await db
     .select({ teamId: schema.onboardingCode.teamId })
@@ -602,7 +757,9 @@ async function resolveEventTeamId(
     .where(
       and(
         eq(schema.onboardingCode.organizationId, organizationId),
-        eq(schema.onboardingCode.eventId, eventId),
+        eventId === null
+          ? isNull(schema.onboardingCode.eventId)
+          : eq(schema.onboardingCode.eventId, eventId),
       ),
     )
     .orderBy(desc(schema.onboardingCode.createdAt))
@@ -610,17 +767,29 @@ async function resolveEventTeamId(
   if (prior) return prior.teamId;
 
   const now = new Date();
-  const [team] = await db
+  await db
     .insert(schema.team)
     .values({
       id: crypto.randomUUID(),
-      name: eventName,
+      name: eventName ?? "Standing onboarding code",
       organizationId,
+      eventId,
       metadata: null,
       createdAt: now,
       updatedAt: now,
     })
-    .returning();
+    .onConflictDoNothing({ target: [schema.team.organizationId, schema.team.eventId] });
+
+  const [team] = await db
+    .select({ id: schema.team.id })
+    .from(schema.team)
+    .where(
+      and(
+        eq(schema.team.organizationId, organizationId),
+        eventId === null ? isNull(schema.team.eventId) : eq(schema.team.eventId, eventId),
+      ),
+    )
+    .limit(1);
   if (!team) {
     throw new EventTeamCreateFailed({ message: "Failed to create event team" });
   }

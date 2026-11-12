@@ -16,20 +16,20 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { Clock, Data, Effect, Schema } from "effect";
-import { computeSriHash } from "everything-dev/integrity";
 import {
   CORE_UI_PLUGIN_KEY as CORE_UI_KEY,
   type ComposePayload,
   type ConstructedTree,
   digestOf,
-  type EntrySlot,
   entryUrls,
   MANIFEST_FILENAME,
   type NavManifest,
   type PluginManifest,
   parsePluginManifest,
+  type RemoteEntry,
   type RouteConfigModule,
 } from "everything-dev/ui/manifest";
+import { asDigest, fetchVerified } from "everything-dev/verify";
 import type { RouterModule } from "../types";
 import { logger } from "../utils/logger";
 import type { RuntimeConfig } from "./config";
@@ -63,22 +63,27 @@ export interface ComposedUi {
   clientPayload: ComposePayload;
 }
 
-interface UiSource {
+export interface UiSource {
   key: string;
   mfName: string;
-  remote?: EntrySlot;
+  remote?: RemoteEntry;
   localRoot?: string;
   manifestUrl?: string;
   /** SRI the pinned version manifest records for the compose manifest —
    * verified on every fetch so mutable-latest bytes that drifted from the
    * resolved pin fail the compose loud instead of rendering a mixed tree */
   manifestIntegrity?: string;
-  /** the MF browser manifest URL (mf-manifest.json — hashed when the slot
+  /** the MF browser manifest URL (mf-manifest.json — hashed when the remote
    * pins a version manifest); rides the compose payload for hydrate-time
    * remote registration */
   browserManifestUrl?: string;
   /** client-side web entry (browser remoteEntry.js) */
-  webEntry?: string;
+  uiEntry?: string;
+  /** Shared-singleton `name → version` the pinned build embedded (#546) —
+   * cross-compared across the composition before any remote loads, so a
+   * platform skew fails with a named error instead of the federation
+   * runtime's cryptic singleton negotiation error. */
+  sharedVersions?: Record<string, string>;
 }
 
 /**
@@ -111,10 +116,11 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
       manifestUrl:
         config.ui.source === "local"
           ? undefined
-          : `${config.ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`,
+          : (config.ui.manifestUrl ?? `${config.ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`),
       manifestIntegrity: config.ui.manifestIntegrity,
       browserManifestUrl: coreUrls.browserManifest,
-      webEntry: coreUrls.web,
+      uiEntry: coreUrls.ui,
+      sharedVersions: config.ui.sharedVersions,
     },
   ];
   for (const [id, plugin] of Object.entries(config.plugins ?? {})) {
@@ -138,12 +144,17 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
         localPath: ui.localPath,
       },
       localRoot: ui.localPath ? resolveLocalRoot(ui.localPath) : undefined,
-      // Remote sources publish their manifest at a known URL; local slots are
+      // Remote sources publish their manifest at a known URL; local remotes are
       // read straight from the workspace (src/manifest.gen.json) — no URL.
-      manifestUrl: ui.url ? `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}` : undefined,
+      // Pinned remotes resolve it through the immutable version directory
+      // (#826); the slot-root fixed name is the legacy fallback.
+      manifestUrl: ui.url
+        ? (ui.manifestUrl ?? `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`)
+        : undefined,
       manifestIntegrity: ui.manifestIntegrity,
       browserManifestUrl: urls.browserManifest,
-      webEntry: urls.web,
+      uiEntry: urls.ui,
+      sharedVersions: ui.sharedVersions,
     });
   }
   return sources.sort((a, b) => a.key.localeCompare(b.key));
@@ -185,19 +196,25 @@ const loadRemoteManifestCached = Effect.fn("loadRemoteManifestCached")(function*
   }
   const fresh = yield* Effect.tryPromise({
     try: async () => {
-      const response = await runFetch(manifestUrl);
-      if (!response.ok) {
-        throw new Error(`manifest fetch ${response.status} for ${manifestUrl}`);
+      if (!source.manifestIntegrity) {
+        const response = await runFetch(manifestUrl);
+        if (!response.ok) {
+          throw new Error(`manifest fetch ${response.status} for ${manifestUrl}`);
+        }
+        return await response.text();
       }
-      const text = await response.text();
-      if (source.manifestIntegrity && computeSriHash(text) !== source.manifestIntegrity) {
+      const bytes = await fetchVerified({
+        url: manifestUrl,
+        expected: asDigest(source.manifestIntegrity),
+      }).catch((cause) => {
         throw new Error(
           `manifest bytes at ${manifestUrl} do not match the resolved pin's SRI — ` +
             `the resolved config is older than the deployed bundles (stale host or rolled-back publish); ` +
             `redeploy or restart the host to re-resolve`,
+          { cause },
         );
-      }
-      return text;
+      });
+      return new TextDecoder().decode(bytes);
     },
     catch: (cause) =>
       new UiComposeError({ operation: `Failed to load UI manifest from ${manifestUrl}`, cause }),
@@ -265,6 +282,60 @@ interface ComposableSource {
   manifest: PluginManifest;
 }
 
+export class SharedSingletonSkewError extends Data.TaggedError("SharedSingletonSkewError")<{
+  readonly name: string;
+  readonly versionA: string;
+  readonly sourceA: string;
+  readonly versionB: string;
+  readonly sourceB: string;
+}> {
+  get message() {
+    return (
+      `Shared singleton "${this.name}" skew across UI sources: "${this.sourceA}" was built against ` +
+      `${this.versionA}, "${this.sourceB}" against ${this.versionB} — the composition refuses to load ` +
+      `a split module graph. Redeploy the older bundle: \`bos upgrade\` realigns the platform pin, ` +
+      `\`bos deploy\` rebuilds against it (issue #546).`
+    );
+  }
+}
+
+/**
+ * The composition's shared-singleton consistency guard (#546): every UI
+ * source's version manifest declares the singleton versions its build
+ * embedded; any singleton named by two or more sources at different versions
+ * would throw the federation runtime's cryptic negotiation error mid-load —
+ * this names the sources and versions instead. Sources without a record
+ * (local dev sources, builds predating the field) are skipped.
+ */
+export function sharedSingletonSkew(
+  composable: ComposableSource[],
+): SharedSingletonSkewError | null {
+  const byName = new Map<string, Array<{ source: string; version: string }>>();
+  for (const { source, manifest } of composable) {
+    const shared = source.sharedVersions;
+    if (!shared || manifest.name !== source.key) continue;
+    for (const [name, version] of Object.entries(shared)) {
+      const uses = byName.get(name) ?? [];
+      uses.push({ source: source.key, version });
+      byName.set(name, uses);
+    }
+  }
+  for (const [name, uses] of byName) {
+    const first = uses[0]!;
+    const diverged = uses.find((use) => use.version !== first.version);
+    if (diverged) {
+      return new SharedSingletonSkewError({
+        name,
+        versionA: first.version,
+        sourceA: first.source,
+        versionB: diverged.version,
+        sourceB: diverged.source,
+      });
+    }
+  }
+  return null;
+}
+
 /**
  * Per-source isolation (ADR 0024 §5): a plugin source that cannot produce a
  * usable manifest — fetch failure with no last-good snapshot, unparsable
@@ -291,7 +362,7 @@ const resolveComposableSources = Effect.fn("resolveComposableSources")(function*
         }
         // A local ui source is authored into this runtime — a manifest that
         // names another plugin is a configuration bug, not a transient remote
-        // failure: fail loud instead of silently dropping the slot.
+        // failure: fail loud instead of silently dropping the remote.
         if (source.localRoot) {
           return yield* new UiComposeError({
             operation: `[Compose] local ui source "${source.key}" manifest names itself "${manifest.name}" — expected "${source.key}"`,
@@ -344,7 +415,7 @@ const digestOfSources = Effect.fn("digestOfSources")(function* (composable: Comp
 const clientPayloadOf = (composable: ComposableSource[], digest: string): ComposePayload => ({
   digest,
   remotes: composable.flatMap(({ source, manifest }) => {
-    if (source.key === CORE_UI_KEY || !source.webEntry) return [];
+    if (source.key === CORE_UI_KEY || !source.uiEntry) return [];
     return [
       {
         // The client matches remotes to manifests by `key === manifest.name`;
@@ -352,7 +423,7 @@ const clientPayloadOf = (composable: ComposableSource[], digest: string): Compos
         // MF container name is separate deployment detail.
         key: manifest.name,
         name: source.mfName,
-        entry: source.webEntry,
+        entry: source.uiEntry,
         ...(source.browserManifestUrl ? { manifestUrl: source.browserManifestUrl } : {}),
       },
     ];
@@ -369,11 +440,11 @@ function rememberVariant(
   cache.variants.set(variantKey, { variant, staleAfter });
 }
 
-/** Variant cache identity: the structural digest plus a deployment
- * fingerprint (SSR integrity in prod, local manifest mtime in dev) so a
+/** Variant cache key: the structural digest plus a per-source freshness
+ * coordinate (SSR integrity in prod, local manifest mtime in dev) so a
  * code-only redeploy or dev rebuild invalidates the composed tree even
  * though the hydration digest deliberately stays deployment-free. */
-function variantFingerprint(sources: UiSource[]): string {
+function variantCacheKey(sources: UiSource[]): string {
   return sources
     .map((source) => {
       if (source.localRoot) {
@@ -395,6 +466,8 @@ export const composeUi = Effect.fn("composeUi")(function* (
 ) {
   const sources = uiSources(config);
   const composable = yield* resolveComposableSources(sources, cache);
+  const skew = sharedSingletonSkew(composable);
+  if (skew) return yield* skew;
   const corePair = composable.find(({ source }) => source.key === CORE_UI_KEY)!;
   const core = corePair.source;
 
@@ -454,12 +527,12 @@ export const composeUi = Effect.fn("composeUi")(function* (
 
   // Canonical order — the engine sorts refs by key before digesting; the
   // same sorted set feeds the manifest digest, the payload, and the
-  // fingerprint.
+  // variant cache key.
   healthy.sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
 
   const digest = yield* digestOfSources(healthy);
 
-  const variantKey = `${digest}::${variantFingerprint(healthySources)}`;
+  const variantKey = `${digest}::${variantCacheKey(healthySources)}`;
   const isDev = healthySources.some((source) => source.localRoot);
   const now = yield* Clock.currentTimeMillis;
   const cached = cache.variants.get(variantKey);
@@ -532,6 +605,8 @@ export const composeClientPayload = Effect.fn("composeClientPayload")(function* 
   const sources = uiSources(config);
   if (sources.every((source) => source.key === CORE_UI_KEY)) return undefined;
   const composable = yield* resolveComposableSources(sources, cache);
+  const skew = sharedSingletonSkew(composable);
+  if (skew) return yield* skew;
   const digest = yield* digestOfSources(composable);
   return { digest, clientPayload: clientPayloadOf(composable, digest) };
 });

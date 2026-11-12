@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { versionDirPath } from "every-plugin/version-manifest";
 import { afterAll, describe, expect, it } from "vitest";
 import { localSriMap } from "../../src/services/deploy/diff";
 import type { BundleUploadResult, DistFile } from "../../src/services/deploy/storage";
@@ -32,7 +33,7 @@ function fakeDeps(overrides?: Partial<StorageLegDeps>): StorageLegDeps {
     collectDistFiles: async () => distFiles,
     uploadWorkspaceDist: () => upload(),
     uploadBundle: () => upload(),
-    resolveSlotVersion: async () => {
+    resolveRemoteVersion: async () => {
       throw new Error("no previous pin in this test");
     },
     readBuildReport: (dir: string) =>
@@ -83,16 +84,104 @@ describe("uploadWorkspaceBundle", () => {
   });
 
   it("serves the ui sub-leg with the same implementation — no source leg, own key", async () => {
-    const uploads: string[] = [];
+    const uploads: Array<{ workspace: string; versionDir: boolean }> = [];
     const deps = fakeDeps({
       uploadWorkspaceDist: (input) => {
-        uploads.push(input.workspace);
+        uploads.push({
+          workspace: input.workspace,
+          versionDir: input.files.some((file) => file.path.startsWith("versions/")),
+        });
         return fakeDeps().uploadWorkspaceDist(input);
       },
     });
     const outcome = await uploadWorkspaceBundle(baseInput({ workspaceKey: "app-ui", deps }));
     expect(outcome.kind).toBe("ok");
-    expect(uploads).toEqual(["app-ui"]);
+    expect(uploads).toEqual([
+      { workspace: "app-ui", versionDir: false },
+      { workspace: "app-ui", versionDir: true },
+    ]);
+  });
+
+  it("dual-writes the dist into a content-addressed immutable version directory (#826)", async () => {
+    const dirCalls: Array<Array<{ path: string }>> = [];
+    const deps = fakeDeps({
+      uploadWorkspaceDist: (input) => {
+        if (input.files.some((file) => file.path.startsWith("versions/"))) {
+          dirCalls.push(input.files.map((file) => ({ path: file.path })));
+        }
+        return fakeDeps().uploadWorkspaceDist(input);
+      },
+    });
+    const outcome = await uploadWorkspaceBundle(baseInput({ deps }));
+    expect(outcome.kind).toBe("ok");
+    expect(dirCalls.length).toBe(1);
+    const entry = dirCalls[0]![0]!;
+    expect(entry.path).toMatch(/^versions\/[0-9a-f]{16}\/entry\.abc\.js$/);
+    expect(dirCalls[0]).toEqual([
+      { path: `${entry.path.split("/").slice(0, 2).join("/")}/entry.abc.js` },
+      { path: `${entry.path.split("/").slice(0, 2).join("/")}/ssr/entry.def.js` },
+    ]);
+    if (outcome.kind === "ok") {
+      const notes = outcome.detail.notes.join("\n");
+      expect(notes).toContain("version dir versions/");
+      expect(notes).toContain("2 files, immutable");
+    }
+  });
+
+  it("skips the version-dir upload when the previous pin declares the same directory", async () => {
+    const previousFiles = localSriMap(distFiles);
+    const dirPath = versionDirPath(previousFiles);
+    const dirUploads: unknown[] = [];
+    const deps = fakeDeps({
+      resolveRemoteVersion: async () => ({
+        dir: dirPath,
+        files: previousFiles,
+      }),
+      uploadWorkspaceDist: (input) => {
+        if (input.files.some((file) => file.path.startsWith("versions/"))) {
+          dirUploads.push(input.files);
+        }
+        return fakeDeps().uploadWorkspaceDist(input);
+      },
+    });
+    const outcome = await uploadWorkspaceBundle(
+      baseInput({
+        deps,
+        previousPin: { manifest: "versions/v0.json", integrity: "sha384-prev" },
+      }),
+    );
+    expect(outcome.kind).toBe("ok");
+    expect(dirUploads).toEqual([]);
+    if (outcome.kind === "ok") {
+      expect(outcome.detail.notes.join("\n")).toContain(
+        `version dir ${dirPath} unchanged — skipping`,
+      );
+    }
+  });
+
+  it("surfaces the version manifest's shared record for the publish train's truth gate (#546)", async () => {
+    const outcome = await uploadWorkspaceBundle(baseInput());
+    expect(outcome.kind).toBe("ok");
+    if (outcome.kind === "ok") {
+      expect(outcome.shared).toBeUndefined();
+    }
+    const withShared = await uploadWorkspaceBundle(
+      baseInput({
+        deps: fakeDeps({
+          readBuildReport: () => ({ entry: "entry.abc.js", shared: { react: "19.2.4" } }),
+          composeWorkspaceVersionManifest: (input) => ({
+            version: "v1",
+            entry: input.report.entry,
+            entryIntegrity: input.integrityMap[input.report.entry] ?? "sha384-entry",
+            ...(input.report.shared ? { shared: input.report.shared } : {}),
+          }),
+        }),
+      }),
+    );
+    expect(withShared.kind).toBe("ok");
+    if (withShared.kind === "ok") {
+      expect(withShared.shared).toEqual({ react: "19.2.4" });
+    }
   });
 
   it("stays silent — detail lines are returned, never printed (sectioned renderer)", async () => {
@@ -104,7 +193,7 @@ describe("uploadWorkspaceBundle", () => {
       const deps = fakeDeps({
         // The previous manifest's entry SRI matches the local hash — the
         // skip decision — plus a file that left the dist.
-        resolveSlotVersion: async () => ({
+        resolveRemoteVersion: async () => ({
           files: { ...localSri, "stale.js": "sha384-stale" },
         }),
       });

@@ -1,5 +1,10 @@
 import * as z from "zod";
-import { JsonObjectSchema, SharedDepMapSchema, SlotPinSchema } from "../types";
+import {
+  JsonObjectSchema,
+  RemoteDigestSchema,
+  SeedConfigSchema,
+  SharedDepMapSchema,
+} from "../types";
 
 /** Pipeline-owned fields — never authored; injected from the deploy map. */
 export const PipelineFieldsSchema = z.object({
@@ -7,7 +12,7 @@ export const PipelineFieldsSchema = z.object({
   integrity: z.string().optional(),
   ssr: z.string().optional(),
   ssrIntegrity: z.string().optional(),
-  pin: SlotPinSchema.optional(),
+  digest: RemoteDigestSchema.optional(),
 });
 export type PipelineFields = z.infer<typeof PipelineFieldsSchema>;
 
@@ -31,19 +36,42 @@ export const AttachmentRefSchema = DevelopmentRefSchema.extend({
   connectSrc: z.array(z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
   version: z.string().optional(),
+  /** `false` opts out of the ui the extended provider attaches */
   ui: z
-    .object({
-      name: z.string().optional(),
-      path: z.string().optional(),
-      development: z.string().optional(),
-      integrity: z.string().optional(),
-      pin: SlotPinSchema.optional(),
-    })
-    .strict()
+    .union([
+      z
+        .object({
+          name: z.string().optional(),
+          path: z.string().optional(),
+          development: z.string().optional(),
+          integrity: z.string().optional(),
+          digest: RemoteDigestSchema.optional(),
+        })
+        .strict(),
+      z.literal(false),
+    ])
     .optional(),
 });
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
 export type AttachmentInput = AttachmentRef;
+
+/**
+ * A `plugins.<key>` attachment — the shared attachment fields plus `contract`,
+ * completing the attachment-level `proxy` field: an entry that declares
+ * `proxy` (and no `path`/`extends`/URL fields) is **call-only** — it consumes
+ * a deployed app's API as a typed oRPC client over the host's
+ * `/api/rpc/{key}` proxy. Never federation-loaded, no routes composed, no
+ * background services, no UI source. `proxy` is the traffic endpoint (the
+ * live app origin; dev overrides through bos.dev.ts); `contract` is the
+ * types locator — a `bos://account/gateway[#target]` ref whose targeted
+ * entry's stamped production serves the sha256-verified contract types. The
+ * two live at different origins in production and must be authored
+ * separately.
+ */
+export const PluginAttachmentRefSchema = AttachmentRefSchema.extend({
+  contract: z.string().optional(),
+});
+export type PluginAttachmentRef = z.infer<typeof PluginAttachmentRefSchema>;
 
 /** The `app.api` slot. */
 export const ApiRefSchema = DevelopmentRefSchema.extend({
@@ -91,7 +119,12 @@ export const AppDescriptorSchema = z
     description: z.string().optional(),
     repository: z.string().optional(),
     testnet: z.string().optional(),
-    /** The platform release pin (ADR 0034): the exact framework version this app targets. */
+    /** The authored release (ADR 0034): the exact framework version this app targets. */
+    release: z.string().optional(),
+    /** Retired authored key, kept declared solely so pre-`release:` authored
+     * files still parse — `bos upgrade` rewrites it to `release:` surgically.
+     * It carries no semantics: no consumer reads it, the resolved config
+     * strips it, and strict gates fail it with the migration hint. */
     platform: z.string().optional(),
     staging: z
       .object({
@@ -128,12 +161,16 @@ export const AppDescriptorSchema = z
       })
       .strict()
       .optional(),
+    /** The authored seed declaration (#865): `version` gates one-shot runs,
+     * `auth.ownerAdmin` provisions the app owner as admin, `steps` are
+     * idempotent workspace-relative seed scripts. Never published. */
+    seed: SeedConfigSchema.optional(),
     host: HostRefSchema.optional(),
     api: ApiRefSchema.optional(),
     ui: UiRefSchema.optional(),
     /** attachment landing in the `app.auth` slot */
     auth: AttachmentRefSchema.optional(),
-    plugins: z.record(z.string(), AttachmentRefSchema).optional(),
+    plugins: z.record(z.string(), PluginAttachmentRefSchema).optional(),
   })
   .strict();
 export type AppDescriptor = z.infer<typeof AppDescriptorSchema>;

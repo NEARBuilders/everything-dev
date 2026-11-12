@@ -3,6 +3,9 @@ import { join } from "node:path";
 import process from "node:process";
 import type { DeployLegOutcome } from "../../contract";
 import { colors, icons } from "../../utils/theme";
+import { ManifestTagSchema } from "../platform/manifest-schema";
+import { readManifestTag } from "../registry/pointer";
+import { isUiOnlyDiff, type PublishedDiff } from "./changed-slots";
 import {
   buildAndPushImage,
   deployImageToRailway,
@@ -63,13 +66,15 @@ export interface ChildImagePin {
 export async function resolveChildImagePin(input: {
   configDir: string;
   localConfig: Record<string, unknown>;
-  fetchManifest?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchManifest"];
+  fetchTag?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchTag"];
+  fetchRecord?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchRecord"];
   fetchDigest?: typeof resolveRegistryDigest;
 }): Promise<ChildImagePin | undefined> {
   const derived = await deriveImageRefFromPlatformManifest({
     configDir: input.configDir,
     localConfig: input.localConfig,
-    fetchManifest: input.fetchManifest,
+    ...(input.fetchTag ? { fetchTag: input.fetchTag } : {}),
+    ...(input.fetchRecord ? { fetchRecord: input.fetchRecord } : {}),
   });
   if (!derived) return undefined;
   const digest = await (input.fetchDigest ?? resolveRegistryDigest)({
@@ -176,7 +181,7 @@ export function resolveDeployPlan(input: {
 
 export type RailwayStep =
   | { action: "repoint-and-redeploy"; service: string; image: string }
-  | { action: "redeploy"; service: string }
+  | { action: "redeploy"; service: string; notice?: string }
   | { action: "fail"; detail: string }
   | { action: "skip"; detail: string };
 
@@ -184,21 +189,53 @@ export type RailwayStep =
  * The railway step, decided after the image leg ran: a root runtime must
  * have pinned bytes (`pinnedDigest` — handover, pin, or build capture);
  * without them the "pulled bytes are what this train validated" guarantee
- * (ADR 0021) is unmeetable, and that is a failure, not a skip. A child
- * runtime never needs a digest: with a pin the service source repoints to
- * the pinned ref before the redeploy pulls it; without one, `redeploy
- * --from-source` is just a reload trigger for the freshly published config.
- * The token is project-scoped and cannot touch another project's service.
+ * (ADR 0021) is unmeetable, and that is a failure, not a skip. Children are
+ * tiered by token scope (Railway authorizes verbs by scope — ADR 0035
+ * addendum): a workspace-scoped RAILWAY_API_TOKEN opts into the advanced
+ * pin-following repoint, while a project-scoped RAILWAY_TOKEN — the default
+ * child credential, scoped to one environment and deploy commands only —
+ * gets the plain `redeploy --from-source` reload; with a platform pin
+ * resolved it also carries a `notice` that the service source follows the
+ * pin only under the workspace token, so drift after a `bos upgrade` is
+ * loud instead of silent. Without a pin, the redeploy is just a reload
+ * trigger for the freshly published config.
+ *
+ * The root repoints too, for the same bytes-validity reason: the
+ * dashboard-connected source is a floating ref (`:rc`) that the image job
+ * moved *before* the smoke gate ran, so a Railway auto-redeploy on image
+ * update can pull unvalidated bytes — the leak behind the 2026-10-25
+ * incident. Repointing to `ref@sha256:<digest>` after a green smoke makes
+ * the service source immutable-per-deploy; it needs the workspace-scoped
+ * token (the serviceConnect mutation), so a project-token-only root keeps
+ * the plain redeploy with a notice.
  */
 export function resolveRailwayStep(input: {
   tier: RuntimeTier;
   token?: string;
+  /** Workspace-scoped token presence — the child repoint's authorization. */
+  workspaceToken?: string;
   service?: string;
   pinnedDigest?: string;
   childPin?: ChildImagePin;
+  /** Root repoint: the image this train built/pinned (requires pinnedDigest). */
+  image?: string;
+  /** The published diff touched only SnapshotWatch-adopted surfaces (#826
+   * follow-up) — the redeploy would restart the host and break the
+   * soft-refresh adoption it exists to serve. */
+  uiOnlyDiff?: boolean;
+  /** Override the ui-only skip (`--force-railway`). */
+  forceRailway?: boolean;
 }): RailwayStep {
+  if (input.tier === "child" && input.uiOnlyDiff && !input.forceRailway) {
+    return {
+      action: "skip",
+      detail:
+        "ui-only deploy — the host's SnapshotWatch adopts the new composition without a restart" +
+        " (pass --force-railway to redeploy anyway)",
+    };
+  }
   if (!input.token) {
-    return { action: "skip", detail: "RAILWAY_TOKEN not set" };
+    return { action: "skip", detail: "no RAILWAY_TOKEN / RAILWAY_API_TOKEN is set" };
   }
   if (!input.service) {
     return input.tier === "root"
@@ -219,13 +256,39 @@ export function resolveRailwayStep(input: {
     };
   }
   if (input.childPin) {
+    if (input.workspaceToken) {
+      return {
+        action: "repoint-and-redeploy",
+        service: input.service,
+        image: `${input.childPin.image}:${input.childPin.tag}`,
+      };
+    }
+    return {
+      action: "redeploy",
+      service: input.service,
+      notice:
+        `platform pin ${input.childPin.image}:${input.childPin.tag} resolved but the service source was not repointed` +
+        " — a project-scoped RAILWAY_TOKEN cannot run `service source connect`; the redeploy pulls whatever the source" +
+        " currently points at. Set a workspace-scoped RAILWAY_API_TOKEN for pin-following, or repoint manually at `bos upgrade` time.",
+    };
+  }
+  if (input.tier === "root" && input.image && input.workspaceToken) {
     return {
       action: "repoint-and-redeploy",
       service: input.service,
-      image: `${input.childPin.image}:${input.childPin.tag}`,
+      image: imageRefWithDigest(input.image, input.pinnedDigest),
     };
   }
-  return { action: "redeploy", service: input.service };
+  return input.tier === "root"
+    ? {
+        action: "redeploy" as const,
+        service: input.service,
+        notice:
+          "service source not repointed to the digest — set a workspace-scoped RAILWAY_API_TOKEN so each" +
+          " deploy pins the source to the exact image this train smoked; today the source follows the floating" +
+          " dashboard ref, which Railway may redeploy outside the train on an image tag update.",
+      }
+    : { action: "redeploy" as const, service: input.service };
 }
 
 /**
@@ -256,6 +319,17 @@ export interface PostPublishLegsInput {
    * image pin resolves from (ADR 0034). */
   localConfig?: Record<string, unknown>;
   repository?: string;
+  /** The train's release decision (#571/#573): version + floating image
+   * tags move on the release deploy only. */
+  release?: boolean;
+  /** The framework version the release leg just published (release trains
+   * only) — the smoke's manifest leg verifies the pointer serves it. */
+  publishedFrameworkVersion?: string;
+  /** The published-config diff vs the previously live config (#826
+   * follow-up) — feeds the Railway leg's ui-only skip. */
+  diff?: PublishedDiff;
+  /** Override the ui-only Railway skip. */
+  forceRailway?: boolean;
 }
 
 export interface PostPublishLegsOutcome {
@@ -372,10 +446,15 @@ export async function runPostPublishLegs(
     case "build": {
       console.log();
       try {
+        // Release-conditional image tags (#571/#573): the release decision is
+        // made once in the train (the single pointer read) and threaded here
+        // — root tier only; children never release. Unverifiable reads as
+        // non-release: version tags must never move on a maybe.
         const imageResult = await deps.buildAndPushImage({
           image: plan.image.image,
           configDir: input.sessionRoot,
           verbose: input.verbose,
+          release: tier === "root" && input.release,
         });
         image = imageResult.image;
         imageDigest = imageResult.digest;
@@ -427,17 +506,63 @@ export async function runPostPublishLegs(
       } else {
         console.log();
         console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
-        const smokeResult = await deps.runSmoke({
-          image: ref,
-          account: input.account,
-          gateway: input.domain,
-        });
-        if (!smokeResult.ok) {
-          const cause = smokeResult.error ?? "unknown failure";
+        // The manifest leg (sprint registry-primitive 05): on a release
+        // train the pointer must already serve the version this train just
+        // published — one registry read-back before the boot gate. A
+        // mismatch fails the smoke exactly as a red boot gate does: the
+        // rollback below covers it.
+        let cause: string | undefined;
+        let diagnosis: string | undefined;
+        if (input.release && input.publishedFrameworkVersion) {
+          try {
+            const tagBytes = await readManifestTag<unknown>(
+              input.account ?? "",
+              input.domain ?? "",
+              input.registry,
+            );
+            if (!tagBytes) {
+              cause = `release pointer absent, expected ${input.publishedFrameworkVersion}`;
+            } else {
+              const decoded = ManifestTagSchema.safeParse(tagBytes);
+              if (!decoded.success) {
+                cause =
+                  `release pointer failed thin-tag schema decode, ` +
+                  `expected ${input.publishedFrameworkVersion}`;
+              } else if (decoded.data.version !== input.publishedFrameworkVersion) {
+                cause =
+                  `release pointer serves ${decoded.data.version}, ` +
+                  `expected ${input.publishedFrameworkVersion}`;
+              } else {
+                console.log(
+                  colors.dim(`  manifest leg: the release pointer serves ${decoded.data.version}`),
+                );
+              }
+            }
+          } catch (error) {
+            cause = `release pointer read failed: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        }
+        if (!cause) {
+          const smokeResult = await deps.runSmoke({
+            image: ref,
+            account: input.account,
+            gateway: input.domain,
+          });
+          if (!smokeResult.ok) {
+            cause = smokeResult.error ?? "unknown failure";
+            diagnosis = smokeResult.diagnosis;
+          } else {
+            legs.smoke = { status: "ok", detail: smokeResult.summary };
+            console.log(
+              colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
+            );
+          }
+        }
+        if (cause) {
           console.log();
           console.log(colors.error(`  ${icons.err} Post-publish smoke failed: ${cause}`));
-          if (smokeResult.diagnosis) {
-            console.log(colors.yellow(`  ${smokeResult.diagnosis}`));
+          if (diagnosis) {
+            console.log(colors.yellow(`  ${diagnosis}`));
           }
           legs.smoke = { status: "failed", detail: cause };
           if (!input.account || !input.domain) {
@@ -468,20 +593,40 @@ export async function runPostPublishLegs(
             failure: `Post-publish smoke failed (${cause}) — ${rollbackNote}`,
           };
         }
-        legs.smoke = { status: "ok", detail: smokeResult.summary };
-        console.log(
-          colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
-        );
       }
     }
   }
 
+  // Workspace-token precedence (Railway token scopes): the CLI resolves
+  // RAILWAY_TOKEN first and a project-scoped token cannot repoint a service
+  // source — when a workspace-scoped token is present it owns the whole leg.
+  // GitHub Actions exports set-but-empty env vars for absent secrets, so the
+  // project token var is deleted even when empty: the railway CLI reads
+  // Some("") as a set token and keeps failing the connect.
+  const workspaceToken = process.env.RAILWAY_API_TOKEN;
+  if (workspaceToken) {
+    const projectToken = process.env.RAILWAY_TOKEN;
+    if (projectToken) {
+      console.log(
+        colors.yellow(
+          "  RAILWAY_API_TOKEN set — dropping RAILWAY_TOKEN (project tokens cannot repoint a service source)",
+        ),
+      );
+    }
+    delete process.env.RAILWAY_TOKEN;
+  }
+
   const railwayStep = resolveRailwayStep({
     tier,
-    token: process.env.RAILWAY_TOKEN,
+    token: process.env.RAILWAY_TOKEN || workspaceToken,
+    workspaceToken,
     service: input.railwayService,
     pinnedDigest: imageDigest,
     childPin,
+    image,
+    // An unreadable diff reads cold; the tier guard lives in the decision table.
+    uiOnlyDiff: input.diff ? isUiOnlyDiff(input.diff) : false,
+    forceRailway: input.forceRailway,
   });
 
   if (railwayStep.action === "skip") {
@@ -498,10 +643,15 @@ export async function runPostPublishLegs(
     };
   } else {
     service = railwayStep.service;
+    if (railwayStep.action === "redeploy" && railwayStep.notice) {
+      console.log(colors.yellow(`  ${railwayStep.notice}`));
+    }
     try {
       // A pinned child's service source follows the platform manifest pin
-      // before the redeploy pulls from it (ADR 0034): the pulled bytes are
-      // the pin, not whatever the dashboard's floating ref moved to.
+      // before the redeploy pulls from it (ADR 0034) — workspace-token scope
+      // only (the decision table downgrades a project token to a plain,
+      // notice-carrying redeploy). The pulled bytes are the pin, not
+      // whatever the dashboard's floating ref moved to.
       if (railwayStep.action === "repoint-and-redeploy") {
         await deps.repointServiceSource({
           service: railwayStep.service,

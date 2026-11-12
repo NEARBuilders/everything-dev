@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
 import {
   createRuntimeSnapshotState,
-  deploymentFingerprint,
+  deploymentDigest,
   RuntimeSnapshot,
 } from "../../src/services/runtime-snapshot";
 import { createSsrRender } from "../../src/services/ssr-render";
@@ -35,7 +35,7 @@ const snapshotLayer = RuntimeSnapshot.layer().pipe(
 );
 
 describe("RuntimeSnapshot service", () => {
-  it("boots from ConfigService with a deployment fingerprint", async () => {
+  it("boots from ConfigService with a deployment digest", async () => {
     const state = await Effect.runPromise(
       Effect.gen(function* () {
         const snapshot = yield* RuntimeSnapshot;
@@ -43,7 +43,7 @@ describe("RuntimeSnapshot service", () => {
       }).pipe(Effect.provide(snapshotLayer)),
     );
     expect(state.config).toBe(baseConfig);
-    expect(state.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(state.deploymentDigest).toMatch(/^[0-9a-f]{16}$/);
     expect(state.composeState).toBeDefined();
     expect(state.clientConfigState).toBeDefined();
   });
@@ -64,7 +64,7 @@ describe("RuntimeSnapshot service", () => {
 
         yield* snapshot.swap(
           createRuntimeSnapshotState({
-            fingerprint: "next",
+            deploymentDigest: "next",
             config: {
               ...baseConfig,
               ui: { ...baseConfig.ui, integrity: "sha384-ui-entry-v2" },
@@ -104,10 +104,7 @@ describe("RuntimeSnapshot service", () => {
 
           yield* Effect.sleep(1);
           yield* snapshot.swap(
-            createRuntimeSnapshotState({
-              fingerprint: "swapped",
-              config: nextConfig,
-            }),
+            createRuntimeSnapshotState({ deploymentDigest: "swapped", config: nextConfig }),
           );
           yield* Effect.sleep(1);
           yield* Fiber.join(reader);
@@ -125,19 +122,19 @@ describe("RuntimeSnapshot service", () => {
   });
 });
 
-describe("deploymentFingerprint", () => {
+describe("deploymentDigest", () => {
   it("is stable for identical configs and sensitive to entry-level coordinates", () => {
-    const a = deploymentFingerprint(baseConfig);
-    const b = deploymentFingerprint(baseConfig);
+    const a = deploymentDigest(baseConfig);
+    const b = deploymentDigest(baseConfig);
     expect(a).toBe(b);
 
-    const changedIntegrity = deploymentFingerprint({
+    const changedIntegrity = deploymentDigest({
       ...baseConfig,
       ui: { ...baseConfig.ui, integrity: "sha384-other" },
     } as RuntimeConfig);
     expect(changedIntegrity).not.toBe(a);
 
-    const changedEntryUrl = deploymentFingerprint({
+    const changedEntryUrl = deploymentDigest({
       ...baseConfig,
       ui: { ...baseConfig.ui, entryUrl: "https://cdn.example.test/ui/remoteEntry.8f3a.js" },
     } as RuntimeConfig);
@@ -153,7 +150,7 @@ describe("ssr render read-through", () => {
       ui: { ...baseConfig.ui, integrity: "sha384-ui-entry-v2" },
     } as RuntimeConfig;
 
-    let serving = createRuntimeSnapshotState({ fingerprint: "boot", config: baseConfig });
+    let serving = createRuntimeSnapshotState({ deploymentDigest: "boot", config: baseConfig });
     const getServingState = async () => serving;
     const render = createSsrRender({
       config: baseConfig,
@@ -175,7 +172,7 @@ describe("ssr render read-through", () => {
     await render(request, { session: null, user: null, pluginContext: {} } as never);
     const firstBase = lastBase as RuntimeConfig | undefined;
 
-    serving = createRuntimeSnapshotState({ fingerprint: "next", config: nextConfig });
+    serving = createRuntimeSnapshotState({ deploymentDigest: "next", config: nextConfig });
     await render(request, { session: null, user: null, pluginContext: {} } as never);
     const secondBase = lastBase as RuntimeConfig | undefined;
 

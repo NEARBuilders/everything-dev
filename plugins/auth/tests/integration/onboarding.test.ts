@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../../src/db/schema";
+import { MEMBERSHIP_ENDED_ACTION } from "../../src/onboard-config";
 import {
   addTestMember,
   createTestHandlers,
@@ -141,6 +142,7 @@ describe("onboarding handlers", () => {
 
     expect(result.success).toBe(true);
     expect(result.alreadyRedeemed).toBe(false);
+    expect(result.organizationId).toBe(org.id);
     expect(result.organizationName).toBe(org.name);
     expect(result.eventName).toBe("Meetup");
 
@@ -219,6 +221,7 @@ describe("onboarding handlers", () => {
     });
 
     expect(again.alreadyRedeemed).toBe(true);
+    expect(again.organizationId).toBe(org.id);
 
     const drifted = await services.services.db.query.session.findFirst({
       where: eq(schema.session.userId, newcomer.userId),
@@ -250,6 +253,64 @@ describe("onboarding handlers", () => {
     expect(status.joined[0]!.userName).toBe(newcomer.name);
   });
 
+  it("fails a re-redeem after the member was removed, leaving the active organization untouched", async () => {
+    const owner = await createTestUser(services.services);
+    const org = await createTestOrg(services.services, owner.userId);
+    const handlers = createTestHandlers(services.services);
+
+    const code = await handlers.onboarding.createOnboardingCode({
+      input: { ...eventOf("Return Visits"), organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+    const newcomer = await createTestUser(services.services, { email: undefined });
+
+    await handlers.onboarding.redeemOnboardingCode({
+      input: { code: code.code },
+      context: { reqHeaders: newcomer.reqHeaders },
+    });
+
+    const membership = await services.services.db.query.member.findFirst({
+      where: and(
+        eq(schema.member.userId, newcomer.userId),
+        eq(schema.member.organizationId, org.id),
+      ),
+    });
+    expect(membership).toBeDefined();
+    await handlers.members.removeMember({
+      input: { memberIdOrEmail: membership!.id, organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+
+    await services.services.db
+      .update(schema.session)
+      .set({ activeOrganizationId: null })
+      .where(eq(schema.session.userId, newcomer.userId));
+
+    await expect(
+      handlers.onboarding.redeemOnboardingCode({
+        input: { code: code.code },
+        context: { reqHeaders: newcomer.reqHeaders },
+      }),
+    ).rejects.toMatchObject({
+      code: "MEMBERSHIP_ENDED",
+      message: expect.stringMatching(/no longer a member/i),
+      data: { action: MEMBERSHIP_ENDED_ACTION },
+    });
+
+    const member = await services.services.db.query.member.findFirst({
+      where: and(
+        eq(schema.member.userId, newcomer.userId),
+        eq(schema.member.organizationId, org.id),
+      ),
+    });
+    expect(member).toBeUndefined();
+
+    const session = await services.services.db.query.session.findFirst({
+      where: eq(schema.session.userId, newcomer.userId),
+    });
+    expect(session?.activeOrganizationId).toBeNull();
+  });
+
   it("enforces the use cap", async () => {
     const owner = await createTestUser(services.services);
     const org = await createTestOrg(services.services, owner.userId);
@@ -272,7 +333,7 @@ describe("onboarding handlers", () => {
         input: { code: code.code },
         context: { reqHeaders: second.reqHeaders },
       }),
-    ).rejects.toThrow(/reached its limit/i);
+    ).rejects.toMatchObject({ code: "CODE_EXHAUSTED", data: { maxUses: 1 } });
 
     const member = await services.services.db.query.member.findFirst({
       where: and(eq(schema.member.userId, second.userId), eq(schema.member.organizationId, org.id)),

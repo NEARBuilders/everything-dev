@@ -171,6 +171,54 @@ export const contract = oc.router({
     }),
   ),
 
+  getManifest: oc
+    .route({ method: "GET", path: "/v1/registry/manifest" })
+    .input(
+      z.object({
+        ref: z.string().startsWith("bos://"),
+        includeVersionRecord: z.boolean().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        ref: z.string(),
+        tag: z.unknown().nullable(),
+        versionRecord: z.unknown().nullable(),
+      }),
+    )
+    .errors({ BAD_REQUEST }),
+
+  resolveRuntime: oc
+    .route({ method: "GET", path: "/v1/registry/resolve" })
+    .input(
+      z.object({
+        ref: z.string().startsWith("bos://"),
+        release: z.string().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        ref: z.string(),
+        outcome: z.union([
+          z.object({
+            state: z.literal("Resolved"),
+            manifest: z.record(z.string(), z.unknown()),
+            source: z.object({ account: z.string(), gateway: z.string() }),
+            from: z.enum(["version", "manifest", "cache"]),
+            provenance: z.enum(["record", "pointer"]),
+            fromCache: z.boolean(),
+          }),
+          z.object({
+            state: z.literal("Unresolved"),
+            reason: z.enum(["absent", "unreachable", "integrityFailure"]),
+            detail: z.string().optional(),
+            context: z.record(z.string(), z.unknown()),
+          }),
+        ]),
+      }),
+    )
+    .errors({ BAD_REQUEST }),
+
   prepareRegistryMetadataWrite: oc
     .route({ method: "POST", path: "/v1/registry/apps/{accountId}/{gatewayId}/metadata/prepare" })
     .input(registryMetadataDraftInputSchema)

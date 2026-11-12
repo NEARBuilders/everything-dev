@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -54,6 +55,64 @@ function assertWorkspaceDtsDependencies() {
 }
 assertWorkspaceDtsDependencies();
 
+/**
+ * Every exports subpath advertising dist types must resolve to a file this
+ * build emits. Chunk emission (an entry importing the source) produces JS
+ * without declarations, so a source missing from the entry list ships a types
+ * path that does not exist and every consumer's tsc fails with TS7016 (#839).
+ */
+// The dts emit is per-entry across parallel rolldown-plugin-dts workers; on
+// fresh CI checkouts the ui/auth emit has (rarely, non-deterministically)
+// raced the dependency-types resolution and collapsed the plugin chain to
+// `any` (2026-11-09: red on the first GH attempt, green on rerun with zero
+// source delta). The guard is therefore self-healing: one declarations-only
+// re-emit — serial, no JS bundle — before failing. The build only goes red
+// on persistent collapse, which is a real regression worth a human.
+async function assertAuthClientDtsTypes(): Promise<void> {
+  const authDtsPath = join("dist", "ui", "auth.d.mts");
+  const collapsed = async (): Promise<boolean> =>
+    /declare function createAuthClient\(.*\): any;/.test(
+      await readFile(authDtsPath, "utf-8").catch(() => ""),
+    );
+  if (!(await collapsed())) return;
+  if (process.env.BOS_TS_DOWN_DTS_REEMIT) {
+    throw new Error(
+      "dist/ui/auth.d.mts emitted createAuthClient(): any after re-emit — the better-auth " +
+        "plugin-chain inference collapsed persistently. Check that better-near-auth's dist " +
+        "types are built and fresh.",
+    );
+  }
+  console.warn("[tsdown] ui/auth dts collapsed to any — re-emitting declarations");
+  process.env.BOS_TS_DOWN_DTS_REEMIT = "1";
+  execSync("pnpm exec tsdown --dts", { stdio: "inherit", cwd: import.meta.dirname });
+  if (await collapsed()) {
+    throw new Error(
+      "dist/ui/auth.d.mts emitted createAuthClient(): any after re-emit — the better-auth " +
+        "plugin-chain inference collapsed persistently. Check that better-near-auth's dist " +
+        "types are built and fresh.",
+    );
+  }
+}
+
+function assertExportsDistTypesExist() {
+  const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf-8")) as {
+    exports?: Record<string, unknown>;
+  };
+  const missing: string[] = [];
+  for (const [subpath, entry] of Object.entries(manifest.exports ?? {})) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const types = (entry as Record<string, unknown>).types;
+    if (typeof types !== "string") continue;
+    if (types.startsWith("./src/") || types.startsWith("src/")) continue;
+    if (!existsSync(join(import.meta.dirname, types))) missing.push(`${subpath} → ${types}`);
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `exports map points at missing dist types — add the sources to the tsdown entry list:\n  ${missing.join("\n  ")}`,
+    );
+  }
+}
+
 export default defineConfig({
   entry: [
     "src/index.ts",
@@ -61,17 +120,21 @@ export default defineConfig({
     "src/descriptor/index.ts",
     "src/config.ts",
     "src/services/resolution/session.ts",
+    "src/services/registry/index.ts",
     "src/services/registry/dag.ts",
     "src/services/registry/bundle-cache.ts",
     "src/services/resolution/resolver.ts",
-    "src/services/registry/fingerprint.ts",
+    "src/services/registry/digest.ts",
     "src/services/deploy/version-manifest.ts",
     "src/services/version/status.ts",
     "src/services/registry/fastkv.ts",
+    "src/services/snapshot/schema.ts",
+    "src/services/lockfile/schema.ts",
     "src/contract.meta.ts",
     "src/db/index.ts",
     "src/services/federation/service.ts",
     "src/services/deploy/integrity.ts",
+    "src/services/verify/index.ts",
     "src/plugin.ts",
     "src/sdk.ts",
     "src/cli.ts",
@@ -95,7 +158,11 @@ export default defineConfig({
     "src/ui/router-defaults.tsx",
     "src/ui/router-error.tsx",
     "src/ui/manifest/index.ts",
+    "src/ui/compose.ts",
     "src/ui/manifest-generator.ts",
+    "src/services/hosting/adapter.ts",
+    "src/services/hosting/docker.ts",
+    "src/services/hosting/secrets.ts",
   ],
   format: ["cjs", "esm"],
   dts: { tsconfig: "./tsconfig.dts.json" },
@@ -144,13 +211,8 @@ export default defineConfig({
     ],
   },
   async onSuccess() {
-    const authDts = await readFile(join("dist", "ui", "auth.d.mts"), "utf-8").catch(() => "");
-    if (/declare function createAuthClient\(.*\): any;/.test(authDts)) {
-      throw new Error(
-        "dist/ui/auth.d.mts emitted createAuthClient(): any — the better-auth plugin-chain " +
-          "inference collapsed. Check that better-near-auth's dist types are built and fresh.",
-      );
-    }
+    assertExportsDistTypesExist();
+    await assertAuthClientDtsTypes();
     for (const file of ["cli.mjs", "cli.cjs"]) {
       const filepath = join("dist", file);
       try {

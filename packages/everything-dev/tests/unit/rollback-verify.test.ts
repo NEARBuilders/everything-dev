@@ -12,36 +12,40 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const manifestBody = JSON.stringify({ entry: "ui/entry.abc123.js" });
+const manifestBody = JSON.stringify({
+  version: "aaaabbbbccccdddd",
+  entry: "ui/entry.abc123.js",
+  entryIntegrity: "sha384-AAAAAA==",
+});
 
 function sriFor(body: string): string {
   return `sha384-${createHash("sha384").update(body).digest("base64")}`;
 }
 
-function configWithSlots(slots: Record<string, Record<string, unknown>>) {
+function configWithRemotes(remotes: Record<string, Record<string, unknown>>) {
   return BosConfigSchema.parse({
     account: "v1.citynode.near",
     domain: "citynode.app",
     app: {
-      host: slots.host ?? { development: "local:host", production: "https://cdn/host/" },
-      ui: slots.ui ?? { development: "local:ui", production: "https://cdn/ui/" },
-      api: slots.api ?? { development: "local:api", production: "https://cdn/api/" },
+      host: remotes.host ?? { development: "local:host", production: "https://cdn/host/" },
+      ui: remotes.ui ?? { development: "local:ui", production: "https://cdn/ui/" },
+      api: remotes.api ?? { development: "local:api", production: "https://cdn/api/" },
     },
-    ...(slots.plugins ? { plugins: slots.plugins } : {}),
+    ...(remotes.plugins ? { plugins: remotes.plugins } : {}),
   });
 }
 
 describe("verifyRollbackSnapshot", () => {
-  it("accepts when every pinned slot's manifest still serves and matches its SRI", async () => {
+  it("accepts when every pinned remote's manifest still serves and matches its SRI", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       expect(url).toContain("versions/aaa.json");
       return new Response(manifestBody, { status: 200 });
     });
-    const config = configWithSlots({
+    const config = configWithRemotes({
       ui: {
         development: "local:ui",
         production: "https://cdn/ui/",
-        pin: { manifest: "versions/aaa.json", integrity: sriFor(manifestBody) },
+        digest: { manifest: "versions/aaa.json", integrity: sriFor(manifestBody) },
       },
     });
 
@@ -49,40 +53,40 @@ describe("verifyRollbackSnapshot", () => {
 
     expect(report.ok).toBe(true);
     expect(report.verifiable).toBe(true);
-    expect(report.slots[0]?.ok).toBe(true);
+    expect(report.remotes[0]?.ok).toBe(true);
   });
 
-  it("refuses with a per-slot report when a manifest 404s", async () => {
+  it("refuses with a per-remote report when a manifest 404s", async () => {
     const fetchMock = vi.fn(async () => new Response("gone", { status: 404 }));
-    const config = configWithSlots({
+    const config = configWithRemotes({
       ui: {
         development: "local:ui",
         production: "https://cdn/ui/",
-        pin: { manifest: "versions/gone.json", integrity: sriFor(manifestBody) },
+        digest: { manifest: "versions/gone.json", integrity: sriFor(manifestBody) },
       },
     });
 
     const report = await verifyRollbackSnapshot(config, { fetchImpl: fetchMock as typeof fetch });
 
     expect(report.ok).toBe(false);
-    expect(report.slots[0]?.ok).toBe(false);
-    expect(report.slots[0]?.reason).toContain("404");
+    expect(report.remotes[0]?.ok).toBe(false);
+    expect(report.remotes[0]?.reason).toContain("404");
   });
 
   it("refuses when a manifest's bytes no longer match the pinned SRI", async () => {
     const fetchMock = vi.fn(async () => new Response(manifestBody, { status: 200 }));
-    const config = configWithSlots({
+    const config = configWithRemotes({
       ui: {
         development: "local:ui",
         production: "https://cdn/ui/",
-        pin: { manifest: "versions/aaa.json", integrity: "sha384-doesnotmatch" },
+        digest: { manifest: "versions/aaa.json", integrity: "sha384-doesnotmatch" },
       },
     });
 
     const report = await verifyRollbackSnapshot(config, { fetchImpl: fetchMock as typeof fetch });
 
     expect(report.ok).toBe(false);
-    expect(report.slots[0]?.reason).toContain("integrity");
+    expect(report.remotes[0]?.reason).toContain("SRI mismatch");
   });
 
   it("rejects a partial pin (manifest without integrity) at the schema boundary — the pin is atomic", () => {
@@ -94,7 +98,7 @@ describe("verifyRollbackSnapshot", () => {
           ui: {
             development: "local:ui",
             production: "https://cdn/ui/",
-            pin: { manifest: "versions/aaa.json" },
+            digest: { manifest: "versions/aaa.json" },
           },
         },
       }),
@@ -109,7 +113,7 @@ describe("verifyRollbackSnapshot", () => {
         ui: {
           development: "local:ui",
           production: "https://cdn/ui/",
-          pin: { manifest: "versions/aaa.json" },
+          digest: { manifest: "versions/aaa.json" },
         },
       },
     } as BosConfigInput;
@@ -118,33 +122,33 @@ describe("verifyRollbackSnapshot", () => {
 
     expect(report.ok).toBe(false);
     expect(report.verifiable).toBe(false);
-    expect(report.slots).toHaveLength(0);
+    expect(report.remotes).toHaveLength(0);
   });
 
   it("flags a pre-pin snapshot (no pins) as unverifiable so --force is required", async () => {
-    const config = configWithSlots({});
+    const config = configWithRemotes({});
 
     const report = await verifyRollbackSnapshot(config, { fetchImpl: vi.fn() as typeof fetch });
 
     expect(report.ok).toBe(false);
     expect(report.verifiable).toBe(false);
-    expect(report.slots).toHaveLength(0);
+    expect(report.remotes).toHaveLength(0);
   });
 
-  it("reports every slot, not just the first failure", async () => {
+  it("reports every remote, not just the first failure", async () => {
     const fetchMock = vi.fn(async () => new Response("gone", { status: 404 }));
-    const config = configWithSlots({
+    const config = configWithRemotes({
       ui: {
         development: "local:ui",
         production: "https://cdn/ui/",
-        pin: { manifest: "versions/gone.json", integrity: sriFor(manifestBody) },
+        digest: { manifest: "versions/gone.json", integrity: sriFor(manifestBody) },
       },
       plugins: {
         auth: {
           name: "auth",
           development: "local:plugins/auth",
           production: "https://cdn/auth/",
-          pin: { manifest: "versions/gone2.json", integrity: sriFor(manifestBody) },
+          digest: { manifest: "versions/gone2.json", integrity: sriFor(manifestBody) },
         },
       },
     });
@@ -152,8 +156,8 @@ describe("verifyRollbackSnapshot", () => {
     const report = await verifyRollbackSnapshot(config, { fetchImpl: fetchMock as typeof fetch });
 
     expect(report.ok).toBe(false);
-    expect(report.slots).toHaveLength(2);
-    expect(report.slots.map((s) => s.slot).sort()).toEqual(["app.ui", "auth"]);
+    expect(report.remotes).toHaveLength(2);
+    expect(report.remotes.map((s) => s.remote).sort()).toEqual(["app.ui", "plugins.auth"]);
   });
 });
 
@@ -200,7 +204,7 @@ describe("rollback dedup guard", () => {
         host: {
           development: "local:host",
           production: "https://cdn/host/",
-          pin: { manifest: "versions/old.json", integrity: "sha384-old-pin" },
+          digest: { manifest: "versions/old.json", integrity: "sha384-old-pin" },
         },
         ui: { development: "local:ui", production: "https://cdn/ui/" },
         api: { development: "local:api", production: "https://cdn/api/" },

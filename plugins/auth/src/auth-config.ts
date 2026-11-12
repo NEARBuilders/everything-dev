@@ -4,6 +4,7 @@ import type {
   SessionGasKeyDualNetworkConfig,
   SubAccountConfig,
 } from "better-near-auth";
+import type { RateRules } from "./services/rate-limit";
 
 export type AuthNetwork = "mainnet" | "testnet";
 
@@ -22,6 +23,7 @@ export interface AuthPasskeyConfig {
 export interface AuthSiwnBaseConfig {
   apiKey?: string;
   rpcUrl?: string;
+  readRpcUrl?: string;
   relayer?: RelayerDualNetworkConfig;
   sessionGasKey?: SessionGasKeyDualNetworkConfig;
   subAccount?: SubAccountConfig | DualNetworkConfig<SubAccountConfig>;
@@ -48,13 +50,46 @@ export interface AuthReferralConfig {
   steps?: string[];
 }
 
+/** Rate limiting behind proxies/multi-replica deployments (#688). `window` is
+ * seconds; `storage: "database"` persists buckets in the plugin's rateLimit
+ * table so limits hold across replicas. */
+export interface AuthRateLimitConfig {
+  enabled?: boolean;
+  window?: number;
+  max?: number;
+  storage?: "memory" | "database";
+}
+
+/** Client-IP resolution for rate limiting (#688, trust boundary #338):
+ * `ipAddressHeaders` names a single header the proxy overwrites (e.g.
+ * `cf-connecting-ip`); `trustedProxies` opts into forwarded-chain walking —
+ * list your proxies' own addresses, never a range that also covers clients. */
+export interface AuthIpAddressConfig {
+  ipAddressHeaders?: string[];
+  trustedProxies?: string[];
+}
+
+/** Cross-subdomain cookie sharing (#668): when enabled, Better Auth sets the
+ * session cookie's Domain attribute to `domain` (a dot-prefixed registrable
+ * domain, e.g. `.nearbuilders.org`) so sibling subdomains share one session.
+ * Cookies sealed for a shared domain require every app on it to run the same
+ * BETTER_AUTH_SECRET. */
+export interface AuthCrossSubDomainCookiesConfig {
+  enabled: boolean;
+  domain?: string;
+}
+
 export interface AuthConfig {
   secret: string;
   baseUrl: string;
   network?: AuthNetwork;
   organizationMembershipLimit?: number;
+  abuseControl?: { rateLimits?: RateRules };
   trustedOrigins?: string[];
   isProduction?: boolean;
+  rateLimit?: AuthRateLimitConfig;
+  ipAddress?: AuthIpAddressConfig;
+  crossSubDomainCookies?: AuthCrossSubDomainCookiesConfig;
   referral?: AuthReferralConfig;
   socialProviders?: {
     github?: {

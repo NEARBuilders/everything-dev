@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { Data, Effect, Schema } from "effect";
+import { MEMBERSHIP_ENDED_ACTION } from "../onboard-config";
 
 export class AuthApiError extends Data.TaggedError("AuthApiError")<{
   code: string;
@@ -17,16 +18,6 @@ export class OrgNotFound extends Schema.TaggedError<OrgNotFound>()("OrgNotFound"
   message: Schema.String,
   organizationId: Schema.optional(Schema.String),
 }) {}
-
-export class OrgApprovalRequired extends Schema.TaggedError<OrgApprovalRequired>()(
-  "OrgApprovalRequired",
-  { message: Schema.String, action: Schema.String },
-) {}
-
-export class OrgRequiresApproval extends Schema.TaggedError<OrgRequiresApproval>()(
-  "OrgRequiresApproval",
-  { message: Schema.String },
-) {}
 
 export class NoActiveOrganization extends Schema.TaggedError<NoActiveOrganization>()(
   "NoActiveOrganization",
@@ -53,21 +44,6 @@ export class MemberEmailsExportForbidden extends Schema.TaggedError<MemberEmails
   { message: Schema.String },
 ) {}
 
-export class RejectionReasonRequired extends Schema.TaggedError<RejectionReasonRequired>()(
-  "RejectionReasonRequired",
-  { message: Schema.String },
-) {}
-
-export class OrganizationNotPending extends Schema.TaggedError<OrganizationNotPending>()(
-  "OrganizationNotPending",
-  { message: Schema.String },
-) {}
-
-export class OrganizationRequesterMissing extends Schema.TaggedError<OrganizationRequesterMissing>()(
-  "OrganizationRequesterMissing",
-  { message: Schema.String },
-) {}
-
 export class TeamNotFound extends Schema.TaggedError<TeamNotFound>()("TeamNotFound", {
   message: Schema.String,
   teamId: Schema.String,
@@ -78,6 +54,10 @@ export class TeamUpdateFailed extends Schema.TaggedError<TeamUpdateFailed>()("Te
 }) {}
 
 export class NotOrgMember extends Schema.TaggedError<NotOrgMember>()("NotOrgMember", {
+  message: Schema.String,
+}) {}
+
+export class MembershipEnded extends Schema.TaggedError<MembershipEnded>()("MembershipEnded", {
   message: Schema.String,
 }) {}
 
@@ -118,10 +98,12 @@ export class CodeRevoked extends Schema.TaggedError<CodeRevoked>()("CodeRevoked"
 
 export class CodeExpired extends Schema.TaggedError<CodeExpired>()("CodeExpired", {
   message: Schema.String,
+  expiresAt: Schema.optional(Schema.Date),
 }) {}
 
 export class CodeLimitReached extends Schema.TaggedError<CodeLimitReached>()("CodeLimitReached", {
   message: Schema.String,
+  maxUses: Schema.optional(Schema.Number),
 }) {}
 
 export class RedeemOrgMissing extends Schema.TaggedError<RedeemOrgMissing>()("RedeemOrgMissing", {
@@ -165,6 +147,26 @@ export class UnknownTeamRole extends Schema.TaggedError<UnknownTeamRole>()("Unkn
   message: Schema.String,
 }) {}
 
+export class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", {
+  message: Schema.String,
+  userId: Schema.String,
+}) {}
+
+export class MemberNotFound extends Schema.TaggedError<MemberNotFound>()("MemberNotFound", {
+  message: Schema.String,
+  memberId: Schema.optional(Schema.String),
+}) {}
+
+export class TeamMemberNotFound extends Schema.TaggedError<TeamMemberNotFound>()(
+  "TeamMemberNotFound",
+  { message: Schema.String, teamMemberId: Schema.String },
+) {}
+
+export class RateLimitExceeded extends Schema.TaggedError<RateLimitExceeded>()(
+  "RateLimitExceeded",
+  { message: Schema.String, retryAfterSeconds: Schema.Number },
+) {}
+
 export class DeployKeyAccountNotLinked extends Schema.TaggedError<DeployKeyAccountNotLinked>()(
   "DeployKeyAccountNotLinked",
   { message: Schema.String, action: Schema.String },
@@ -174,19 +176,15 @@ const FAILURE_TAGS = new Set([
   "AuthApiError",
   "DbError",
   "OrgNotFound",
-  "OrgApprovalRequired",
-  "OrgRequiresApproval",
   "NoActiveOrganization",
   "NoOrganizationSelected",
   "MemberCreateNotPermitted",
   "OwnerRoleRequired",
   "MemberEmailsExportForbidden",
-  "RejectionReasonRequired",
-  "OrganizationNotPending",
-  "OrganizationRequesterMissing",
   "TeamNotFound",
   "TeamUpdateFailed",
   "NotOrgMember",
+  "MembershipEnded",
   "NotOrganizer",
   "PlatformAdminRequired",
   "EventEnded",
@@ -206,6 +204,10 @@ const FAILURE_TAGS = new Set([
   "NearNetworkRequired",
   "ApiKeyNotFound",
   "UnknownTeamRole",
+  "UserNotFound",
+  "MemberNotFound",
+  "TeamMemberNotFound",
+  "RateLimitExceeded",
   "DeployKeyAccountNotLinked",
 ]);
 
@@ -217,19 +219,15 @@ export type AuthFailure =
   | AuthApiError
   | DbError
   | OrgNotFound
-  | OrgApprovalRequired
-  | OrgRequiresApproval
   | NoActiveOrganization
   | NoOrganizationSelected
   | MemberCreateNotPermitted
   | OwnerRoleRequired
   | MemberEmailsExportForbidden
-  | RejectionReasonRequired
-  | OrganizationNotPending
-  | OrganizationRequesterMissing
   | TeamNotFound
   | TeamUpdateFailed
   | NotOrgMember
+  | MembershipEnded
   | NotOrganizer
   | PlatformAdminRequired
   | EventEnded
@@ -249,12 +247,18 @@ export type AuthFailure =
   | NearNetworkRequired
   | ApiKeyNotFound
   | UnknownTeamRole
+  | UserNotFound
+  | MemberNotFound
+  | TeamMemberNotFound
+  | RateLimitExceeded
   | DeployKeyAccountNotLinked;
 
 export function toTransportError(error: AuthFailure): ORPCError<string, unknown> {
   switch (error._tag) {
-    case "AuthApiError":
-      return new ORPCError(error.code, { message: error.message, data: error.data });
+    case "AuthApiError": {
+      const code = typeof error.data?.code === "string" ? error.data.code : error.code;
+      return new ORPCError(code, { message: error.message, data: error.data });
+    }
     case "DbError":
       return new ORPCError("INTERNAL_SERVER_ERROR", {
         message: error.message,
@@ -268,13 +272,6 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
           ...(error.organizationId ? { resourceId: error.organizationId } : {}),
         },
       });
-    case "OrgApprovalRequired":
-      return new ORPCError("FORBIDDEN", {
-        message: error.message,
-        data: { action: error.action },
-      });
-    case "OrgRequiresApproval":
-      return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
     case "NoActiveOrganization":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
     case "NoOrganizationSelected":
@@ -291,12 +288,6 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       });
     case "MemberEmailsExportForbidden":
       return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
-    case "RejectionReasonRequired":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
-    case "OrganizationNotPending":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
-    case "OrganizationRequesterMissing":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
     case "TeamNotFound":
       return new ORPCError("NOT_FOUND", {
         message: error.message,
@@ -306,6 +297,11 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       return new ORPCError("INTERNAL_SERVER_ERROR", { message: error.message });
     case "NotOrgMember":
       return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
+    case "MembershipEnded":
+      return new ORPCError("MEMBERSHIP_ENDED", {
+        message: error.message,
+        data: { action: MEMBERSHIP_ENDED_ACTION },
+      });
     case "NotOrganizer":
       return new ORPCError("FORBIDDEN", {
         message: error.message,
@@ -321,9 +317,9 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
     case "CodeCreateFailed":
       return new ORPCError("INTERNAL_SERVER_ERROR", { message: error.message });
     case "CodeNotFound":
-      return new ORPCError("NOT_FOUND", {
+      return new ORPCError("CODE_NOT_FOUND", {
         message: error.message,
-        data: { resource: "onboardingCode", ...(error.codeId ? { resourceId: error.codeId } : {}) },
+        data: { codeId: error.codeId },
       });
     case "CodeInactive":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
@@ -333,15 +329,21 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
         data: { apiKeyProvided: false },
       });
     case "CodeRevoked":
-      return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
+      return new ORPCError("CODE_REVOKED", { message: error.message, data: {} });
     case "CodeExpired":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
+      return new ORPCError("CODE_EXPIRED", {
+        message: error.message,
+        data: { expiresAt: error.expiresAt?.toISOString() },
+      });
     case "CodeLimitReached":
-      return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
+      return new ORPCError("CODE_EXHAUSTED", {
+        message: error.message,
+        data: { maxUses: error.maxUses },
+      });
     case "RedeemOrgMissing":
-      return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
+      return new ORPCError("ORG_NOT_FOUND", { message: error.message, data: {} });
     case "OrgFull":
-      return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
+      return new ORPCError("ORG_FULL", { message: error.message, data: {} });
     case "EventTeamCreateFailed":
       return new ORPCError("INTERNAL_SERVER_ERROR", { message: error.message });
     case "InviteeAmbiguous":
@@ -359,6 +361,29 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       });
     case "UnknownTeamRole":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
+    case "UserNotFound":
+      return new ORPCError("NOT_FOUND", {
+        message: error.message,
+        data: { resource: "user", resourceId: error.userId },
+      });
+    case "MemberNotFound":
+      return new ORPCError("NOT_FOUND", {
+        message: error.message,
+        data: {
+          resource: "member",
+          ...(error.memberId ? { resourceId: error.memberId } : {}),
+        },
+      });
+    case "TeamMemberNotFound":
+      return new ORPCError("NOT_FOUND", {
+        message: error.message,
+        data: { resource: "teamMember", resourceId: error.teamMemberId },
+      });
+    case "RateLimitExceeded":
+      return new ORPCError("RATE_LIMITED", {
+        message: error.message,
+        data: { retryAfterSeconds: error.retryAfterSeconds, limitType: "requests" },
+      });
     case "DeployKeyAccountNotLinked":
       return new ORPCError("FORBIDDEN", {
         message: error.message,
@@ -370,5 +395,5 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
 export function mapDomainError<A, E extends AuthFailure>(
   self: Effect.Effect<A, E, never>,
 ): Effect.Effect<A, ORPCError<string, unknown>, never> {
-  return Effect.catch(self, (error) => Effect.fail(toTransportError(error)));
+  return Effect.mapError(self, (error) => toTransportError(error));
 }

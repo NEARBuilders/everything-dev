@@ -66,6 +66,11 @@ export function createRouter<
     scrollRestoration: true,
     defaultStructuralSharing: true,
     defaultPreloadStaleTime: 0,
+    // Pending boundary at 333ms: brief navigations keep the previous page
+    // rendered with the root progress bar carrying the signal, and the
+    // compact spinner is reserved for genuinely slow or first loads — still
+    // well inside the 1000ms blank window #683 fixed.
+    defaultPendingMs: 333,
     defaultPendingMinMs: 0,
     defaultErrorComponent: RouterError,
     defaultNotFoundComponent,

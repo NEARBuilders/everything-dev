@@ -49,11 +49,9 @@ jobs:
       run:
         working-directory: ${{ inputs.working_directory }}
         shell: bash
-    env:
-      NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      BOS_STORAGE_ORIGIN: ${{ inputs.storage_origin }}
-      BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    # Secrets and deployment inputs live on the step that consumes them —
+    # not at job level, where every step (including third-party actions')
+    # would see them.
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -99,4 +97,46 @@ jobs:
 
       - name: Deploy (preflight → build → upload → publish → image → smoke → Railway)
         timeout-minutes: 35
+        env:
+          NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
+          BOS_STORAGE_ORIGIN: ${{ inputs.storage_origin }}
+          BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Railway token scopes differ by verb: a project-scoped RAILWAY_TOKEN
+          # authorizes redeploy commands only; the child repoint (`railway service
+          # source connect`, the serviceConnect mutation) needs workspace scope —
+          # set RAILWAY_API_TOKEN (workspace token from railway.com/account/tokens)
+          # plus the project/environment targeting vars and it owns the whole leg.
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
         run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}${{ inputs.smoke == true && ' --smoke' || '' }}
+
+      # Drift alarm (#826): the pin→bytes proof — SRI every pinned version
+      # manifest and hash every file it names against the served bytes;
+      # compare the authored release against the parent's live release.
+      # NON-BLOCKING by policy: rot names the files and the runbook, drift is
+      # advisory. A child CLI predating the `verify` command fails here too —
+      # still non-blocking (upgrade the framework to get the command).
+      - name: Verify published pins (drift alarm, non-blocking)
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          if pnpm run bos verify --json 2>&1 | tee verify-report.txt; then
+            {
+              echo "### Pin verification — every published pin resolves byte-for-byte"
+              echo '```'
+              cat verify-report.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "::warning::Pin verification FAILED — a published pin no longer resolves byte-for-byte (rot, #826). Run \`bos upgrade && bos deploy\` to re-pin."
+              echo "### Pin verification FAILED (rot, #826)"
+              echo '```'
+              cat verify-report.txt
+              echo '```'
+              echo "Run \`bos upgrade && bos deploy\` to re-pin."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

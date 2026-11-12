@@ -69,6 +69,57 @@ describe("descriptor constructors", () => {
       extends: "bos://dev.everything.near/votes",
     });
   });
+
+  it("keeps a plugin's ui: false opt-out through the authored↔config round-trip (#636)", () => {
+    const app = App({
+      name: "consumer",
+      plugins: {
+        nostr: {
+          extends: "bos://provider.near/provider.dev#plugins.nostr",
+          ui: false,
+        },
+      },
+    });
+    const input = toConfigInput(app);
+    expect(input.plugins?.nostr).toEqual({
+      extends: "bos://provider.near/provider.dev#plugins.nostr",
+      ui: false,
+    });
+    expect(configInputToDescriptor(input).plugins?.nostr?.ui).toBe(false);
+  });
+
+  it("keeps proxy + contract through the authored↔config round-trip (#848)", () => {
+    const app = App({
+      name: "consumer",
+      plugins: {
+        feedback: {
+          proxy: "https://feedback.nearbuilders.org",
+          contract: "bos://nearbuilding.near/feedback.nearbuilders.org#app.api",
+          secrets: ["FEEDBACK_API_KEY"],
+        },
+      },
+    });
+    const input = toConfigInput(app);
+    expect(input.plugins?.feedback).toEqual({
+      proxy: "https://feedback.nearbuilders.org",
+      contract: "bos://nearbuilding.near/feedback.nearbuilders.org#app.api",
+      secrets: ["FEEDBACK_API_KEY"],
+    });
+    const back = configInputToDescriptor(input).plugins?.feedback;
+    expect(back?.contract).toBe("bos://nearbuilding.near/feedback.nearbuilders.org#app.api");
+    expect(back?.proxy).toBe("https://feedback.nearbuilders.org");
+  });
+
+  it("contract is a plugins-only field — foreign slots strip it", () => {
+    const stripped = App({
+      name: "consumer",
+      auth: {
+        contract: "bos://nearbuilding.near/feedback.nearbuilders.org#app.api",
+        development: "http://localhost:4302",
+      } as never,
+    });
+    expect("contract" in (stripped.auth ?? {})).toBe(false);
+  });
 });
 
 describe("resolveApp", () => {
@@ -195,28 +246,73 @@ describe("imported-App extends", () => {
   });
 });
 
-describe("platform pin (ADR 0034)", () => {
-  it("accepts an authored platform pin and carries it into the resolved config", () => {
-    const child = App({ name: "pinned", platform: "2.0.0-rc.15" });
-    expect(() => App({ name: "strict-typo-guard", platform: 2 } as never)).toThrow();
-    expect(resolveApp("pinned", { pinned: child }).platform).toBe("2.0.0-rc.15");
+describe("authored release (ADR 0034)", () => {
+  it("accepts an authored release and carries it into the resolved config", () => {
+    const child = App({ name: "pinned", release: "2.0.0-rc.15" });
+    expect(() => App({ name: "strict-typo-guard", release: 2 } as never)).toThrow();
+    expect(resolveApp("pinned", { pinned: child }).release).toBe("2.0.0-rc.15");
   });
 
-  it("survives the authored↔resolved round-trip so sync never strips the pin", () => {
-    const input = toConfigInput(App({ name: "pinned", platform: "2.0.0-rc.15" }));
-    expect(input.platform).toBe("2.0.0-rc.15");
+  it("survives the authored↔resolved round-trip so sync never strips the release", () => {
+    const input = toConfigInput(App({ name: "pinned", release: "2.0.0-rc.15" }));
+    expect(input.release).toBe("2.0.0-rc.15");
     const descriptor = configInputToDescriptor(input);
-    expect(descriptor.platform).toBe("2.0.0-rc.15");
+    expect(descriptor.release).toBe("2.0.0-rc.15");
   });
 
-  it("inherits the parent's pin child-wins", () => {
+  it("a legacy platform key still parses and carries into the input — the codemod surface", () => {
+    const input = toConfigInput(App({ name: "legacy", platform: "2.0.0-rc.14" }));
+    expect(input.platform).toBe("2.0.0-rc.14");
+    expect(input.release).toBeUndefined();
+  });
+
+  it("keeps the authoring-only starter level through the save-path round-trip (#565)", () => {
+    const input = toConfigInput(App({ name: "child", starter: "advanced" }));
+    expect(input.starter).toBe("advanced");
+    const descriptor = configInputToDescriptor(input);
+    expect(descriptor.starter).toBe("advanced");
+    // but the resolved config never carries it
+    const resolved = resolveApp("child", { child: App({ name: "child", starter: "advanced" }) });
+    expect(resolved.starter).toBeUndefined();
+  });
+
+  it("keeps a remote-only api slot (variables, no workspace) through the round-trip (#566)", () => {
+    const input = {
+      account: "child.near",
+      app: {
+        api: { variables: { platformAccount: "child.near" }, secrets: ["API_KEY"] },
+      },
+    } as unknown as BosConfigInput;
+    const descriptor = configInputToDescriptor(input);
+    expect(descriptor.api).toEqual({
+      variables: { platformAccount: "child.near" },
+      secrets: ["API_KEY"],
+    });
+    const roundTripped = toConfigInput(descriptor);
+    expect(roundTripped.app?.api).toEqual({
+      variables: { platformAccount: "child.near" },
+      secrets: ["API_KEY"],
+    });
+  });
+
+  it("keeps a local api slot's path and a remote-only api's variables distinct", () => {
+    const descriptor = configInputToDescriptor({
+      account: "child.near",
+      app: {
+        api: { development: "local:api", variables: { a: 1 } },
+      },
+    } as unknown as BosConfigInput);
+    expect(descriptor.api).toEqual({ path: "api", variables: { a: 1 } });
+  });
+
+  it("inherits the parent release child-wins", () => {
     const registry: AppRegistry = {
-      base: App({ name: "base", platform: "2.0.0-rc.14" }),
+      base: App({ name: "base", release: "2.0.0-rc.14" }),
       leaf: App({ name: "leaf", extends: "base" }),
-      over: App({ name: "over", extends: "base", platform: "2.0.0-rc.15" }),
+      over: App({ name: "over", extends: "base", release: "2.0.0-rc.15" }),
     };
-    expect(resolveApp("leaf", registry).platform).toBe("2.0.0-rc.14");
-    expect(resolveApp("over", registry).platform).toBe("2.0.0-rc.15");
+    expect(resolveApp("leaf", registry).release).toBe("2.0.0-rc.14");
+    expect(resolveApp("over", registry).release).toBe("2.0.0-rc.15");
   });
 });
 

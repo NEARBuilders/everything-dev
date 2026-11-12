@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 
 	"everything.dev/regression/http/internal/regtest"
@@ -65,13 +64,6 @@ func TestSeedRegressionData(t *testing.T) {
 	})
 
 	// Step 3: Set org A active
-	t.Run("approve_organization_fixtures", func(t *testing.T) {
-		cmd := exec.Command("node", "--import", "tsx", "tests/regression/lib/approve-test-organizations.ts", orgAID, orgBID)
-		cmd.Dir = regtest.RepoRoot()
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("approving organization fixtures: %v\n%s", err, output)
-		}
-	})
 	t.Run("set_active_org", func(t *testing.T) {
 		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/auth/organization/set-active", map[string]string{
 			"organizationId": orgAID,

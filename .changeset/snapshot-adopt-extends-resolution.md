@@ -1,5 +1,4 @@
 ---
-"host": patch
 "everything-dev": minor
 ---
 

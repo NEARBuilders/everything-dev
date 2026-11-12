@@ -32,13 +32,37 @@ describe("preflight credentialed URL parsing", () => {
     expect(failures).toEqual([]);
   });
 
-  it("gives API/AUTH failures the docker-compose hint", async () => {
+  it("gives API/AUTH failures the per-workspace pglite fallback hint", async () => {
     const env = { API_DATABASE_URL: "postgres://u:p@localhost:59998/api_db" };
     const failures = await Effect.runPromise(preflightLocalInfra(env));
     expect(failures.length).toBe(1);
-    expect(failures[0]?.error).toContain("docker compose up -d --wait");
+    expect(failures[0]?.error).toContain(".bos/db/<slug> PGlite");
     expect(failures[0]?.tcpReachable).toBe(false);
   }, 20000);
+
+  it("fails a composition whose pglite secrets share one data dir", async () => {
+    const env = {
+      API_DATABASE_URL: "pglite:.bos/db",
+      AGENT_CONNECT_DATABASE_URL: "pglite:.bos/db",
+      AUTH_DATABASE_URL: "pglite:.bos/db/auth",
+      UNRELATED_DATABASE_URL: "pglite:.bos/db/agent_connect",
+    };
+    const failures = await Effect.runPromise(preflightLocalInfra(env));
+    expect(failures.length).toBe(1);
+    expect(failures[0]?.secret).toBe("API_DATABASE_URL, AGENT_CONNECT_DATABASE_URL");
+    expect(failures[0]?.error).toContain("silently corrupt");
+    expect(failures[0]?.error).toContain(".bos/db/<slug>");
+  });
+
+  it("accepts per-identity pglite dirs and in-memory URLs", async () => {
+    const env = {
+      API_DATABASE_URL: "pglite:.bos/db/api",
+      AUTH_DATABASE_URL: "pglite:.bos/db/auth",
+      AGENT_CONNECT_DATABASE_URL: "pglite::memory:",
+    };
+    const failures = await Effect.runPromise(preflightLocalInfra(env));
+    expect(failures).toEqual([]);
+  });
 });
 
 describe("origin truth (BASE_URL/CORS_ORIGIN are generated-owned)", () => {

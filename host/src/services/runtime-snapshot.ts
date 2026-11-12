@@ -1,17 +1,24 @@
-import { createHash } from "node:crypto";
 import { Context, Effect, Layer, Ref } from "effect";
+import { deploymentDigest } from "everything-dev/digest";
 import type { RuntimeConfig } from "everything-dev/types";
 import { ConfigService } from "./config";
 import { type ClientConfigCacheState, createClientConfigCacheState } from "./serving-caches";
 import { createUiComposeCacheState, type UiComposeCacheState } from "./ui-compose";
 
+export { deploymentDigest };
+
 export interface RuntimeSnapshotState {
-  /** hash over the load-bearing slot coordinates — changes on every adopted deploy */
-  fingerprint: string;
+  /** the serving-generation digest — changes on every adopted deploy */
+  deploymentDigest: string;
   config: RuntimeConfig;
   /** the adopted published pointer — set by the coordinator on every swap;
-   * absent at boot (the fingerprint is the identity until the first adopt) */
+   * absent at boot (the digest is the identity until the first adopt) */
   pointer?: Record<string, unknown>;
+  /** Boot-frozen slots (api, auth, plugin backends) whose pins the adopted
+   * pointer moved — the swap cannot adopt them (MAP decision 3), so the
+   * running host serves the previous generation until restart (#826
+   * follow-up). Surfaced at /.well-known/version and /health. */
+  restartRequired?: string[];
   /** THE serving compose cache: requests compose through the state they
    * captured, so the pre-warmed state the coordinator installs IS the serving
    * state — no re-compose on adopt, and a swap under traffic flips readers
@@ -36,18 +43,20 @@ export interface RuntimeSnapshotState {
  * pre-warmed states built here.
  */
 export function createRuntimeSnapshotState(input: {
-  fingerprint: string;
+  deploymentDigest: string;
   config: RuntimeConfig;
   pointer?: Record<string, unknown>;
+  restartRequired?: string[];
   composeState?: UiComposeCacheState;
   clientConfigState?: ClientConfigCacheState;
 }): RuntimeSnapshotState {
   const composeState = input.composeState ?? createUiComposeCacheState();
   const clientConfigState = input.clientConfigState ?? createClientConfigCacheState();
   return {
-    fingerprint: input.fingerprint,
+    deploymentDigest: input.deploymentDigest,
     config: input.config,
     pointer: input.pointer,
+    ...(input.restartRequired ? { restartRequired: input.restartRequired } : {}),
     composeState,
     clientConfigState,
     release: Effect.sync(() => {
@@ -65,7 +74,7 @@ export function createRuntimeSnapshotState(input: {
  * swapped one — session-level blue/green without any draining machinery
  * (shadow-flip). A swap releases the previous state's caches, so repeated
  * adopts never accumulate old generations. API plugins and auth stay
- * boot-frozen by design (MAP decision 3); the fingerprint deliberately
+ * boot-frozen by design (MAP decision 3); the digest deliberately
  * includes their coordinates anyway — a published pointer that changed them
  * is change-detection signal for the watch fiber, even though a swap cannot
  * adopt them.
@@ -91,7 +100,7 @@ export class RuntimeSnapshot extends Context.Service<
         const config = yield* ConfigService;
         const ref = yield* Ref.make<RuntimeSnapshotState>(
           createRuntimeSnapshotState({
-            fingerprint: deploymentFingerprint(config),
+            deploymentDigest: deploymentDigest(config),
             config,
             ...(options?.composeState ? { composeState: options.composeState } : {}),
             ...(options?.clientConfigState ? { clientConfigState: options.clientConfigState } : {}),
@@ -107,28 +116,4 @@ export class RuntimeSnapshot extends Context.Service<
         });
       }),
     );
-}
-
-/**
- * Deployment fingerprint: a stable hash over every load-bearing slot
- * coordinate (entryUrl + integrity per slot) — a new published deploy mints a
- * new fingerprint even when the composed digest is unchanged.
- */
-export function deploymentFingerprint(config: RuntimeConfig): string {
-  const parts: Array<string> = [];
-  const slot = (
-    prefix: string,
-    s: { entryUrl?: string; integrity?: string; ssrIntegrity?: string } | undefined,
-  ) => {
-    if (!s) return;
-    parts.push(`${prefix}:${s.entryUrl ?? ""}:${s.integrity ?? ""}:${s.ssrIntegrity ?? ""}`);
-  };
-  slot("ui", config.ui);
-  slot("api", config.api);
-  slot("auth", config.auth);
-  for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
-    slot(`plugin.${key}`, plugin);
-    slot(`plugin.${key}.ui`, plugin.ui);
-  }
-  return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
 }

@@ -46,8 +46,15 @@
       "allowedVersions": "<2.0.0"
     },
     {
+      "matchPackageNames": ["@effect/tsgo", "oxlint", "oxlint-tsgolint"],
+      "groupName": "effect tsgo toolchain (lockstep — bump together)",
+      "automerge": false,
+      "separateMajorMinor": false
+    },
+    {
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["patch"],
+      "matchPackagePatterns": ["!oxlint", "!oxlint-tsgolint", "!@effect/tsgo"],
       "automerge": true
     },
     {

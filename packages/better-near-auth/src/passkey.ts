@@ -151,7 +151,11 @@ function deriveAccountId(
 }
 
 function nep413PayloadHash(message: string, recipient: string, nonce: Uint8Array): Uint8Array {
-  if (nonce.length !== 32) return new Uint8Array(0);
+  if (nonce.length !== 32) {
+    throw new Error(
+      `Invalid NEP-413 nonce length: expected 32 bytes, got ${nonce.length} — an empty payload hash would leak as a signing challenge`,
+    );
+  }
   const w = new BorshWriter();
   w.writeU32(NEP413_TAG);
   w.writeString(message);
@@ -283,14 +287,31 @@ function parseProof(signature: string): WalletContractProof | null {
   }
 }
 
-function parseClientData(clientDataJson: string): { challenge: string; type: string } | null {
+function parseClientData(
+  clientDataJson: string,
+): { challenge: string; type: string; origin?: string } | null {
   try {
-    const data = JSON.parse(clientDataJson) as { challenge?: unknown; type?: unknown };
+    const data = JSON.parse(clientDataJson) as {
+      challenge?: unknown;
+      type?: unknown;
+      origin?: unknown;
+    };
     if (typeof data.challenge !== "string" || typeof data.type !== "string") return null;
-    return { challenge: data.challenge, type: data.type };
+    return {
+      challenge: data.challenge,
+      type: data.type,
+      ...(typeof data.origin === "string" ? { origin: data.origin } : {}),
+    };
   } catch {
     return null;
   }
+}
+
+export interface PasskeyRelyingPartyVerifiable {
+  /** the WebAuthn RP ID the credential was created with (rpIdHash = sha256(rpId)) */
+  rpID?: string;
+  /** origins allowed to invoke the credential's ceremony */
+  origins?: string[];
 }
 
 export function verifyPasskeyNep413Signature(args: {
@@ -300,8 +321,9 @@ export function verifyPasskeyNep413Signature(args: {
   message: string;
   recipient: string;
   nonce: Uint8Array;
+  relyingParty?: PasskeyRelyingPartyVerifiable;
 }): boolean {
-  const { accountId, publicKey, signature, message, recipient, nonce } = args;
+  const { accountId, publicKey, signature, message, recipient, nonce, relyingParty } = args;
 
   if (!isDeterministicAccountId(accountId)) return false;
   if (nonce.length !== 32) return false;
@@ -334,6 +356,23 @@ export function verifyPasskeyNep413Signature(args: {
   }
   if (authData.length < 37) return false;
   if (!isUserVerified(authData)) return false;
+
+  if (relyingParty?.rpID) {
+    const rpIdHash = sha256(new TextEncoder().encode(relyingParty.rpID));
+    if (!constantTimeEqual(authData.slice(0, 32), rpIdHash)) return false;
+  }
+  if (relyingParty?.origins && relyingParty.origins.length > 0) {
+    if (!clientData.origin) return false;
+    let origin: string;
+    try {
+      origin = new URL(clientData.origin).origin;
+    } catch {
+      return false;
+    }
+    if (!relyingParty.origins.some((allowed) => new URL(allowed).origin === origin)) {
+      return false;
+    }
+  }
 
   const clientDataBytes = new TextEncoder().encode(proof.client_data_json);
   const signedBytes = new Uint8Array(authData.length + 32);

@@ -53,7 +53,7 @@ function NewOrganization() {
       return data;
     },
     onSuccess: async (data) => {
-      toast.success(`Organization "${data?.name}" submitted for approval`);
+      toast.success(`Organization "${data?.name}" created`);
       await queryClient.invalidateQueries({ queryKey: ["organizations"] });
       await queryClient.refetchQueries({ queryKey: ["organizations"] });
       if (data?.slug) {

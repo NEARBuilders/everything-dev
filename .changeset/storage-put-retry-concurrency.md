@@ -1,6 +1,5 @@
 ---
 "everything-dev": patch
-"api": patch
 ---
 
 Per-PUT retry and 4-way concurrency for bundle storage; storage timeout hint fires for all 408s.

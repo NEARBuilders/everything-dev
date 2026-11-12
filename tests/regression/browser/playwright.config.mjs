@@ -57,6 +57,7 @@ export default defineConfig({
     stdout: "pipe",
     stderr: "pipe",
     env: webServerEnv,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
   },
   // start:* runs leave the stack down: the fixture container is removed
   // after every suite (dev modes no-op — they own no containers).
@@ -75,6 +76,7 @@ export default defineConfig({
       name: "start:csr",
       testMatch: [
         "specs/csr-compose.spec.ts",
+        "specs/csr-guarded-reload.spec.ts",
         "specs/auth-redirect.spec.ts",
         "specs/app-load.spec.ts",
       ],
@@ -82,8 +84,15 @@ export default defineConfig({
     {
       // The dev server is smoke-only — boot + one page per render mode + the
       // redirect spec. Its resource profile must never stall CI again.
+      // app-load is the ui-only PR gate (#826): the smoke script filters this
+      // project down to that spec by file argument.
       name: "dev:ssr",
-      testMatch: ["specs/csr-compose.spec.ts", "specs/auth-redirect.spec.ts"],
+      testMatch: [
+        "specs/dev-ssr-hydration.spec.ts",
+        "specs/csr-compose.spec.ts",
+        "specs/auth-redirect.spec.ts",
+        "specs/app-load.spec.ts",
+      ],
     },
     {
       name: "dev:csr",

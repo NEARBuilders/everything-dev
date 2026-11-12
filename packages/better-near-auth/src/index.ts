@@ -35,6 +35,7 @@ import {
   verifyPasskeyNep413Signature,
 } from "./passkey.js";
 import {
+  isUniqueViolation,
   linkPasskeyWalletFromCredential,
   passkeyWalletFromCredential,
 } from "./passkey-wallet-link.js";
@@ -99,7 +100,12 @@ export {
 } from "./passkey-wallet-link.js";
 export * from "./types.js";
 
-import { bytesToHex, decryptPrivateKey, encryptPrivateKey } from "./utils.js";
+import {
+  bytesToHex,
+  decryptPrivateKey,
+  encryptPrivateKey,
+  formatErrorCauseChain,
+} from "./utils.js";
 
 async function hashNonce(nonce: Uint8Array): Promise<string> {
   const data = new TextEncoder().encode(hex.encode(nonce));
@@ -125,33 +131,132 @@ interface Nep413Payload {
   callbackUrl?: string;
 }
 
+type SiwnAccessKey = Awaited<ReturnType<Near["getAccessKey"]>>;
+
+type SiwnVerifyFailureReason =
+  | "SIGNATURE_INVALID"
+  | "NONCE_EXPIRED"
+  | "NONCE_FROM_FUTURE"
+  | "PUBLIC_KEY_INVALID"
+  | "ACCESS_KEY_NOT_FOUND"
+  | "NOT_FULL_ACCESS_KEY"
+  | "RPC_ERROR";
+
+interface VerifiedSiwnSignature {
+  valid: boolean;
+  accessKey: SiwnAccessKey | null;
+  reason?: SiwnVerifyFailureReason;
+}
+
+// Client-embedded nonce timestamps are validated against the server clock.
+// A device clock ahead of the server used to fail login outright (age < 0);
+// tolerate modest future skew so only meaningfully-wrong clocks are rejected.
+const NONCE_FUTURE_TOLERANCE_MS = 60 * 1000;
+
+function checkNonceFreshness(
+  nonce: Uint8Array,
+  maxAgeMs: number,
+): "ok" | "NONCE_EXPIRED" | "NONCE_FROM_FUTURE" {
+  if (nonce.length !== 32) return "ok";
+  const view = new DataView(nonce.buffer, nonce.byteOffset, nonce.byteLength);
+  const timestamp = Number(view.getBigUint64(0, false));
+  const age = Date.now() - timestamp;
+  if (age > maxAgeMs) return "NONCE_EXPIRED";
+  if (age < -NONCE_FUTURE_TOLERANCE_MS) return "NONCE_FROM_FUTURE";
+  return "ok";
+}
+
 async function verifySignedMessage(
   accountId: string,
   signedMessage: { publicKey: string; signature: string },
   payload: Nep413Payload,
   near: Near,
-): Promise<boolean> {
+  relyingParty?: { rpID: string; origins: string[] },
+): Promise<VerifiedSiwnSignature> {
   if (isDeterministicAccountId(accountId)) {
-    return verifyPasskeyNep413Signature({
-      accountId,
-      publicKey: signedMessage.publicKey,
-      signature: signedMessage.signature,
-      message: payload.message,
-      recipient: payload.recipient,
-      nonce: payload.nonce,
-    });
+    return {
+      valid: verifyPasskeyNep413Signature({
+        accountId,
+        publicKey: signedMessage.publicKey,
+        signature: signedMessage.signature,
+        message: payload.message,
+        recipient: payload.recipient,
+        nonce: payload.nonce,
+        relyingParty,
+      }),
+      accessKey: null,
+    };
   }
-  const verify = (candidate: Nep413Payload) =>
-    signedMessage.publicKey.startsWith("ml-dsa-65:")
-      ? verifyMlDsa65Nep413Signature(signedMessage as never, candidate, {
-          near,
-          maxAge: 15 * 60 * 1000,
-        })
-      : verifyNep413Signature(signedMessage as never, candidate, { near, maxAge: 15 * 60 * 1000 });
-  if (await verify(payload)) return true;
-  if (!payload.callbackUrl) return false;
-  const { callbackUrl: _omitted, ...withoutCallbackUrl } = payload;
-  return verify(withoutCallbackUrl);
+  // Signature checks are local crypto. The single on-chain read is the
+  // access-key residency + permission query below — fetch it exactly once
+  // and hand the result to the caller. Re-querying per check meant 2-3
+  // sequential RPC round trips per login, which dominates login latency
+  // on rate-limited RPC endpoints.
+  const nonceFreshness = checkNonceFreshness(payload.nonce, 15 * 60 * 1000);
+  if (nonceFreshness !== "ok") {
+    return { valid: false, accessKey: null, reason: nonceFreshness };
+  }
+  // nonceValidation "none": the freshness check above replaces near-kit's
+  // zero-tolerance future check so a slightly-fast device clock still logs in.
+  const verify = async (candidate: Nep413Payload): Promise<SiwnVerifyFailureReason | null> => {
+    if (signedMessage.publicKey.startsWith("ml-dsa-65:")) {
+      const result = await verifyMlDsa65Nep413Signature(signedMessage as never, candidate);
+      return result.valid ? null : (result.reason ?? "SIGNATURE_INVALID");
+    }
+    const valid = await verifyNep413Signature(signedMessage as never, candidate, {
+      nonceValidation: "none",
+    });
+    return valid ? null : "SIGNATURE_INVALID";
+  };
+  let signatureFailure = await verify(payload);
+  if (signatureFailure && payload.callbackUrl) {
+    signatureFailure = await verify(withoutCallbackUrl(payload));
+  }
+  if (signatureFailure) {
+    return { valid: false, accessKey: null, reason: signatureFailure };
+  }
+  let accessKey: SiwnAccessKey | null;
+  try {
+    accessKey = await near.getAccessKey(accountId, signedMessage.publicKey);
+  } catch (error) {
+    console.warn(
+      `[siwn] Access-key lookup failed for ${accountId}:`,
+      error instanceof Error ? error.message : error,
+    );
+    return { valid: false, accessKey: null, reason: "RPC_ERROR" };
+  }
+  if (!accessKey) {
+    return { valid: false, accessKey: null, reason: "ACCESS_KEY_NOT_FOUND" };
+  }
+  if (accessKey.permission !== "FullAccess") {
+    return { valid: false, accessKey, reason: "NOT_FULL_ACCESS_KEY" };
+  }
+  return { valid: true, accessKey };
+}
+
+function withoutCallbackUrl(payload: Nep413Payload): Nep413Payload {
+  const { callbackUrl: _omitted, ...rest } = payload;
+  return rest;
+}
+
+const VERIFY_FAILURE_MESSAGES: Record<SiwnVerifyFailureReason, string> = {
+  SIGNATURE_INVALID: "Unauthorized: Invalid signature",
+  NONCE_EXPIRED: "Unauthorized: Sign-in request expired — please try again",
+  NONCE_FROM_FUTURE:
+    "Unauthorized: Sign-in timestamp is in the future — your device clock may be wrong",
+  PUBLIC_KEY_INVALID: "Unauthorized: Invalid public key",
+  ACCESS_KEY_NOT_FOUND: "Unauthorized: Access key not found on account",
+  NOT_FULL_ACCESS_KEY: "Unauthorized: Full access key required",
+  RPC_ERROR: "Verification service temporarily unavailable — please try again",
+};
+
+function verifyFailureApiError(reason: SiwnVerifyFailureReason): APIError {
+  const code = reason === "RPC_ERROR" ? "VERIFY_RPC_ERROR" : (`UNAUTHORIZED_${reason}` as const);
+  return new APIError("UNAUTHORIZED", {
+    message: VERIFY_FAILURE_MESSAGES[reason],
+    status: 401,
+    code,
+  });
 }
 
 function nearAccountKey(account: Pick<NearAccount, "accountId" | "network">): string {
@@ -496,17 +601,11 @@ function matchesSessionGasKeyScope(key: GasKeyPermissionView, cfg: SessionGasKey
   return cfg.methodNames.every((method) => key.method_names.includes(method));
 }
 
-async function defaultValidateLimitedAccessKey(
-  accountId: string,
-  publicKey: string,
-  recipient: string,
-  near: Near,
-): Promise<boolean> {
-  const key = await near.getAccessKey(accountId, publicKey);
-  if (!key) return false;
-  if (key.permission === "FullAccess") return true;
-  if ("FunctionCall" in key.permission) {
-    return key.permission.FunctionCall.receiver_id === recipient;
+function validateAccessKeyForRecipient(accessKey: SiwnAccessKey, recipient: string): boolean {
+  if (!accessKey) return false;
+  if (accessKey.permission === "FullAccess") return true;
+  if ("FunctionCall" in accessKey.permission) {
+    return accessKey.permission.FunctionCall.receiver_id === recipient;
   }
   return false;
 }
@@ -547,9 +646,10 @@ function serializeNep413Message(params: {
     throw new Error("Nonce must be exactly 32 bytes");
   }
   const tagBytes = encodeBorshU32(NEP413_TAG);
+  // borsh Option<String>: one discriminant byte, Some followed by [u32 len][bytes]
   const callbackUrlBytes: Uint8Array = params.callbackUrl
-    ? concatUint8Arrays([encodeBorshU32(1), encodeBorshString(params.callbackUrl)])
-    : encodeBorshU32(0);
+    ? concatUint8Arrays([new Uint8Array([1]), encodeBorshString(params.callbackUrl)])
+    : new Uint8Array([0]);
   const messageBytes = encodeBorshString(params.message);
   const nonceBytes = params.nonce;
   const recipientBytes = encodeBorshString(params.recipient);
@@ -562,9 +662,9 @@ function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
   return ab;
 }
 
-interface MlDsa65VerifyOptions {
-  near: Near;
-  maxAge?: number;
+interface MlDsa65VerifyResult {
+  valid: boolean;
+  reason?: SiwnVerifyFailureReason;
 }
 
 async function verifyMlDsa65Nep413Signature(
@@ -575,45 +675,37 @@ async function verifyMlDsa65Nep413Signature(
     nonce: Uint8Array;
     callbackUrl?: string;
   },
-  options: MlDsa65VerifyOptions,
-): Promise<boolean> {
+): Promise<MlDsa65VerifyResult> {
   try {
-    const { near, maxAge = 5 * 60 * 1000 } = options;
-
     if (!signedMessage.publicKey.startsWith(ML_DSA_65_KEY_PREFIX)) {
-      return false;
+      return { valid: false, reason: "PUBLIC_KEY_INVALID" };
     }
 
     const stripped = signedMessage.publicKey.slice(ML_DSA_65_KEY_PREFIX.length);
-    const publicKeyBytes = base58.decode(stripped);
+    let publicKeyBytes: Uint8Array;
+    try {
+      publicKeyBytes = base58.decode(stripped);
+    } catch {
+      return { valid: false, reason: "PUBLIC_KEY_INVALID" };
+    }
     if (publicKeyBytes.length !== ML_DSA_65_PUBLIC_KEY_LENGTH) {
-      return false;
-    }
-
-    if (maxAge !== Infinity && params.nonce.length === 32) {
-      const view = new DataView(
-        params.nonce.buffer,
-        params.nonce.byteOffset,
-        params.nonce.byteLength,
-      );
-      const timestamp = Number(view.getBigUint64(0, false));
-      const age = Date.now() - timestamp;
-      if (age > maxAge) return false;
-      if (age < 0) return false;
-    }
-
-    const accessKey = await near.getAccessKey(signedMessage.accountId, signedMessage.publicKey);
-    if (!accessKey || accessKey.permission !== "FullAccess") {
-      return false;
+      return { valid: false, reason: "PUBLIC_KEY_INVALID" };
     }
 
     const combined = serializeNep413Message(params);
     const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBuffer(combined)));
 
-    const signatureBytes = base64.decode(signedMessage.signature);
-    return ml_dsa65.verify(signatureBytes, hash, publicKeyBytes);
-  } catch {
-    return false;
+    let signatureBytes: Uint8Array;
+    try {
+      signatureBytes = base64.decode(signedMessage.signature);
+    } catch {
+      return { valid: false, reason: "SIGNATURE_INVALID" };
+    }
+    const valid = ml_dsa65.verify(signatureBytes, hash, publicKeyBytes);
+    return valid ? { valid: true } : { valid: false, reason: "SIGNATURE_INVALID" };
+  } catch (error) {
+    console.warn("[siwn] ML-DSA-65 verify error:", error instanceof Error ? error.message : error);
+    return { valid: false, reason: "SIGNATURE_INVALID" };
   }
 }
 
@@ -646,9 +738,18 @@ export interface SIWNPluginOptions {
     accountId: AccountId;
     publicKey: string;
     recipient?: string;
+    /** The access key already fetched during signature verification — reuse it
+     * instead of re-querying the RPC. */
+    accessKey?: SiwnAccessKey | null;
   }) => Promise<boolean>;
   apiKey?: string;
   rpcUrl?: string | DualNetworkConfig<string>;
+  /** RPC endpoint for on-chain READS (SIWN verification, view calls,
+   * availability checks). Falls back to `rpcUrl`. The 2026-11-04 fastnear
+   * incident was about silently dropped broadcasts — reads stayed safe on the
+   * free tier, so reads can point at a faster endpoint than `rpcUrl`, which
+   * must keep a real transaction pool. */
+  readRpcUrl?: string | DualNetworkConfig<string>;
   relayer?: RelayerConfig | RelayerDualNetworkConfig;
   sessionGasKey?: SessionGasKeyConfig | SessionGasKeyDualNetworkConfig;
   secrets?: {
@@ -656,6 +757,9 @@ export interface SIWNPluginOptions {
   };
   subAccount?: SubAccountConfig | DualNetworkConfig<SubAccountConfig>;
   passkeyWalletNetwork?: PasskeyWalletNetwork;
+  /** WebAuthn relying party the sandbox passkey credentials are bound to —
+   * passed through to NEP-413 verification (rpIdHash + origin checks). */
+  passkeyWalletRelyingParty?: { rpID: string; origins: string[] };
 }
 
 export const siwn = (options: SIWNPluginOptions) => {
@@ -698,6 +802,13 @@ export const siwn = (options: SIWNPluginOptions) => {
     if (typeof options.rpcUrl === "object")
       return (options.rpcUrl as DualNetworkConfig<string>)[network];
     return options.rpcUrl as string;
+  };
+
+  const getReadRpcUrl = (network: "mainnet" | "testnet"): string | undefined => {
+    if (!options.readRpcUrl) return getRpcUrl(network);
+    if (typeof options.readRpcUrl === "object")
+      return (options.readRpcUrl as DualNetworkConfig<string>)[network];
+    return options.readRpcUrl as string;
   };
 
   const getSubAccountConfig = (network: "mainnet" | "testnet"): SubAccountConfig | undefined => {
@@ -799,19 +910,38 @@ export const siwn = (options: SIWNPluginOptions) => {
     return initPromise;
   };
 
-  const getNear = (network: "mainnet" | "testnet") => {
-    const networkRpcUrl = getRpcUrl(network);
-    if (networkRpcUrl) {
+  // Reads (SIWN verification, view calls, availability checks) tolerate a
+  // faster, more rate-limited endpoint than broadcasts: the 2026-11-04
+  // fastnear incident was about silently dropped transactions, not bad
+  // reads. Read clients also retry faster — a login must fail fast instead
+  // of stalling on the write path's patient backoff.
+  const SIWN_READ_RETRY_CONFIG = { maxRetries: 2, initialDelayMs: 250 } as const;
+
+  const buildNearClient = (
+    network: "mainnet" | "testnet",
+    rpcUrl: string | undefined,
+    retryConfig?: { maxRetries: number; initialDelayMs: number },
+  ): Near => {
+    const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+    if (rpcUrl) {
       return new Near({
-        network: { rpcUrl: networkRpcUrl, networkId: network },
-        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+        network: { rpcUrl, networkId: network },
+        headers,
+        retryConfig,
       });
     }
     return new Near({
       network,
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      headers,
+      retryConfig,
     });
   };
+
+  const getNear = (network: "mainnet" | "testnet"): Near =>
+    buildNearClient(network, getReadRpcUrl(network), SIWN_READ_RETRY_CONFIG);
+
+  const getWriteNear = (network: "mainnet" | "testnet"): Near =>
+    buildNearClient(network, getRpcUrl(network));
 
   return {
     id: "siwn",
@@ -896,18 +1026,20 @@ export const siwn = (options: SIWNPluginOptions) => {
             const near = getNear(network);
             const nonceBytes = hex.decode(nonce);
 
-            const isValid = await verifySignedMessage(
+            const {
+              valid: isValid,
+              accessKey,
+              reason,
+            } = await verifySignedMessage(
               accountId,
               signedMessage,
               { message, recipient, nonce: nonceBytes, callbackUrl },
               near,
+              options.passkeyWalletRelyingParty,
             );
 
             if (!isValid) {
-              throw new APIError("UNAUTHORIZED", {
-                message: "Unauthorized: Invalid signature",
-                status: 401,
-              });
+              throw verifyFailureApiError(reason ?? "SIGNATURE_INVALID");
             }
 
             if (signedMessage.accountId !== accountId) {
@@ -924,6 +1056,7 @@ export const siwn = (options: SIWNPluginOptions) => {
                 accountId: accountId,
                 publicKey: publicKey,
                 recipient: expectedRecipient,
+                accessKey,
               });
 
               if (!isValidKey) {
@@ -957,17 +1090,27 @@ export const siwn = (options: SIWNPluginOptions) => {
               ],
             });
 
-            await ctx.context.adapter.create({
-              model: "nearAccount",
-              data: {
-                userId: session.user.id,
-                accountId,
-                network,
-                publicKey: publicKey,
-                isPrimary: !existingPrimaryAccount,
-                createdAt: new Date(),
-              },
-            });
+            try {
+              await ctx.context.adapter.create({
+                model: "nearAccount",
+                data: {
+                  userId: session.user.id,
+                  accountId,
+                  network,
+                  publicKey: publicKey,
+                  isPrimary: !existingPrimaryAccount,
+                  createdAt: new Date(),
+                },
+              });
+            } catch (error) {
+              if (isUniqueViolation(error)) {
+                throw new APIError("BAD_REQUEST", {
+                  message: "This NEAR account is already linked to another user",
+                  status: 400,
+                });
+              }
+              throw error;
+            }
 
             await ctx.context.internalAdapter.createAccount({
               userId: session.user.id,
@@ -1042,16 +1185,6 @@ export const siwn = (options: SIWNPluginOptions) => {
           }
 
           const nonceHash = await hashNonce(nonceBytes);
-          const existingNonce = await ctx.context.internalAdapter.findVerificationValue(
-            `siwn-nonce:${nonceHash}`,
-          );
-          if (existingNonce) {
-            throw new APIError("UNAUTHORIZED", {
-              message: "Unauthorized: Nonce already used (replay attack detected)",
-              status: 401,
-              code: "UNAUTHORIZED_NONCE_REPLAY",
-            });
-          }
 
           const signer = passkeys.find((passkey) => {
             const wallet = passkeyWalletFromCredential(passkey.publicKey, network);
@@ -1064,6 +1197,7 @@ export const siwn = (options: SIWNPluginOptions) => {
                 message,
                 recipient,
                 nonce: nonceBytes,
+                relyingParty: options.passkeyWalletRelyingParty,
               })
             );
           });
@@ -1075,11 +1209,18 @@ export const siwn = (options: SIWNPluginOptions) => {
             });
           }
 
-          await ctx.context.internalAdapter.createVerificationValue({
+          const reserved = await ctx.context.internalAdapter.reserveVerificationValue({
             identifier: `siwn-nonce:${nonceHash}`,
             value: "used",
             expiresAt: new Date(Date.now() + 15 * 60 * 1000),
           });
+          if (!reserved) {
+            throw new APIError("UNAUTHORIZED", {
+              message: "Unauthorized: Nonce already used (replay attack detected)",
+              status: 401,
+              code: "UNAUTHORIZED_NONCE_REPLAY",
+            });
+          }
 
           const link = await linkPasskeyWalletFromCredential(ctx.context, {
             userId: session.user.id,
@@ -1278,22 +1419,23 @@ export const siwn = (options: SIWNPluginOptions) => {
         },
         async (ctx) => {
           const { accountId, networkId } = ctx.body;
-          const network = getNetworkFromAccountId(accountId);
 
-          if (networkId !== network) {
-            throw new APIError("BAD_REQUEST", {
-              message: "Network ID mismatch with account ID",
-              status: 400,
-            });
-          }
-
-          const near = getNear(network);
-          const exists = await near.accountExists(accountId);
-          if (!exists) {
-            throw new APIError("BAD_REQUEST", {
-              message: "Account does not exist on-chain",
-              status: 400,
-            });
+          if (accountId) {
+            const network = getNetworkFromAccountId(accountId);
+            if (networkId !== network) {
+              throw new APIError("BAD_REQUEST", {
+                message: "Network ID mismatch with account ID",
+                status: 400,
+              });
+            }
+            const near = getNear(network);
+            const exists = await near.accountExists(accountId);
+            if (!exists) {
+              throw new APIError("BAD_REQUEST", {
+                message: "Account does not exist on-chain",
+                status: 400,
+              });
+            }
           }
 
           const nonce = options.getNonce ? await options.getNonce() : generateNonce();
@@ -1301,7 +1443,7 @@ export const siwn = (options: SIWNPluginOptions) => {
           const nonceString = hex.encode(nonce);
 
           await ctx.context.internalAdapter.createVerificationValue({
-            identifier: `siwn:${accountId}:${network}`,
+            identifier: accountId ? `siwn:${accountId}:${networkId}` : `siwn:pending:${networkId}`,
             value: nonceString,
             expiresAt: new Date(Date.now() + 15 * 60 * 1000),
           });
@@ -1376,18 +1518,20 @@ export const siwn = (options: SIWNPluginOptions) => {
             const near = getNear(network);
             const nonceBytes = hex.decode(nonce);
 
-            const isValid = await verifySignedMessage(
+            const {
+              valid: isValid,
+              accessKey,
+              reason,
+            } = await verifySignedMessage(
               accountId,
               signedMessage,
               { message, recipient, nonce: nonceBytes, callbackUrl },
               near,
+              options.passkeyWalletRelyingParty,
             );
 
             if (!isValid) {
-              throw new APIError("UNAUTHORIZED", {
-                message: "Unauthorized: Invalid signature",
-                status: 401,
-              });
+              throw verifyFailureApiError(reason ?? "SIGNATURE_INVALID");
             }
 
             if (signedMessage.accountId !== accountId) {
@@ -1401,11 +1545,12 @@ export const siwn = (options: SIWNPluginOptions) => {
 
             const nonceHash = await hashNonce(nonceBytes);
 
-            const existingNonce = await ctx.context.internalAdapter.findVerificationValue(
-              `siwn-nonce:${nonceHash}`,
-            );
-
-            if (existingNonce) {
+            const reserved = await ctx.context.internalAdapter.reserveVerificationValue({
+              identifier: `siwn-nonce:${nonceHash}`,
+              value: "used",
+              expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            });
+            if (!reserved) {
               throw new APIError("UNAUTHORIZED", {
                 message: "Unauthorized: Nonce already used (replay attack detected)",
                 status: 401,
@@ -1413,27 +1558,25 @@ export const siwn = (options: SIWNPluginOptions) => {
               });
             }
 
-            await ctx.context.internalAdapter.createVerificationValue({
-              identifier: `siwn-nonce:${nonceHash}`,
-              value: "used",
-              expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-            });
-
             if (!options.requireFullAccessKey && !isDeterministicAccountId(accountId)) {
               const validateKey =
                 options.validateLimitedAccessKey ||
-                ((args: { accountId: string; publicKey: string; recipient?: string }) =>
-                  defaultValidateLimitedAccessKey(
-                    args.accountId,
-                    args.publicKey,
+                ((args: {
+                  accountId: string;
+                  publicKey: string;
+                  recipient?: string;
+                  accessKey?: SiwnAccessKey | null;
+                }) =>
+                  validateAccessKeyForRecipient(
+                    args.accessKey ?? null,
                     args.recipient || expectedRecipient,
-                    near,
                   ));
 
               const isValidKey = await validateKey({
                 accountId: accountId,
                 publicKey: publicKey,
                 recipient: expectedRecipient,
+                accessKey,
               });
 
               if (!isValidKey) {
@@ -1571,6 +1714,7 @@ export const siwn = (options: SIWNPluginOptions) => {
           } catch (error: unknown) {
             if (error instanceof APIError) throw error;
             const msg = error instanceof Error ? error.message : "Unknown error";
+            const causeChain = formatErrorCauseChain(error);
             const at =
               error instanceof Error && error.stack
                 ? error.stack
@@ -1579,7 +1723,9 @@ export const siwn = (options: SIWNPluginOptions) => {
                     .map((s) => s.trim())
                     .join(" <- ")
                 : "";
-            console.error(`[siwn] Verify error: ${msg}${at ? ` (${at})` : ""}`);
+            console.error(
+              `[siwn] Verify error: ${msg}${causeChain ? ` — cause: ${causeChain}` : ""}${at ? ` (${at})` : ""}`,
+            );
             throw new APIError("UNAUTHORIZED", {
               message: "Something went wrong. Please try again later.",
               error: msg,
@@ -2314,7 +2460,7 @@ export const siwn = (options: SIWNPluginOptions) => {
             network,
           };
 
-          const signingNear = rState?.near ?? near;
+          const signingNear = rState?.near ?? getWriteNear(network);
           let txBuilder = signingNear
             .transaction(parentAccount)
             .createAccount(newAccountId)
@@ -2422,7 +2568,7 @@ export const siwn = (options: SIWNPluginOptions) => {
               try {
                 const key = getRawParentKey(network);
                 if (key) {
-                  const rollbackNear = getNear(network);
+                  const rollbackNear = getWriteNear(network);
                   await rollbackNear
                     .transaction(newAccountId)
                     .deleteAccount({ beneficiary: parentAccount })

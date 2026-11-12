@@ -32,8 +32,16 @@ let nonceCounter = 0;
 function makeUniqueNonce(): Uint8Array {
   nonceCounter++;
   const nonce = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
+  new DataView(nonce.buffer).setBigUint64(0, BigInt(Date.now()), false);
+  for (let i = 8; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
   return nonce;
+}
+
+function makeTimestampedNonce(ms: number): string {
+  const nonce = new Uint8Array(32);
+  new DataView(nonce.buffer).setBigUint64(0, BigInt(ms), false);
+  crypto.getRandomValues(nonce.subarray(8));
+  return hex.encode(nonce);
 }
 
 vi.mock("near-kit", () => {
@@ -106,7 +114,8 @@ vi.mock("near-kit", () => {
     generateNonce: vi.fn(() => {
       nonceCounter++;
       const nonce = new Uint8Array(32);
-      for (let i = 0; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
+      new DataView(nonce.buffer).setBigUint64(0, BigInt(Date.now()), false);
+      for (let i = 8; i < 32; i++) nonce[i] = (i + 1) ^ (nonceCounter & 0xff);
       return nonce;
     }),
     generateKey: vi.fn(() => ({
@@ -120,7 +129,26 @@ vi.mock("near-kit", () => {
       secretKey: MOCK_GENERATED_SECRET_KEY,
       sign: vi.fn(),
     })),
-    verifyNep413Signature: vi.fn(() => Promise.resolve(true)),
+    verifyNep413Signature: vi.fn(
+      async (
+        signed: { accountId: string; publicKey: string },
+        _payload: unknown,
+        options?: {
+          near?: {
+            getAccessKey: (
+              accountId: string,
+              publicKey: string,
+            ) => Promise<{ permission: unknown } | null>;
+          };
+        },
+      ) => {
+        if (options?.near) {
+          const accessKey = await options.near.getAccessKey(signed.accountId, signed.publicKey);
+          if (!accessKey || accessKey.permission !== "FullAccess") return false;
+        }
+        return true;
+      },
+    ),
     decodeSignedDelegateAction: vi.fn(() => ({
       signedDelegate: {
         delegateAction: {
@@ -409,6 +437,98 @@ describe("siwn plugin", () => {
       expect(error?.status).toBe(401);
     });
 
+    it("performs exactly one on-chain access-key query per successful verify", async () => {
+      const { Near, verifyNep413Signature } = await import("near-kit");
+      const nearHandle = new (Near as any)() as { getAccessKey: ReturnType<typeof vi.fn> };
+      const { client } = await setup();
+
+      nearHandle.getAccessKey.mockClear();
+      (verifyNep413Signature as any).mockReset();
+      const { data, error } = await client.near.verify(makeVerifyBody());
+
+      expect(error).toBeNull();
+      expect(data?.success).toBe(true);
+      expect(nearHandle.getAccessKey).toHaveBeenCalledTimes(1);
+    });
+
+    it("performs exactly one access-key query when retrying without the callbackUrl", async () => {
+      const { Near, verifyNep413Signature } = await import("near-kit");
+      const nearHandle = new (Near as any)() as { getAccessKey: ReturnType<typeof vi.fn> };
+      (verifyNep413Signature as any).mockReset();
+      (verifyNep413Signature as any).mockImplementation(
+        async (
+          signed: { accountId: string; publicKey: string },
+          payload: { callbackUrl?: string },
+          options?: {
+            near?: {
+              getAccessKey: (
+                accountId: string,
+                publicKey: string,
+              ) => Promise<{ permission: unknown } | null>;
+            };
+          },
+        ) => {
+          if (options?.near) {
+            const accessKey = await options.near.getAccessKey(signed.accountId, signed.publicKey);
+            if (!accessKey || accessKey.permission !== "FullAccess") return false;
+          }
+          return !payload.callbackUrl;
+        },
+      );
+      try {
+        const { client } = await setup();
+
+        nearHandle.getAccessKey.mockClear();
+        const { data, error } = await client.near.verify({
+          ...makeVerifyBody(),
+          callbackUrl: "http://localhost:3000/login",
+        });
+
+        expect(error).toBeNull();
+        expect(data?.success).toBe(true);
+        expect(nearHandle.getAccessKey).toHaveBeenCalledTimes(1);
+      } finally {
+        (verifyNep413Signature as any).mockReset();
+      }
+    });
+
+    it("rejects limited-access keys as invalid signatures with a single query", async () => {
+      const { Near, verifyNep413Signature } = await import("near-kit");
+      const nearHandle = new (Near as any)() as { getAccessKey: ReturnType<typeof vi.fn> };
+      (verifyNep413Signature as any).mockReset();
+      const { client } = await setup();
+
+      nearHandle.getAccessKey.mockClear();
+      nearHandle.getAccessKey.mockResolvedValue({
+        nonce: 0,
+        permission: { FunctionCall: { receiver_id: MOCK_RECIPIENT, method_names: [] } },
+      });
+      try {
+        const { error } = await client.near.verify(makeVerifyBody());
+
+        expect(error?.status).toBe(401);
+        expect(nearHandle.getAccessKey).toHaveBeenCalledTimes(1);
+      } finally {
+        nearHandle.getAccessKey.mockResolvedValue({ nonce: 0, permission: "FullAccess" });
+      }
+    });
+
+    it("passes the fetched access key to the custom key validator", async () => {
+      const validateLimitedAccessKey = vi.fn().mockResolvedValue(true);
+      const { client } = await setup({ validateLimitedAccessKey });
+
+      const { data, error } = await client.near.verify(makeVerifyBody());
+
+      expect(error).toBeNull();
+      expect(data?.success).toBe(true);
+      expect(validateLimitedAccessKey).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: MOCK_RECIPIENT,
+          accessKey: expect.objectContaining({ permission: "FullAccess" }),
+        }),
+      );
+    });
+
     it("should detect nonce replay", async () => {
       const { client } = await setup();
       const body = makeVerifyBody();
@@ -417,6 +537,78 @@ describe("siwn plugin", () => {
 
       const { error } = await client.near.verify(body);
       expect(error).toBeDefined();
+    });
+
+    it("rejects stale nonces with UNAUTHORIZED_NONCE_EXPIRED", async () => {
+      const { client } = await setup();
+      const stale = Date.now() - 20 * 60 * 1000;
+      const { error } = await client.near.verify({
+        ...makeVerifyBody(),
+        nonce: makeTimestampedNonce(stale),
+      });
+      expect(error?.status).toBe(401);
+      expect((error as { code?: string })?.code).toBe("UNAUTHORIZED_NONCE_EXPIRED");
+    });
+
+    it("rejects future nonces beyond the skew tolerance with UNAUTHORIZED_NONCE_FROM_FUTURE", async () => {
+      const { client } = await setup();
+      const future = Date.now() + 5 * 60 * 1000;
+      const { error } = await client.near.verify({
+        ...makeVerifyBody(),
+        nonce: makeTimestampedNonce(future),
+      });
+      expect(error?.status).toBe(401);
+      expect((error as { code?: string })?.code).toBe("UNAUTHORIZED_NONCE_FROM_FUTURE");
+    });
+
+    it("accepts nonces slightly ahead of the server clock (skew tolerance)", async () => {
+      const { client } = await setup();
+      const slightlyAhead = Date.now() + 30 * 1000;
+      const { data, error } = await client.near.verify({
+        ...makeVerifyBody(),
+        nonce: makeTimestampedNonce(slightlyAhead),
+      });
+      expect(error).toBeNull();
+      expect(data?.success).toBe(true);
+    });
+
+    it("emits VERIFY_RPC_ERROR when the access-key lookup fails", async () => {
+      const { Near } = await import("near-kit");
+      const nearHandle = new (Near as any)() as { getAccessKey: ReturnType<typeof vi.fn> };
+      nearHandle.getAccessKey.mockRejectedValueOnce(new Error("RPC connection refused"));
+      const { client } = await setup();
+
+      const { error } = await client.near.verify(makeVerifyBody());
+      expect(error?.status).toBe(401);
+      expect((error as { code?: string })?.code).toBe("VERIFY_RPC_ERROR");
+    });
+
+    it("logs the error cause chain when verification fails unexpectedly", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const rootCause = Object.assign(new Error("duplicate key value violates unique constraint"), {
+        code: "23505",
+        detail: "Key (email)=(test@near.email) already exists.",
+        constraint: "user_email_unique",
+      });
+      const { client } = await setup({
+        getProfile: async () => {
+          throw Object.assign(new Error('Failed query: insert into "user"'), {
+            cause: rootCause,
+          });
+        },
+      });
+
+      const { error } = await client.near.verify(makeVerifyBody());
+      expect(error).toBeDefined();
+      expect(error?.status).toBe(401);
+
+      const logged = String(errorSpy.mock.calls[0]?.[0]);
+      expect(logged).toContain("[siwn] Verify error:");
+      expect(logged).toContain('Failed query: insert into "user"');
+      expect(logged).toContain("— cause:");
+      expect(logged).toContain("23505");
+      expect(logged).toContain("user_email_unique");
+      errorSpy.mockRestore();
     });
 
     it("should create a user with near.email for .near accounts", async () => {
@@ -1651,7 +1843,7 @@ describe("siwnClient getActions", () => {
       const message = `Sign in to ${MOCK_RECIPIENT}`;
       const recipient = MOCK_RECIPIENT;
       const tagBytes = borshU32(2147484061, true);
-      const callbackNone = borshU32(0, true);
+      const callbackNone = new Uint8Array([0]);
       const payload = concat([
         tagBytes,
         borshString(message),

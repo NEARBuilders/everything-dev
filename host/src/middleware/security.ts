@@ -130,6 +130,22 @@ export function isProbeOrStatic(c: HonoContext): boolean {
   return STATIC_ASSET_PATTERN.test(lastSegment);
 }
 
+const SECRET_PROBE_SUFFIX =
+  /\.(env|ya?ml|sql|bak|conf|cfg|ini|log|sh|pem|key|crt|p12|pfx|htaccess|htpasswd|gitignore|gitattributes|ds_store|npmrc|bashrc|zshrc)$/i;
+
+const SECRET_PROBE_PREFIXES = ["/.env", "/.git", "/.aws", "/.ssh", "/.docker"];
+
+/**
+ * Paths secret-scanner bots probe (`.env`, compose files, key material,
+ * VCS metadata). Served a cheap 404 before any SSR work; `/.well-known/`
+ * stays exempt. Hono's `c.req.path` is decoded, so `/%2eenv` is caught.
+ */
+export function isSecretProbePath(path: string): boolean {
+  if (path === "/.well-known" || path.startsWith("/.well-known/")) return false;
+  if (SECRET_PROBE_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
+  return SECRET_PROBE_SUFFIX.test(path);
+}
+
 export function isSensitiveMutation(c: HonoContext): boolean {
   if (c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS") {
     return false;
@@ -141,6 +157,16 @@ export function isSensitiveMutation(c: HonoContext): boolean {
     (prefix) =>
       c.req.path === prefix || c.req.path.startsWith(`${prefix}/`) || c.req.path.startsWith(prefix),
   );
+}
+
+/**
+ * The session read is exempt from the general bucket (#634): a 429 here is
+ * the "silently signed out" symptom — the UI interprets a failed session
+ * fetch as no session. Abuse is covered by better-auth's own production
+ * limiter; the exemption is GET-only.
+ */
+export function isSessionRead(c: HonoContext): boolean {
+  return c.req.method === "GET" && c.req.path === "/api/auth/get-session";
 }
 
 export function rateLimitExceededResponse(c: HonoContext): Response {
@@ -259,7 +285,7 @@ export class SecurityMiddleware extends Context.Service<
         windowMs: RATE_LIMIT_WINDOW_MS,
         limit: RATE_LIMIT_MAX,
         keyGenerator: (c) => clientKeyOf(c),
-        skip: (c) => isProbeOrStatic(c) || isSensitiveMutation(c),
+        skip: (c) => isProbeOrStatic(c) || isSensitiveMutation(c) || isSessionRead(c),
         handler: (c) => rateLimitExceededResponse(c),
         message: { error: "Too many requests, please try again later." },
         store: new CappedStore(RATE_LIMIT_STORE_MAX_ENTRIES),

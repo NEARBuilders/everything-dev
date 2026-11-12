@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { type AuthContextShape, createAuthMiddleware } from "../../src/api/auth-middleware";
 
-describe("organization approval middleware", () => {
+describe("organization middleware", () => {
   const builder = os.$context<AuthContextShape>();
   const { requireOrganization, requireOrgRole } = createAuthMiddleware(builder);
   const routes = [
@@ -27,23 +27,13 @@ describe("organization approval middleware", () => {
     };
   }
 
-  it.each([
-    "pending",
-    "rejected",
-  ])("blocks %s organizations even for a platform admin and owner", async (status) => {
-    for (const route of routes) {
-      await expect(call(route, undefined, { context: context(status) })).rejects.toMatchObject({
-        code: "FORBIDDEN",
-        message: "Organization requires platform-admin approval",
-      });
-    }
-  });
-
-  it.each(["active", undefined])("permits approved and legacy contexts: %s", async (status) => {
-    for (const route of routes) {
-      await expect(call(route, undefined, { context: context(status) })).resolves.toBe(
-        "requested-org",
-      );
+  it("does not gate on organization status — that is application policy", async () => {
+    for (const status of ["pending", "rejected", "active", undefined]) {
+      for (const route of routes) {
+        await expect(call(route, undefined, { context: context(status) })).resolves.toBe(
+          "requested-org",
+        );
+      }
     }
   });
 

@@ -21,6 +21,7 @@
     "@module-federation/runtime-tools": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
+    "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
@@ -36,7 +37,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.1",
+    "@playwright/test": "^1.65.0",
     "everything-dev": "workspace:^",
     "@module-federation/rsbuild-plugin": "catalog:",
     "@rsbuild/core": "catalog:",

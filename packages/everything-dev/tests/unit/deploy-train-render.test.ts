@@ -57,13 +57,13 @@ describe("cliDeployTrainRender (output snapshots)", () => {
     }
   });
 
-  it("publish section: registry URL, fingerprint, ordered slot pins, audit manifest", () => {
+  it("publish section: registry URL, pointer digest, ordered remote pins, audit manifest", () => {
     const { printed, restore } = quietConsole();
     try {
       cliDeployTrainRender.publish?.({
         registryUrl: "https://kv.example/v0/latest/a/g/apps%2Fa%2Fg%2Fbos.config.json",
-        fingerprint: "e3b0c44298fc1c14",
-        slotPins: [
+        pointerDigest: "e3b0c44298fc1c14",
+        remoteDigests: [
           ["app.ui", "https://cdn.test/.../versions/v1.json+sha384-x"],
           ["plugins.votes.ui", "https://cdn.test/.../versions/v1.json+sha384-y"],
         ],
@@ -75,7 +75,7 @@ describe("cliDeployTrainRender (output snapshots)", () => {
           "",
           "  Publishing to:",
           "    https://kv.example/v0/latest/a/g/apps%2Fa%2Fg%2Fbos.config.json",
-          "    Fingerprint: e3b0c44298fc1c14",
+          "    Pointer digest: e3b0c44298fc1c14",
           "    app.ui:",
           "      https://cdn.test/.../versions/v1.json+sha384-x",
           "    plugins.votes.ui:",

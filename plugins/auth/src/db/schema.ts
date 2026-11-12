@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -29,6 +30,8 @@ export const user = pgTable("user", {
   phoneNumber: text("phone_number").unique(),
   phoneNumberVerified: boolean("phone_number_verified"),
   locale: text("locale"),
+  lastActiveOrganizationId: text("last_active_organization_id"),
+  lastActiveTeamId: text("last_active_team_id"),
 });
 
 export const session = pgTable(
@@ -92,17 +95,35 @@ export const verification = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
-export const nearAccount = pgTable("near_account", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accountId: text("account_id").notNull(),
-  network: text("network").notNull(),
-  publicKey: text("public_key").notNull(),
-  isPrimary: boolean("is_primary").default(false),
-  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull(),
+/**
+ * Better Auth's rate-limit buckets for `rateLimit.storage: "database"`
+ * (#688) — the multi-replica option, since in-memory buckets are per
+ * instance. Shape is better-auth's: `lastRequest` is a ms timestamp the
+ * limiter reads back as number or bigint.
+ */
+export const rateLimit = pgTable("rate_limit", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
 });
+
+export const nearAccount = pgTable(
+  "near_account",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    accountId: text("account_id").notNull(),
+    network: text("network").notNull(),
+    publicKey: text("public_key").notNull(),
+    isPrimary: boolean("is_primary").default(false),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("near_account_accountId_network_uidx").on(table.accountId, table.network),
+  ],
+);
 
 export const passkey = pgTable(
   "passkey",
@@ -198,12 +219,18 @@ export const team = pgTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
+    /** distinct event identity when the team was created for an onboarding
+     * event — name alone is not unique (two events may share a title) */
+    eventId: text("event_id"),
     memberCount: integer("member_count").default(0).notNull(),
     metadata: text("metadata"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index("team_organizationId_idx").on(table.organizationId)],
+  (table) => [
+    index("team_organizationId_idx").on(table.organizationId),
+    uniqueIndex("team_organizationId_eventId_uidx").on(table.organizationId, table.eventId),
+  ],
 );
 
 export const teamMember = pgTable(
@@ -305,7 +332,7 @@ export const onboardingCode = pgTable(
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
     eventId: text("event_id"),
-    eventName: text("event_name").notNull(),
+    eventName: text("event_name"),
     encryptedCode: text("encrypted_code"),
     teamId: text("team_id")
       .notNull()
@@ -313,7 +340,7 @@ export const onboardingCode = pgTable(
     role: text("role").default("member").notNull(),
     maxUses: integer("max_uses").default(50).notNull(),
     usedCount: integer("used_count").default(0).notNull(),
-    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }),
     revokedAt: timestamp("revoked_at", { mode: "date", withTimezone: true }),
     createdBy: text("created_by")
       .notNull()

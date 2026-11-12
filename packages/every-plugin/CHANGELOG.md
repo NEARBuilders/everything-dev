@@ -1,5 +1,77 @@
 # every-plugin
 
+## 3.0.0-rc.18
+
+### Patch Changes
+
+- 59cfe70: Plugin client factories warn at construction time in development when the caller omits context keys the plugin's declared context schema marks required — naming the keys and the deep failure the omission would cause. The auth plugin's credential-less in-process client now fails with a message that names the missing `reqHeaders` forwarding instead of generic auth-required prose, and the plugin's declared context marks `reqHeaders` as required so typed registries surface the omission at compile time (#860 stage 1, #882).
+
+## 3.0.0-rc.17
+
+### Minor Changes
+
+- e82f0bd: Strip `createRpcClient` to a bare typed oRPC client: `createRpcClient(hostUrl, path = "/api/rpc")`. The wrapper's transport opinions (429 retry, connection-error toast, `credentials: "include"`, SSR header merging, browser memoization) move into the UI seam (`everything-dev` `ui/api.ts` `createApiClient`/`createPluginApiClient`), where they already belonged — server consumers now get a plain Promise-native client with no hidden globals. Transport customization (headers, timeouts, retries, test doubles) is `RPCLink`'s native surface; Effect callers lift calls with `Effect.tryPromise` and own timeout/retry/cache in their service layer.
+- 2e1ece5: The #642 revival — integrity back in the federation pipeline (ADR 0046 ticket 03): the MF fetch hook installs inside `createPluginRuntime` (the host's `__mfInstance` probe is gone), the registry keys by the resolved hashed artifact URLs — `resolvedIntegrityMap` derives them (entry, ssr entry, files-map entries) from the pin's resolution and rides the runtime config as `integrityMap` — and a lazily-fetched file whose served bytes drifted from the pin fails with the tagged `IntegrityMismatch` naming expected and actual, refusing the plugin load instead of a webpack TypeError. The SRI primitive collapses into the engine (`computeSri`) — the only `createHash("sha384")` site outside the storage boundary is the engine's. Migrated call sites: SnapshotWatch's entry verification, tenant override verification (blocking and stale-while-revalidate modes preserved), the SSR-entry gate in federation.server, ui-compose's manifest fetch (compose parity stays), and the local dist hashing in `diff.ts`.
+- 2e1ece5: Manifest attribution (ADR 0046 ticket 05): the deploy train signs each slot's version manifest with the runtime's existing publish identity — the explicit publish key (`resolveSigningKey`, near-kit) or the custody wallet (OutLayer `signMessage`, `format: "raw"`) — and the chain walker verifies the signature against a key record published in the on-chain config: `publish.verification: { publicKey } | "off"` (absent ≡ off, the rollout default; unsigned manifests verify as today and old readers strip the field). The payload is the canonical key-sorted serialization the version-id derivation already uses (`signaturePayloadOf`; the `signature` field never enters the version id, like `builtAt`), so signer and verifier agree on the bytes regardless of the stored document's whitespace. The verifying key rides in the signature block, letting the walker distinguish _wrong signature_ from _signed by an unregistered key_ — both are the engine's tagged `SignatureInvalid`, a distinct leg in the verify report (`VerifyRemoteResult.signature`) that fails the chain hard: `bos verify` exits nonzero with an attribution column, and the smoke/adopt legs refuse the composition while the SRI legs still report. A signing identity that doesn't match the key record fails the train before anything uploads — rotation is a config publish, never a silent key swap.
+
+## 3.0.0-rc.16
+
+### Minor Changes
+
+- e685c4c: Immutable version directories — parent republishes can no longer rot pinned slots (#826)
+
+  Workspace deploys now dual-write every dist file into a content-addressed `versions/<dirId>/…` directory beside the existing flat slot-root layout, and the version manifest declares its directory via a new `dir` field. Pin resolution prefixes artifact coordinates (`entryUrl`, `browserManifestUrl`, `ssrEntryUrl`) with the manifest's directory, so a child pinned to an older slot keeps loading the old deploy's entry **and** its expose chunk, chunks, and manifests from the same frozen directory — a parent republish that overwrites the fixed-name files at the slot root no longer produces mixed builds (`__webpack_modules__[r] is not a function`). Legacy manifests without `dir` resolve exactly as before.
+
+  - `versionDirPath(files)` derives the directory from the dist's file map (content-addressed: identical bytes → identical directory → unchanged redeploys skip the copy entirely via the previous pin's `dir`)
+  - The upload service treats `versions/**` as write-once: an upload whose bytes differ from the stored object fails with a new `CONFLICT` (409) error, mirroring the platform "version is burned" rule; identical bytes stay an idempotent skip
+  - Serving classification treats everything under `versions/` as immutable (cache-control `immutable`), independent of filename hashing
+  - Staged (in-image) dists ignore the directory — the staged namespace materializes flat, so staged resolution passes `{ ignoreDir: true }`
+
+### Patch Changes
+
+- ad8414f: Mount guards are ordinary beforeLoads supplied by the composing framework, replacing gate kinds. The mount registry now carries shape metadata only (`guarded`, `implemented`) and `constructTree` takes `guards` keyed by mount id — construction fails loudly when a guarded mount has none. The default wiring guards `authenticated` with `requireSession` and `admin` with `requireAdmin`, so a client-rendered full page load resolves the session through the query cache instead of reading a signed-in visitor as signed out (#818): full loads of authed pages no longer bounce through `/login`, and admin pages keep the `?redirect=` return path. Banned users now bounce at the mount, and signed-in non-admins on admin mounts land on `/dashboard`. The engine's invented `HostContext`/`GateUser` types are gone — it has no auth semantics.
+
+## 3.0.0-rc.15
+
+### Patch Changes
+
+- 8c916ff: Bump the @orpc suite to 2.0.0-beta.45 — `MemoryPublisher`'s `resume` option takes `ttl` (milliseconds) instead of `seconds`.
+- 150b092: `createRpcClient` keeps the request's own headers, including `content-type: application/json`, when you pass custom headers such as an API key. Before, they were dropped and the server rejected the input.
+
+## 3.0.0-rc.14
+
+### Patch Changes
+
+- 4322bbe: Framework-package self-typecheck lands in CI (`typecheck:packages`) — the app-unit typecheck (`bos typecheck`) never covered `packages/*`, and the unguarded drift had gone red: real src errors fixed in everything-dev (Effect error-channel widens in db ops/dev flow/ops/init flow, the missing `formatUnknownError` import, `runtimeMapStrict` typed on the plain codegen wrapper, `BosConfigInput` accepted by `stripLocalDevelopmentTargets`), and service-layer test-hook files in every-plugin (missing vitest imports, `constructTree` resolver signatures, `.ts`-extension script imports now covered by the self-typecheck tsconfig).
+
+## 3.0.0-rc.13
+
+### Patch Changes
+
+- 50ebfad: Share sonner across the ui graph (tolerant singleton) and surface server errors at the right sites
+
+  The mounted Toaster lives in the core ui's sonner instance; plugin remotes bundled private copies, so every `toast()` fired from plugin ui code — 16 call sites in the auth plugin alone, plus `plugins/ai` — was invisible in production. `sonner` now joins `UI_SHARED_DEPS` as a tolerant singleton: remotes resolve the core's instance (toasts render), keep a bundled fallback copy, and waive `requiredVersion`, so old-provider/new-remote mixes degrade to today's behavior instead of failing a share negotiation (zod's critical:false precedent; the boot gate only checks effect-critical names). The version pins move to the pnpm catalog (`sonner: 2.0.8`) for lockstep. Recorded in ADR 0037.
+
+  Alongside, the login surfaces stop swallowing server errors:
+
+  - the login page renders sign-in failures inline (one concise line + collapsed "Details" disclosure with the server detail) instead of toasting into the void or claiming "no passkey on this device" for a 503; a failed session load during an API outage gets a login-branded `errorComponent` with a retry instead of the document-wide root error
+  - the device pairing/approve/verify pages append the server detail under their existing error lines
+  - the CLI's device login unwraps the `Effect.tryPromise` wrapper (the cause of the cryptic "An error occurred in Effect.tryPromise" output), carries the host 503 `detail` in its "could not start" message, and `parseSiteErrorDetail` now extracts the host's `detail`/`detailFull` fields
+
+## 3.0.0-rc.12
+
+### Patch Changes
+
+- 6b58155: Platform compat never lies (issue #546): workspace version manifests now record the shared-singleton versions each build embedded (`shared`), slot resolution stamps them onto UI slots, and the host's SSR composition guard refuses to load a split module graph with a named sources-and-versions error instead of the federation runtime's cryptic negotiation error. `bos mf check` gains a UI composition gate (sibling UI slots cross-checked), `bos platform manifest --check` reports pin drift as "parent platform is X, you pinned Y", deploy builds stamp `MF_BUILD_VERSION` so `buildInfo.buildVersion` advertises the true platform release, and the publish train refuses when uploaded bundles disagree with the release manifest's pins (stale install).
+
+## 3.0.0-rc.11
+
+### Patch Changes
+
+- ee17b09: Fix plugin-local builds writing `src/routeTree.gen.ts` to the process cwd (the plugin root) instead of the ui workspace (`ui/src/routeTree.gen.ts`). Pin the web env's TanStack Router `generatedRouteTree` to the ui workspace root, mirroring the node env's scratch write.
+
+  Fixes everything-dev#548
+
 ## 3.0.0-rc.10
 
 ### Minor Changes

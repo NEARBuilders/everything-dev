@@ -1,5 +1,41 @@
 # better-near-auth
 
+## 2.0.0-rc.8
+
+### Minor Changes
+
+- b4f2821: Fix deterministic sign-in failures caused by client/server clock skew, and make SIWN verification failures diagnosable.
+
+  ML-DSA-65 NEP-413 verification now uses correct borsh serialization for `callback_url: Option<String>` (one discriminant byte, Some followed by [u32 len][bytes]). The previous encoding wrote the Option as a u32, so signatures from real quantum-capable wallets (Rust/borsh — e.g. Intear) failed verification with "Invalid signature" even when the key, nonce, and message all matched. Test helpers now sign with the spec encoding, and the sandbox integration test signs without callbackUrl while the request includes it, matching real wallet behavior.
+
+  New sandbox integration tests run the full quantum flow against a local nearcore sandbox node (near-kit's `Sandbox`, nearcore 2.13.4, skipped when the binary is unavailable): quantum-signed SIWN login, session gas-key bootstrap signed by the ML-DSA parent key, sponsor funding via `/near/gas-key/fund`, a gasless write signed by the gas key on its own nonce lane, and a quantum-signed delegate relayed through `/near/relay`. Also aligns the `relayedTransaction` test schema with the production migration (`gasUsed`/`updatedAt` nullable).
+
+  Sign-in nonces are now issued by the server (`/near/nonce`, server clock) instead of being generated from the user's device clock, so a device clock ahead of the server no longer fails login outright; the client falls back to a local nonce if the endpoint is unavailable. `accountId` on the nonce request is now optional (omit it to get a nonce before the wallet account is known). Nonce freshness validation tolerates up to 60s of future skew (previously any future timestamp was rejected), applied to both the ed25519 (via `nonceValidation: "none"` + local check) and ML-DSA-65 paths. Verify failures now return distinct error codes — `UNAUTHORIZED_NONCE_EXPIRED`, `UNAUTHORIZED_NONCE_FROM_FUTURE`, `UNAUTHORIZED_SIGNATURE_INVALID`, `UNAUTHORIZED_PUBLIC_KEY_INVALID`, `UNAUTHORIZED_ACCESS_KEY_NOT_FOUND`, `UNAUTHORIZED_NOT_FULL_ACCESS_KEY`, `VERIFY_RPC_ERROR` — instead of a single blanket "Invalid signature", and the client propagates those codes to `onError` callbacks.
+
+### Patch Changes
+
+- 6084c5b: SIWN verification now performs exactly one on-chain access-key query per named-account login instead of 2-3. Signature verification is local crypto; the single RPC read is the access-key residency + FullAccess check, whose result is reused by the limited-key validation and handed to custom `validateLimitedAccessKey` hooks as a new optional `accessKey` arg (the hook contract stays backward compatible). This matters because sequential RPC round trips dominate login latency on slow or rate-limited endpoints — a root-runtime measurement showed ~9.6s of pure RPC wait per login after the 2026-11-04 pin to rpc.mainnet.near.org (~3.2s per query) versus ~130ms on fastnear. Also adds a `readRpcUrl` option: on-chain reads (SIWN verification, view calls, availability checks) can point at a faster endpoint than `rpcUrl`, which keeps owning broadcasts — the fastnear incident was silent broadcast drops, not bad reads. Read clients retry faster (2 retries, 250ms backoff) so interactive logins fail fast instead of stalling on the write path's patient backoff.
+
+## 2.0.0-rc.7
+
+### Patch Changes
+
+- 7363c4e: siwn verify logs the error cause chain (fixes elliotBraem/better-near-auth#91). The verify endpoint's catch logged only `error.message`; when the failure comes through Drizzle that is just the `Failed query: …` wrapper — the real database error (code, detail, constraint) lives on `error.cause` and was dropped, turning a five-minute diagnosis into an hour of archaeology (the hidden cause behind everything-dev#787's silent corruption was `duplicate key … user_email_unique`, 23505). The log line now walks the cause chain (`— cause: <message> | <code> | <detail> | <constraint> ← …`, bounded, self-referential-cause safe) via `formatErrorCauseChain` from `utils`. The client-facing `APIError` payload is unchanged.
+
+## 2.0.0-rc.6
+
+### Minor Changes
+
+- e8fc814: Add `signAgentIntent` to the client surface (`better-near-auth/client`): signs a generated Agent Connect owner intent byte-for-byte with the connected wallet — `nep413` via signMessage, `nep366` via signDelegateActions, `webauthn` via the passkey authenticator — returning the wallet's output for the caller to submit. The agent-account control plane itself moved out of this package into the new `@everything-dev/agent-connect-plugin`.
+
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 47d39ed: Adopt nearConnect fork.3 (`elliotBraem/near-connect#v0.12.0-fork.3`): the sandbox now bridges `webauthn.create`/`webauthn.get` for permission-declared wallets (the missing host-library prerequisite for the immutable-pinned passkey executor, PR #621), and wallet sign-out no longer wipes the sandbox storage space (the version-keyed executor cache and gas-key bootstrap material survive sign-out). The passkey wallet manifest declares the new `webauthn` permission so the bridge opens for our executor.
+- b3d6bec: #340 passkey client hardening: the sandbox executor is pinned to an immutable commit SHA on NEAR-DevHub/near-connect-passkey (was the mutable `refs/heads/main` — every fetch could serve new sandbox code; the manifest bumps to `1.0.2` so cached executors are re-fetched), and every swallowed failure in the client surface now logs with cause — a failing `registerWallet` previously hid the wallet from sign-in silently.
+- 38fb0a2: #337 passkey/device-link server hardening: NEP-413 sandbox proofs now verify the WebAuthn `rpIdHash` and `clientDataJSON.origin` against a configured relying party (`passkeyWalletRelyingParty` — wired from the auth plugin's rpID/origin resolution, enforcement is opt-in for other consumers), the NEP-413 payload hash throws on a wrong nonce length instead of silently signing an empty challenge, both NEP-413 nonce guards are atomic via `reserveVerificationValue` (first-writer-wins; the find-then-insert race is gone), and `linkPasskeyWalletFromCredential` filters its existing-row lookup by network with the concurrent double-link double-check covered by the new `(accountId, network)` unique gate.
+
 ## 2.0.0-rc.4
 
 ### Patch Changes

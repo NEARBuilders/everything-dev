@@ -1,37 +1,148 @@
-# FRAMEWORK-OWNED — reconciled from the parent template by `bos sync` / `bos upgrade`.
-# Local edits are allowed: on the next sync the template version wins and your copy
-# is backed up under `.bos/sync-backup/`. To make a change permanent, file an issue:
-# https://github.com/NEARBuilders/everything-dev/issues
+# Root-only release flow (changesets version PR + publish) — never synced to
+# children: #572 removed changesets from the child template entirely.
 name: Release
 
+# Fires directly on push to main. The tiering contract (docs/agents/testing.md)
+# puts the full regression matrix here — the publish gate — instead of on every
+# PR: the changesets action publishes exactly when the push merges the version
+# PR (its `chore: version packages` commit) or consumes the pending set (stable
+# mode), so the gate keys on that trigger — NOT on pending .md counts, which
+# pre mode never drains (hundreds sit in .changeset/ by design). Ordinary
+# merges (pending changesets exist) only open/update the version PR and pay
+# nothing extra; the version PR itself fast-paths CI (ci.yml) because this
+# workflow owns the release plane's validation.
+#
+# The version PR ("chore: version packages") is created by the changesets
+# action and is the release lever: MERGING it publishes npm and fires this
+# workflow's regression + publish legs, like any other push to main. It must
+# be merged by a maintainer — never by automation engaged with GITHUB_TOKEN:
+# merges that token performs are swallowed by GitHub's event-recursion guard,
+# so the push that lands the release would fire no workflows at all and the
+# rc would strand until an unrelated merge happened to wake it (the Nov-03
+# stranding).
 on:
   push:
-    branches:
-      - main
-    # Docs-only merges cannot change changesets — skip the changesets pass.
-    # Deliberately NOT ignoring .changeset/** — that is the input this
-    # workflow consumes.
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
+    branches: [main]
+  # Manual retry leg: npm/OIDC/registry blips whose CI already ran repay
+  # a dispatch instead of a push.
   workflow_dispatch:
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+# cancel-in-progress: the run for the newest tip supersedes older runs.
+# The race that motivated this: two "Process Changesets" legs force-pushed
+# the bot's version-PR branch concurrently ("failed to push some refs").
+# Cancellation mid-publish is recoverable by design — the publish script
+# stages exact version pins and re-publishing is registry-idempotent, so
+# the superseding run heals any partially-published set. The regression
+# leg inherits the group: a cancelled gate re-runs on the newer tip.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
-  contents: write
-  id-token: write
-  pull-requests: write
-  actions: write
+  contents: read
 
 jobs:
+  gate:
+    name: Verify release is current
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      release: ${{ steps.tip.outputs.current == 'true' }}
+      # rc = release candidate: no pending changesets means the changesets
+      # action will PUBLISH on this run (a version PR just merged, or a
+      # continuous release) — the full regression gates exactly that case.
+      rc: ${{ steps.rc.outputs.rc == 'true' && steps.tip.outputs.current == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+
+      # Mirrors Deploy's gate: a newer push to main makes this run's release
+      # stale — the queued run for the new tip releases instead, and two
+      # publishes never race a moving pointer.
+      - name: Verify the CI-validated commit is still the main tip
+        id: tip
+        run: |
+          git fetch --no-tags origin main
+          TIP="$(git rev-parse origin/main)"
+          SHA="$(git rev-parse HEAD)"
+          if [ "$SHA" = "$TIP" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping release — main advanced past the CI-validated commit ($SHA → $TIP). The queued run for the new tip releases instead."
+          fi
+
+      - name: Detect a release candidate (publish imminent)
+        id: rc
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # The changesets action's publish decision is "any workspace package
+          # version is not on npm" — version-PR subjects and pending-changeset
+          # file counts are proxies that disagree with it. 2026-11-11: a
+          # dispatched run read "no changesets" over hundreds of pending files
+          # (its changed-since-before filter gets an empty `before` on
+          # dispatches, which makes the reader throw and yield zero), skipped
+          # the gate as a "version-PR leg", and attempted an ungated publish
+          # of unvalidated rc packages. Ask the registry directly: a publish
+          # is imminent iff any publishable package's version is missing from
+          # npm — gate exactly that. Dispatches always gate: they are a
+          # deliberate release action.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "::notice::Dispatched release run — the full regression gates it before npm sees anything"
+            echo "rc=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rc=false
+          for pkg in every-plugin better-near-auth everything-dev; do
+            local_version="$(node -p "require('./packages/$pkg/package.json').version")"
+            if npm view "$pkg@$local_version" version >/dev/null 2>&1; then
+              echo "$pkg@$local_version is already on npm"
+            else
+              echo "$pkg@$local_version is not on npm — a publish is imminent; the full regression gates it"
+              rc=true
+              break
+            fi
+          done
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+
+  # The release gate: the regression matrix must be green before npm sees
+  # anything. Tier 'release' = unit + start + backcompat — the production
+  # artifact and the published-chain contract. The dev and framework planes
+  # are nightly canaries (see regression-full.yml's header). Dispatched as a
+  # manual retry (workflow_dispatch), the rc detection runs the same way — a
+  # deliberate re-publish re-proves the tree.
+  regression:
+    name: Release gate — regression (unit + start)
+    needs: [gate]
+    if: needs.gate.outputs.release == 'true' && needs.gate.outputs.rc == 'true'
+    uses: ./.github/workflows/regression-full.yml
+    with:
+      tier: release
+
   release:
     name: Process Changesets
-    # Dispatches must run against main — a manual run on a feature branch
-    # would open version PRs (or publish) from the wrong source.
-    if: github.ref == 'refs/heads/main'
+    needs: [gate, regression]
+    # Run when: the tip is current AND (no publish is imminent, so only the
+    # version-PR leg is needed) OR the regression gate went green.
+    if: >-
+      always() &&
+      needs.gate.outputs.release == 'true' &&
+      (needs.gate.outputs.rc != 'true' || needs.regression.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -80,17 +191,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      # Version bumps structurally outdate the skills' library_version
-      # markers, and the release event these packages create with
-      # GITHUB_TOKEN is swallowed by GitHub's event-recursion guard — so
-      # check-skills' review job would never fire on its own. Dispatch it
-      # explicitly after a successful publish (workflow_dispatch is the
-      # event type that DOES run when triggered with GITHUB_TOKEN).
-      - name: Dispatch skill drift review
-        if: steps.changesets.outputs.published == 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: gh workflow run check-skills.yml --ref main
+      # The version PR is the release lever and merges by hand. Automation
+      # MUST NOT merge it: auto-merge engaged with GITHUB_TOKEN performs the
+      # merge as app/github-actions, and GitHub's event-recursion guard
+      # swallows the push events that token triggers — the rc would strand
+      # until an unrelated merge fired the workflows (the Nov-03 stranding).
+      # A parked release is simply an unmerged version PR.
 
       # npm's OIDC helper never throws — when the registry rejects the token
       # exchange (e.g. trusted-publisher mismatch or missing "npm publish"
@@ -99,3 +205,24 @@ jobs:
       - name: Dump npm OIDC diagnostics
         if: failure()
         run: grep -i oidc /home/runner/.npm/_logs/*.log || true
+
+  # Version bumps structurally outdate the skills' library_version markers,
+  # and the release event created with GITHUB_TOKEN is swallowed by GitHub's
+  # event-recursion guard — check-skills' review job would never fire on its
+  # own. Dispatch it explicitly after a successful publish (workflow_dispatch
+  # is the event type that DOES run when triggered with GITHUB_TOKEN).
+  # Own job so `actions: write` never coexists with the publish job's
+  # contents/id-token scopes.
+  dispatch-skills:
+    name: Dispatch skill drift review
+    needs: [release]
+    if: always() && needs.release.outputs.published == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch check-skills
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: gh workflow run check-skills.yml --ref main

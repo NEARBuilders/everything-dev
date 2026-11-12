@@ -106,8 +106,8 @@ export interface MaterializeOptions {
 
 /**
  * Orchestration helper: materializes the env templates in the canonical
- * order. docker-compose.yml is a static committed file — nothing here
- * generates or rewrites it.
+ * order. Local databases come from each workspace's persistent `.bos/db`
+ * PGlite default — nothing here provisions a server.
  */
 export async function materializeViaLayer(
   configDir: string,

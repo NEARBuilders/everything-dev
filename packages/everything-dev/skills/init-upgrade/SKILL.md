@@ -141,7 +141,8 @@ Port <workspace> to the ADR 0033 database seam:
    namespace: false only for the api shell (public schema) and auth (dedicated database).
 2. Keep src/db/schema.ts, src/db/migrations/, and drizzle.config.ts untouched.
 3. Re-point `type { Database } from "./db"` imports to "./db/layer"; import
-   DatabaseError/unwrapDatabaseError from "everything-dev/db" directly.
+   `DatabaseError` from "everything-dev/db" directly (error text is on
+   `DatabaseError.message` — `unwrapDatabaseError` is framework-internal).
 4. `DatabaseLive(config)` now takes the initialize input (pluginId + secrets) —
    update the plugin's initialize call site.
 5. In tests, drop any `Layer.succeed(PluginIdTag, ...)` provision for the db layer;
@@ -156,7 +157,7 @@ Children are **pinned snapshots** (ADR 0034): init derives the child's `platform
 ```bash
 bos upgrade              # Re-pin to the parent's latest release + reconcile the template
 bos upgrade --dry-run    # Preview version bumps
-bos upgrade --check      # CI drift alarm (ADR 0034): exit 1 when updates are available
+bos upgrade --check      # Manual drift alarm (ADR 0034): exit 1 when updates are available
 ```
 
 ### Flow
@@ -202,13 +203,14 @@ export default App({
 });
 ```
 
-Everything else derives from the resolved **platform release manifest** (published to FastKV at `apps/<root-account>/<root-gateway>/platform.json` beside the config, and staged in-image): the release catalog (what `bos upgrade` bumps from), the image ref + version tag (`ref@v<version>` — the retired `ci.image` fails the deploy with a migration pointer), the release-scoped template source, and the compat contract (strict singletons must match the release's `sharedDeps`; the child's framework version must sit inside the release's compat window).
+Everything else derives from the resolved **platform release manifest** (published to FastKV as the thin tag `apps/<root-account>/<root-gateway>/manifest.json` naming the immutable `versions/<v>.json` record — ADR 0040 — beside the config, and staged in-image): the release catalog (what `bos upgrade` bumps from), the image ref + version tag (`ref@v<version>` — the retired `ci.image` fails the deploy with a migration pointer), the release-scoped template source, and the compat contract (strict singletons must match the release's `sharedDeps`; the child's framework version must sit inside the release's compat window).
 
 Rules:
 - The pin is **exact** — no ranges. Resolution picks one manifest.
-- Field absent → latest manifest found via the `extends` chain (nearest wins). Offline, the cached `.bos/platform-manifest.json` (gitignored) resolves.
+- Field absent → latest manifest found via the `extends` chain (nearest wins). Offline, the cached `.bos/manifest.json` (gitignored) resolves.
 - An explicit pin the chain cannot satisfy **fails loud** — publish the release or clear the pin.
-- Inspect what resolves: `bos platform manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations.
+- **Pin lifecycle (#546):** the `manifest.json` thin tag is a pointer — a root republish overwrites it. A stale child pin resolves only while the fresh cache (24h TTL) stands in, then fails loud (`platform pin <version> not found in the extends chain`). The repair is exactly this command: `bos upgrade` re-pins to the latest release. Deleting `.bos/manifest.json` defeats the cache when diagnosing.
+- Inspect what resolves: `bos manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations — it also reports release drift as "parent release is X (published), you target Y" instead of the raw error.
 - `bos init` without `--source` stamps the pin from the resolved manifest; a local-template init (source dir) leaves the pin off — the next `bos upgrade` stamps it from whatever release then resolves.
 
 What the upgrade reconciles from the parent template:
@@ -221,7 +223,32 @@ What stays local:
 
 ### extends handling
 
-Upgrade reads the `extends` field (string or object form) of the authored `bos.app.ts` to find the parent. For object extends, uses the `production` URL to locate the template source.
+Both sync and upgrade read the `extends` field (string or object form) of the authored `bos.app.ts` to find the parent. For object extends, uses the `production` URL to locate the template source.
+
+## bos upgrade
+
+Bumps `everything-dev` and `every-plugin` across all workspaces:
+
+```bash
+bos upgrade              # Check for new versions, update, then sync
+bos upgrade --dry-run    # Preview without making changes
+```
+
+> **v1 trees:** upgrading a pre-v2 child app onto the v2 train is a separate
+> flow — see the `v1-to-v2-upgrade` skill (`bos upgrade --from v1 --audit`).
+
+### Flow
+1. Check npm registry for latest versions of `everything-dev` and `every-plugin`
+2. Update root `package.json` workspaces.catalog
+3. Update all workspace `package.json` to use `catalog:` references
+4. `pnpm install` + `bos types gen`
+5. Run `bos sync` to pull template updates matching new version
+6. Rewrite legacy UI imports (e.g., `from "@/auth"` → `from "@/app"`)
+7. Remove obsolete files
+
+### Package ref strategy
+
+Workspace packages use `catalog:` refs so a single version bump in root catalog propagates everywhere. Skips `workspace:*` and `file:` refs.
 
 ## bos import
 
@@ -248,7 +275,7 @@ bos import plugins/auth --from owner/repo --yes
 - **omitted** — same chain walk, starting from the authored `bos.app.ts` (v2 config only). Errors when the workspace is declared locally in the child (you own it — nothing to import), when no runtime in the chain declares the workspace, or when no ancestor along the chain carries a `repository`.
 - **`<owner/repo>[@ref]`, GitHub URL, or local dir** — explicit source, unchanged.
 
-**Ref pinning:** the ancestor's published config pins each workspace to an immutable version manifest. When the ancestor publishes source archives (`publish.sourcePublish` on its authored config, ADR 0030), the import **byte-sources** from the pinned archive: the manifest itself is SRI-verified against the config slot pin, the archive URL + server SRI come from the manifest's `source` field, the bytes are SRI-verified and extracted (repo-root-relative — a drop-in for the GitHub tarball root), and no GitHub dependency exists (the parent's `repository` may be absent or private). If archive fetch fails or its SRI mismatches, the import falls back to the chain-resolved GitHub coordinate with a `Note:`. When the manifest records no `source`, GitHub remains the source: a recorded `git sha` pins the exact deployed commit; otherwise the import falls back to the **default branch (HEAD)** with a `Note:` line. The report's Source section shows both layers: the `bos:// …` extends ref, the source archive URL when used, and the dereferenced `repository @ ref`.
+**Ref pinning:** the ancestor's published config pins each workspace to an immutable version manifest. When the ancestor publishes source archives (`publish.sourcePublish` on its authored config, ADR 0030), the import **byte-sources** from the pinned archive: the manifest itself is SRI-verified against the config remote pin, the archive URL + server SRI come from the manifest's `source` field, the bytes are SRI-verified and extracted (repo-root-relative — a drop-in for the GitHub tarball root), and no GitHub dependency exists (the parent's `repository` may be absent or private). If archive fetch fails or its SRI mismatches, the import falls back to the chain-resolved GitHub coordinate with a `Note:`. When the manifest records no `source`, GitHub remains the source: a recorded `git sha` pins the exact deployed commit; otherwise the import falls back to the **default branch (HEAD)** with a `Note:` line. The report's Source section shows both layers: the `bos:// …` extends ref, the source archive URL when used, and the dereferenced `repository @ ref`.
 
 ### Classification
 

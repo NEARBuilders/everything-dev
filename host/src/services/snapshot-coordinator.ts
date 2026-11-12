@@ -4,14 +4,13 @@ import {
   buildRuntimeConfigEffect,
   resolveConfigComposableEntries,
 } from "everything-dev/config";
-import { verifySriForUrl } from "everything-dev/integrity";
+import { remoteDigests } from "everything-dev/digest";
 import { resolveMergedConfigInput } from "everything-dev/resolution";
+import { bootSnapshotOf, writeBootSnapshot } from "everything-dev/snapshot";
 import type { BosConfig, BosConfigInput } from "everything-dev/types";
-import {
-  createRuntimeSnapshotState,
-  deploymentFingerprint,
-  RuntimeSnapshot,
-} from "./runtime-snapshot";
+import { formatChainFailures, verifyChain } from "everything-dev/verify";
+import { logger } from "../utils/logger";
+import { createRuntimeSnapshotState, deploymentDigest, RuntimeSnapshot } from "./runtime-snapshot";
 import { composeUi } from "./ui-compose";
 
 export class SnapshotAdoptError extends Schema.TaggedError<SnapshotAdoptError>()(
@@ -23,7 +22,7 @@ export class SnapshotAdoptError extends Schema.TaggedError<SnapshotAdoptError>()
 ) {}
 
 export type SnapshotAdoptOutcome =
-  | { status: "swapped"; fingerprint: string; digest?: string }
+  | { status: "swapped"; deploymentDigest: string; digest?: string }
   | { status: "unchanged" };
 
 const describeCause = (cause: unknown): string =>
@@ -37,11 +36,64 @@ const adoptFailure = (message: string, cause: unknown) =>
   new SnapshotAdoptError({ message: `${message}: ${describeCause(cause)}`, cause });
 
 /**
- * A published pointer stores only the runtime's own overrides — slots it
+ * Boot-frozen slots whose pins the newly adopted pointer moved (#826
+ * follow-up): the swap adopts UI/SSR/compose surfaces only, so a moved
+ * api/auth/plugin-backend pin keeps the previous generation serving until a
+ * restart — surfaced at /.well-known/version and /health instead of
+ * silently running stale. Comparison is against the previously adopted
+ * pointer; a first adopt after boot has no baseline and reports nothing.
+ */
+const bootFrozenRestartRemotes = (
+  previous: Record<string, unknown> | undefined,
+  next: BosConfig,
+): string[] => {
+  if (!previous) return [];
+  const before = remoteDigests(previous as never);
+  const after = remoteDigests(next as never);
+  return Object.keys(before)
+    .concat(Object.keys(after))
+    .filter((remote, index, all) => all.indexOf(remote) === index)
+    .filter(
+      (remote) =>
+        /^(app\.(api|auth|host)|plugins\.[^.]+)$/.test(remote) && before[remote] !== after[remote],
+    )
+    .sort();
+};
+
+/**
+ * Persist the approved snapshot (ADR 0041): one writer seam — every verified
+ * generation is stamped to disk so a restart can serve it during a
+ * registry/CDN outage. Non-fatal: a snapshot-write failure must never fail
+ * the adopt.
+ */
+const persistBootSnapshot = (resolvedPointer: BosConfig) =>
+  Effect.tryPromise(async () => {
+    if (!resolvedPointer.domain) {
+      throw new Error(`resolved pointer for ${resolvedPointer.account} has no domain`);
+    }
+    await writeBootSnapshot(
+      bootSnapshotOf({
+        account: resolvedPointer.account,
+        gateway: resolvedPointer.domain,
+        config: resolvedPointer,
+      }),
+    );
+  }).pipe(
+    Effect.catch((cause) =>
+      Effect.sync(() =>
+        logger.warn(
+          `[SnapshotCoordinator] approved-snapshot persist failed (non-fatal): ${describeCause(cause)}`,
+        ),
+      ),
+    ),
+  );
+
+/**
+ * A published pointer stores only the runtime's own overrides — remotes it
  * inherits from its parent via `extends` (notably `app.host`) are absent.
  * Derive the adoptable config through the same extends-walking pipeline the
  * boot path uses (tenant-runtime): building a runtime config straight from
- * the raw pointer crashes on the first inherited slot. A pointer without a
+ * the raw pointer crashes on the first inherited remote. A pointer without a
  * domain has no bos:// ref to resolve — fail rather than guess one; failure
  * of any kind leaves the live snapshot untouched.
  */
@@ -98,43 +150,43 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
   );
 
   const current = yield* snapshot.get;
-  const nextFingerprint = deploymentFingerprint(nextConfig);
-  if (nextFingerprint === current.fingerprint) {
+  const nextDigest = deploymentDigest(nextConfig);
+  if (nextDigest === current.deploymentDigest) {
+    yield* persistBootSnapshot(resolvedPointer);
     return { status: "unchanged" };
   }
 
   const nextState = createRuntimeSnapshotState({
-    fingerprint: nextFingerprint,
+    deploymentDigest: nextDigest,
     config: nextConfig,
     pointer: publishedConfig,
+    restartRequired: bootFrozenRestartRemotes(current.pointer, publishedConfig),
   });
   const composed = yield* composeUi(nextConfig, nextState.composeState).pipe(
     Effect.catch((cause) => adoptFailure("pre-warm compose failed", cause)),
   );
 
-  const verifyTargets = (
-    [
-      { url: nextConfig.ui.entryUrl, integrity: nextConfig.ui.integrity },
-      nextConfig.ui.ssrEntryUrl
-        ? { url: nextConfig.ui.ssrEntryUrl, integrity: nextConfig.ui.ssrIntegrity }
-        : null,
-    ] satisfies Array<{ url?: string; integrity?: string } | null>
-  ).filter((target): target is { url: string; integrity: string } =>
-    Boolean(target?.url && target?.integrity),
+  const chain = yield* Effect.tryPromise(() =>
+    verifyChain({
+      config: resolvedPointer as unknown as BosConfigInput,
+      depth: "entries",
+    }),
+  ).pipe(
+    Effect.catch((cause) =>
+      adoptFailure("the candidate composition failed chain verification", cause),
+    ),
   );
-  for (const target of verifyTargets) {
-    yield* Effect.tryPromise(() =>
-      verifySriForUrl(target.url, target.integrity, { resolveEntryUrl: false }),
-    ).pipe(
-      Effect.catch((cause) =>
-        adoptFailure(`pinned entry failed verification (${target.url})`, cause),
-      ),
+  if (!chain.ok) {
+    return yield* adoptFailure(
+      "the candidate composition failed chain verification",
+      new Error(formatChainFailures(chain)),
     );
   }
 
-  nextConfig.deploymentFingerprint = nextFingerprint;
+  nextConfig.deploymentDigest = nextDigest;
   yield* snapshot.swap(nextState);
-  return { status: "swapped", fingerprint: nextFingerprint, digest: composed.digest };
+  yield* persistBootSnapshot(resolvedPointer);
+  return { status: "swapped", deploymentDigest: nextDigest, digest: composed.digest };
 });
 
 /** Concurrent adopts serialize: two pre-warms racing would both swap (last
@@ -142,7 +194,7 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
 const adoptPermits = Semaphore.makeUnsafe(1);
 
 /** The adopt transaction is wrapped by `adoptPermits`; the adopted config's
- * `deploymentFingerprint` is stamped before the swap so the client config —
+ * `deploymentDigest` is stamped before the swap so the client config —
  * and the soft-refresh signal — carries it (atomic-deploys 10). */
 export const adoptPublishedPointer = Effect.fn("SnapshotCoordinator.adopt")(function* (input: {
   snapshot: RuntimeSnapshot["Service"];

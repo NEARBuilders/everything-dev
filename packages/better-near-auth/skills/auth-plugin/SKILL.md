@@ -19,7 +19,7 @@ requires:
 metadata:
   type: composition
   library: better-near-auth
-  library_version: "2.0.0-rc.4"
+  library_version: "2.0.0-rc.8"
 sources:
   - "elliotBraem/better-near-auth:examples/auth.everything.dev/bos.config.json"
   - "elliotBraem/better-near-auth:examples/auth.everything.dev/plugins/auth/src/contract.ts"
@@ -234,11 +234,15 @@ Generated type bridges connect contract to UI/API:
 
 ## In-Process Plugin Composition
 
-Another plugin receives the auth client via `createPlugin.withPlugins<PluginsClient>()`. In `initialize`, `plugins.auth` is a `ClientFactory<authContract>` — call it with request context for a typed oRPC client:
+Another plugin receives the auth client via `createPlugin.withPlugins<PluginsClient>()`. Each entry is `{ client, router }` — `client` is the context-taking factory. Capture it in `initialize`; derive the caller-scoped client where a request context exists:
 
 ```typescript
-const auth = await plugins.auth({ context });
-const session = await auth.getAuthContext();
+// initialize — capture the factory
+initialize: (config, plugins) => Effect.succeed({ authClient: plugins.auth.client, ... });
+
+// in a route handler or middleware — derive from the caller's context
+const auth = plugins.auth.client({ reqHeaders: context.reqHeaders, user: context.user, session: context.session });
+const session = await auth.getContext();
 ```
 
 Create typed middleware from auth context using `createAuthMiddleware(builder)`:
@@ -356,7 +360,7 @@ interface AuthRequestContext {
 Register auth under `app.auth` in `bos.config.json` with `variables.siwn.recipients.{mainnet,testnet}`, keep `ui/src/lib/auth.ts` as the re-export of `everything-dev/ui/auth` (`createAuthClient`, `useAuthClient`, `sessionQueryOptions`), and add an `_authenticated.tsx` layout that runs `sessionQueryOptions(context.authClient, context.session)` in `beforeLoad` and redirects to `/login`.
 
 **"My plugin needs the signed-in user's NEAR account."**
-In the plugin's `initialize` composed with auth, call `const auth = await plugins.auth({ context })` then `auth.getAuthContext()`; or in a route use the `requireAuth` middleware from `createAuthMiddleware(builder)` and read `context.userId` / `context.near.primaryAccountId` from the narrowed context.
+Capture `plugins.auth.client` in `initialize`, then derive per request with `const auth = plugins.auth.client({ reqHeaders: context.reqHeaders, ...authContext })` and `await auth.getContext()`; or in a route use the `requireAuth` middleware from `createAuthMiddleware(builder)` and read `context.userId` / `context.near.primaryAccountId` from the narrowed context.
 
 **"`authClient.near.client` no longer compiles."**
 Removed in 1.8.1 — switch to `authClient.near.getNearClient()` (throws on the server, so call it only in client-side handlers).
@@ -408,3 +412,45 @@ Email visibility is a role grant: `email: ["read"]` on a role controls whether i
 members see other members' emails. `getContext` returns the caller's effective
 permissions as a nullable `permissions` map; routes in any plugin gate on it with
 `requirePermission(resource, action)`.
+
+## Idempotent org activation (composed flows)
+
+Create-or-reuse in two calls, no CONFLICT-recovery code:
+
+```ts
+const existing = await auth.getOrganization({ organizationSlug: slug }); // null when absent
+const org = existing ?? await auth.createOrganization({ name, slug, activate: false });
+```
+
+`activate: false` (mapped to better-auth's `keepCurrentActiveOrganization`) leaves the
+caller's active organization untouched — composed flows that must not disturb the
+session pass it; restore deterministically with `setActiveOrganization({ organizationId: null })`
+or re-set the intended org. The default (`activate: true`) preserves better-auth's
+create-switches-active behavior. `checkSlug` remains the typed existence probe when
+you only need "is this slug taken".
+
+## Abuse-control primitives (levers, not policy)
+
+The plugin ships no admission policy (#857 — policy is the app's job); it ships the levers:
+
+**Rate limits** — configure per operation in `variables.abuseControl.rateLimits`
+(`createOrganization`, `createOnboardingCode`, `redeemOnboardingCode`; each
+`{ window, max }` in seconds, keyed per caller). Limited calls fail with the
+declared `RATE_LIMITED` error carrying `retryAfterSeconds` and `limitType: "requests"`:
+
+```jsonc
+"abuseControl": {
+  "rateLimits": {
+    "createOrganization": { "window": 3600, "max": 3 }
+  }
+}
+```
+
+The limiter is in-memory per plugin instance — multi-instance hosts share no
+counters. Absent rules mean unlimited.
+
+**Gate signals** — already resolved in the request context; the intended inputs for
+app-side admission decisions: `user.isAnonymous` (anonymous-provisioned accounts),
+`user.emailVerified`, account age (`user.createdAt` vs now), and NEAR linkage
+(`near.hasNearAccount` / `near.primaryAccountId`). Compose them in your own oRPC
+middleware before the auth call — no plugin default policy exists.

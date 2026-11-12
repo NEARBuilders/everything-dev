@@ -38,10 +38,12 @@ export function databaseLayer<Identifier, TSchema extends Record<string, unknown
       const { pluginId, schema, migrations, namespace = true } = options;
       const slug = pluginMigrationSlug(pluginId);
       const schemaName = namespace ? pluginSchemaName(pluginId) : undefined;
+      const storage = getMigrationStorage(slug);
 
       const driver = yield* Effect.acquireRelease(
         Effect.tryPromise({
-          try: () => createDatabaseDriver(url, schema, schemaName),
+          try: () =>
+            createDatabaseDriver(url, schema, schemaName, `${storage.schema}.${storage.table}`),
           catch: (cause) => new DatabaseError({ stage: "driver", cause }),
         }),
         (driver) =>
@@ -55,7 +57,6 @@ export function databaseLayer<Identifier, TSchema extends Record<string, unknown
         return driver.db;
       }
 
-      const storage = getMigrationStorage(slug);
       const { migrations: loaded, source } = yield* migrations;
 
       if (loaded.length === 0) {

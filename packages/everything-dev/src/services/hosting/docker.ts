@@ -32,9 +32,9 @@ import * as Interaction from "alchemy/Interaction";
 import * as State from "alchemy/State";
 import { PlatformServices } from "alchemy/Util/PlatformServices";
 import { Clock, Context, Duration, Effect, Layer } from "effect";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import {
   type DeployedInstance,
   DeployFailed,
@@ -123,6 +123,7 @@ const runtimeLayer = (options: DockerHostingOptions) =>
   ).pipe(Layer.provideMerge(platformLayer));
 
 const dockerServiceLayer = (options: DockerHostingOptions) =>
+  // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- alchemy's Docker.providers types its layer R as any
   Docker.providers().pipe(
     Layer.provide(
       Layer.succeed(Stack, {
@@ -196,12 +197,17 @@ export const dockerHostingAdapterLayer = (options: DockerHostingOptions = {}) =>
         };
       };
 
-      const deployDescriptor = (descriptor: RuntimeDescriptor) =>
+      const deployDescriptor = (
+        descriptor: RuntimeDescriptor,
+      ): Effect.Effect<DeployedInstance, DeployFailed | HealthTimeout, never> =>
+        // alchemy's Docker.providers types its layer R as any — the cast closes
+        // the requirement seam the adapter contract demands (never).
         Effect.gen(function* () {
           const name = containerName(descriptor.instance);
           const stack = Alchemy.Stack(
             stackName(descriptor.instance),
             {
+              // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- alchemy's Docker.providers types its layer R as any
               providers: Docker.providers(),
               state: State.localState(),
             },
@@ -247,7 +253,7 @@ export const dockerHostingAdapterLayer = (options: DockerHostingOptions = {}) =>
           const url = hostUrl(port);
           yield* waitForHealth(descriptor.instance, url);
           return { instance: descriptor.instance, url };
-        });
+        }) as Effect.Effect<DeployedInstance, DeployFailed | HealthTimeout, never>;
 
       const current = (instance: string) =>
         inspectInstance(instance).pipe(
@@ -328,6 +334,7 @@ export const dockerHostingAdapterLayer = (options: DockerHostingOptions = {}) =>
       return HostingAdapter.of({ deploy: deployDescriptor, current, restart, stop });
     }),
   ).pipe(
+    // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- alchemy's Docker.providers types its layer R as any
     Layer.provide(dockerServiceLayer(options)),
     Layer.provide(runtimeLayer(options)),
   ) as Layer.Layer<HostingAdapter>;

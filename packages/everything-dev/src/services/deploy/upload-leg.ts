@@ -1,6 +1,11 @@
 import { readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { SourceRef } from "every-plugin/version-manifest";
+import type {
+  ManifestSignature,
+  SourceRef,
+  WorkspaceVersionManifest,
+} from "every-plugin/version-manifest";
+import { signaturePayloadOf, versionDirPath } from "every-plugin/version-manifest";
 import { diffWorkspaceFiles, localSriMap, mergedFileIntegrity, type PreviousPin } from "./diff";
 import { buildSourceArchive, makeSourceArchiveTempDir } from "./source-archive";
 import {
@@ -13,7 +18,7 @@ import {
 import {
   composeWorkspaceVersionManifest,
   readBuildReport,
-  resolveSlotVersion,
+  resolveRemoteVersion,
 } from "./version-manifest";
 
 /**
@@ -36,7 +41,7 @@ export interface StorageLegDeps {
   collectDistFiles: typeof collectDistFiles;
   uploadWorkspaceDist: typeof uploadWorkspaceDist;
   uploadBundle: typeof uploadBundle;
-  resolveSlotVersion: typeof resolveSlotVersion;
+  resolveRemoteVersion: typeof resolveRemoteVersion;
   readBuildReport: typeof readBuildReport;
   composeWorkspaceVersionManifest: typeof composeWorkspaceVersionManifest;
   buildSourceArchive: typeof buildSourceArchive;
@@ -46,7 +51,7 @@ export const realStorageLegDeps: StorageLegDeps = {
   collectDistFiles,
   uploadWorkspaceDist,
   uploadBundle,
-  resolveSlotVersion,
+  resolveRemoteVersion,
   readBuildReport,
   composeWorkspaceVersionManifest,
   buildSourceArchive,
@@ -61,6 +66,9 @@ interface DiffUploadOutcome {
   result: BundleUploadResult;
   /** per-file SRI map covering the whole dist (uploaded → server SRI, skipped → previous manifest SRI) */
   fileIntegrity: Record<string, string>;
+  /** the previous pin's immutable version directory (`versions/<dirId>`),
+   * when the previous manifest resolved and declared one (#826) */
+  previousDir?: string;
   uploaded: number;
   skipped: number;
   total: number;
@@ -78,19 +86,24 @@ async function diffUploadWorkspace(
     workspace: string;
     files: DistFile[];
     base: string;
-    previousPin: PreviousPin | undefined;
+    previousDigest: PreviousPin | undefined;
     notes: string[];
   },
 ): Promise<DiffUploadOutcome> {
   const localSri = localSriMap(input.files);
   let uploadFiles = input.files;
   let prevFiles: Record<string, string> | undefined;
-  if (input.previousPin) {
+  let previousDir: string | undefined;
+  if (input.previousDigest) {
     try {
-      const resolved = await deps.resolveSlotVersion({ base: input.base, pin: input.previousPin });
+      const resolved = await deps.resolveRemoteVersion({
+        base: input.base,
+        digest: input.previousDigest,
+      });
       if (resolved.files) {
         const diff = diffWorkspaceFiles(input.files, localSri, resolved.files);
         prevFiles = resolved.files;
+        previousDir = resolved.dir;
         uploadFiles = diff.upload;
         if (diff.skipped > 0) {
           input.notes.push(`${diff.skipped} unchanged file(s) — skipping (manifest diff)`);
@@ -118,6 +131,7 @@ async function diffUploadWorkspace(
   return {
     result,
     fileIntegrity: mergedFileIntegrity(input.files, result.integrity, prevFiles),
+    ...(previousDir ? { previousDir } : {}),
     uploaded: result.stored,
     skipped: input.files.length - uploadFiles.length,
     total: input.files.length,
@@ -126,7 +140,11 @@ async function diffUploadWorkspace(
 
 /** Compose + upload the workspace's version manifest — server-computed SRI of
  * the just-finished upload, uploaded additively at `versions/<version>.json`.
- * Returns undefined when the dist predates hashed entry names. */
+ * Returns undefined when the dist predates hashed entry names. The manifest's
+ * `shared` record rides back for the publish train's truth gate (#546). When
+ * `sign` is present (the runtime demands attribution — `publish.verification`),
+ * the train's publish identity signs the canonical payload (ADR 0046
+ * ticket 05) and the signature rides in the document. */
 async function pinWorkspaceVersionManifest(
   deps: StorageLegDeps,
   input: {
@@ -139,21 +157,36 @@ async function pinWorkspaceVersionManifest(
     ssrReport: ReturnType<typeof readBuildReport>;
     integrityMap: Record<string, string>;
     files?: Record<string, string>;
+    /** slot-relative immutable version directory the coordinates live in (#826) */
+    dir?: string;
     source?: SourceRef;
     gitSha?: string;
+    sign?: (payload: string) => Promise<ManifestSignature>;
     notes: string[];
   },
-): Promise<VersionManifestPin | undefined> {
+): Promise<{ pin: VersionManifestPin; shared?: Record<string, string> } | undefined> {
   if (!input.report) return undefined;
   const versionManifest = deps.composeWorkspaceVersionManifest({
     report: input.report,
     ssrReport: input.ssrReport,
     integrityMap: input.integrityMap,
     ...(input.files ? { files: input.files } : {}),
+    ...(input.dir ? { dir: input.dir } : {}),
     ...(input.source ? { source: input.source } : {}),
     ...(input.gitSha ? { gitSha: input.gitSha } : {}),
   });
   if (!versionManifest) return undefined;
+
+  let document: WorkspaceVersionManifest = versionManifest;
+  if (input.sign) {
+    const signature = await input.sign(signaturePayloadOf(versionManifest));
+    document = { ...versionManifest, signature };
+    input.notes.push(
+      `version manifest versions/${versionManifest.version}.json (SRI pinned, signed ${signature.publicKey.slice(0, 24)}…)`,
+    );
+  } else {
+    input.notes.push(`version manifest versions/${versionManifest.version}.json (SRI pinned)`);
+  }
 
   const manifestFile = `versions/${versionManifest.version}.json`;
   const manifestUpload = await deps.uploadBundle({
@@ -165,14 +198,16 @@ async function pinWorkspaceVersionManifest(
     files: [
       {
         path: manifestFile,
-        bytes: new TextEncoder().encode(`${JSON.stringify(versionManifest, null, 2)}\n`),
+        bytes: new TextEncoder().encode(`${JSON.stringify(document, null, 2)}\n`),
       },
     ],
   });
   const manifestIntegrity = manifestUpload.integrity[manifestFile];
   if (!manifestIntegrity) return undefined;
-  input.notes.push(`version manifest ${manifestFile} (SRI pinned)`);
-  return { file: manifestFile, integrity: manifestIntegrity, storage: manifestUpload.storage };
+  return {
+    pin: { file: manifestFile, integrity: manifestIntegrity, storage: manifestUpload.storage },
+    ...(versionManifest.shared ? { shared: versionManifest.shared } : {}),
+  };
 }
 
 /** Source-archive leg (publish.sourcePublish, #406): tar the workspace
@@ -187,7 +222,7 @@ async function resolveSourceReference(
     gateway: string;
     workspace: string;
     base: string;
-    previousPin: PreviousPin | undefined;
+    previousDigest: PreviousPin | undefined;
     repoRoot: string;
     workspaceDir: string;
     notes: string[];
@@ -201,11 +236,11 @@ async function resolveSourceReference(
       workspace: input.workspaceDir,
       outDir,
     });
-    if (input.previousPin) {
+    if (input.previousDigest) {
       try {
-        const resolved = await deps.resolveSlotVersion({
+        const resolved = await deps.resolveRemoteVersion({
           base: input.base,
-          pin: input.previousPin,
+          digest: input.previousDigest,
         });
         if (resolved.source?.integrity === archive.integrity) {
           notes.push(`source unchanged — reusing ${archive.file}`);
@@ -253,6 +288,9 @@ export interface UploadWorkspaceBundleInput {
   /** enable the source-archive leg (publish.sourcePublish) — main workspaces only */
   source?: { repoRoot: string; workspaceDir: string };
   gitSha?: string;
+  /** the train's publish-identity signer — present when the config demands
+   * manifest attribution (publish.verification, ADR 0046 ticket 05) */
+  sign?: (payload: string) => Promise<ManifestSignature>;
   deps?: StorageLegDeps;
 }
 
@@ -265,6 +303,10 @@ export type WorkspaceBundleUpload =
       /** entry SRI keyed by the build report's hashed name */
       entryIntegrity?: string;
       ssrEntryIntegrity?: string;
+      /** Shared-singleton `name → version` the pinned build embedded (#546) —
+       * the publish train's truth gate cross-checks it against the platform
+       * release manifest before FastKV. */
+      shared?: Record<string, string>;
       uploaded: number;
       skipped: number;
       durationMs: number;
@@ -299,7 +341,7 @@ export async function uploadWorkspaceBundle(
       workspace: input.workspaceKey,
       files: distFiles,
       base,
-      previousPin: input.previousPin,
+      previousDigest: input.previousPin,
       notes,
     });
     const report = deps.readBuildReport(input.distDir);
@@ -308,6 +350,33 @@ export async function uploadWorkspaceBundle(
     const ssrEntryIntegrity = ssrReport?.entry
       ? outcome.fileIntegrity[`ssr/${ssrReport.entry}`]
       : undefined;
+
+    // Version directory (#826): byte-immutable copies of the whole dist at
+    // `versions/<dirId>/…`, so pins resolve forever even as later deploys
+    // overwrite the fixed-name files at the slot root. dirId is content-
+    // addressed over the dist's file map — an unchanged dist lands in the
+    // same directory, and a previous pin already carrying that directory
+    // means every key exists with identical bytes.
+    const dirPath = versionDirPath(outcome.fileIntegrity);
+    if (outcome.result.storage !== "memory") {
+      if (outcome.previousDir === dirPath) {
+        notes.push(`version dir ${dirPath} unchanged — skipping`);
+      } else {
+        notes.push(`version dir ${dirPath} (${distFiles.length} files, immutable)`);
+        const dirResult = await deps.uploadWorkspaceDist({
+          origin: input.storageOrigin,
+          apiKey: input.storageApiKey,
+          account: input.account,
+          gateway: input.gateway,
+          workspace: input.workspaceKey,
+          files: distFiles.map((file) => ({
+            path: `${dirPath}/${file.path}`,
+            bytes: file.bytes,
+          })),
+        });
+        if (dirResult.storage === "memory") return { kind: "memory" };
+      }
+    }
 
     let sourceRef: SourceRef | undefined;
     if (input.source) {
@@ -322,7 +391,7 @@ export async function uploadWorkspaceBundle(
         gateway: input.gateway,
         workspace: input.workspaceKey,
         base,
-        previousPin: input.previousPin,
+        previousDigest: input.previousPin,
         repoRoot: input.source.repoRoot,
         workspaceDir: input.source.workspaceDir,
         notes,
@@ -332,7 +401,7 @@ export async function uploadWorkspaceBundle(
       phase = "upload";
     }
 
-    const pin = await pinWorkspaceVersionManifest(deps, {
+    const pinned = await pinWorkspaceVersionManifest(deps, {
       origin: input.storageOrigin,
       apiKey: input.storageApiKey,
       account: input.account,
@@ -342,11 +411,14 @@ export async function uploadWorkspaceBundle(
       ssrReport,
       integrityMap: outcome.fileIntegrity,
       files: outcome.fileIntegrity,
+      dir: dirPath,
       ...(sourceRef ? { source: sourceRef } : {}),
       ...(input.gitSha ? { gitSha: input.gitSha } : {}),
+      ...(input.sign ? { sign: input.sign } : {}),
       notes,
     });
-    if (!pin) return { kind: "missing-manifest" };
+    if (!pinned) return { kind: "missing-manifest" };
+    const pin = pinned.pin;
     if (outcome.result.storage === "memory" || pin.storage === "memory") {
       return { kind: "memory" };
     }
@@ -357,6 +429,7 @@ export async function uploadWorkspaceBundle(
       storage: outcome.result.storage,
       entryIntegrity,
       ssrEntryIntegrity,
+      ...(pinned.shared ? { shared: pinned.shared } : {}),
       uploaded: outcome.uploaded,
       skipped: outcome.skipped,
       durationMs: Date.now() - startedAt,

@@ -1,0 +1,5 @@
+---
+"everything-dev": patch
+---
+
+The release plane moves to consumer boot: every `bos dev`, host boot, tenant resolution, and type generation run of a platform-pinned runtime now stamps its inherited config slots (`app.*` **and** `plugins.*`) with the pinned release's recorded `{ production, pin }`, instead of extending-merging the parent's live config pointer — production, local dev, and compile-time contracts resolve the same co-versioned bytes, so a parent's rc.N+1 publish no longer skews a pinned child's composition (the rc.27-pinned child whose auth bundle moved underneath it). The stamp core moves to `services/resolution/release-plane.ts` (one implementation; the deploy payload seam unchanged — `allowCreate` keeps #679 semantics); post-release provisioned slots are omitted and surfaced for the dev audit rather than silently live-followed; pre-`slots` releases degrade to exactly today's behavior, and per-session release resolution is shared between the plane and the dev upgrade notice.

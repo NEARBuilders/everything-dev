@@ -90,6 +90,7 @@ export function getHealthStatus(plugins: PluginResult, loadingState: HealthLoadi
       : { mounted: false, name: null },
     plugins: {
       loaded: plugins.status.loadedPlugins,
+      rpc: plugins.status.rpcPlugins,
       detail: getPluginDetail(plugins),
       ...(plugins.status.error ? { error: plugins.status.error } : {}),
       ...(plugins.status.errorDetails ? { errorDetails: plugins.status.errorDetails } : {}),
@@ -101,6 +102,25 @@ export function getHealthStatus(plugins: PluginResult, loadingState: HealthLoadi
     milestones: loadingState.milestones,
     ...(loadingState.error ? { error: loadingState.error.message } : {}),
   };
+}
+
+export interface SnapshotBootHealth {
+  /** The process was started from the approved boot snapshot (env marker). */
+  booted: boolean;
+  /** The pointer watch has adopted a published generation since boot — the
+   * serving state is registry-confirmed again. */
+  adopted: boolean;
+  /** Booted from the snapshot and not yet adopted: the degraded state. The
+   * overall /health status stays "ready" — the runtime IS ready to serve —
+   * the degradation is composition provenance, not readiness. */
+  degraded: boolean;
+}
+
+export function getSnapshotBootHealth(
+  bootedFromSnapshot: boolean,
+  adopted: boolean,
+): SnapshotBootHealth {
+  return { booted: bootedFromSnapshot, adopted, degraded: bootedFromSnapshot && !adopted };
 }
 
 export const HEALTH_PATH = "/api/_health";

@@ -1,6 +1,5 @@
 ---
 "everything-dev": patch
-"host": patch
 ---
 
 Fix stale workspace dist breaking dev servers and false "Process failed" statuses in bos dev.

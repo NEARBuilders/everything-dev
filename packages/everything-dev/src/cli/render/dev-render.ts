@@ -61,7 +61,7 @@ const worstStatus = (a: DevProcessStatus, b: DevProcessStatus): DevProcessStatus
 
 /**
  * One row per plugin: `plugin-ui:<id>` companions merge into their parent
- * (`plugin:<id>`, or the `auth` app slot for the auth mirror) as an inline
+ * (`plugin:<id>`, or the `auth` app remote for the auth mirror) as an inline
  * ui-port annotation. Orphan ui rows (no parent process) render as-is.
  * Folder-form plugin UIs never get a companion service — their UI build is a
  * child of the parent's dev process — so their `uiPort` synthesizes the same
@@ -447,6 +447,7 @@ export function createDevRenderer(
     }
   };
 
+  let rawModeOn = false;
   try {
     rawCapable.setRawMode?.(true);
     // Bun's TTY stdin never enters flowing mode from a bare `data` listener
@@ -454,10 +455,17 @@ export function createDevRenderer(
     // session would be unquittable from its own terminal. resume() starts the
     // stream (a no-op if already flowing).
     rawCapable.resume?.();
+    rawModeOn = true;
   } catch {
     // raw mode unavailable: key handling is inert; shutdown stays reachable via SIGTERM and bos kill
   }
   rawCapable.on("data", onKey);
+  if (rawModeOn) {
+    // Machine-readable pin for regression harnesses: raw mode is on and the
+    // key handler is attached, so typed bytes now reach the key path — no
+    // ISIG race for senders waiting on the alt-screen mount alone.
+    output.write("\x1b]bos;ready\x07");
+  }
 
   let restored = false;
   handle.unmount = () => {

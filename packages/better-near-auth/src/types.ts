@@ -71,7 +71,7 @@ export const SetPrimaryAccountRequest = z.object({
 });
 
 export const NonceRequest = z.object({
-  accountId: AccountIdSchema,
+  accountId: AccountIdSchema.optional(),
   networkId: z.union([z.literal("mainnet"), z.literal("testnet")]),
 });
 

@@ -14,14 +14,11 @@ const bootstrapLayers = Layer.mergeAll(ProjectEnvLive, PortAllocatorLive);
 export class DevFlowService extends Context.Service<
   DevFlowService,
   {
-    dev: (
-      session: ResolutionSession | null,
-      input: DevOptions,
-    ) => Effect.Effect<DevResult, unknown>;
+    dev: (session: ResolutionSession | null, input: DevOptions) => Effect.Effect<DevResult, never>;
     start: (
       session: ResolutionSession | null,
       input: StartOptions,
-    ) => Effect.Effect<StartResult, unknown>;
+    ) => Effect.Effect<StartResult, never>;
   }
 >()("bos/DevFlowService") {
   static Live = Layer.succeed(
@@ -45,6 +42,13 @@ export class DevFlowService extends Context.Service<
                 }),
               DevPreflightFailed: (error) =>
                 Effect.succeed({ failed: `Infra preflight failed: ${error.messages.join("; ")}` }),
+              InfraError: (error) => Effect.succeed({ failed: `${error.phase}: ${error.message}` }),
+              DevStepError: (error) =>
+                Effect.succeed({
+                  failed: `${error.phase} failed: ${
+                    error.cause instanceof Error ? error.cause.message : String(error.cause)
+                  }`,
+                }),
             }),
           );
 

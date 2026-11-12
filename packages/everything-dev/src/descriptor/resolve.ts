@@ -1,6 +1,12 @@
 import { mergeBosConfigWithExtends } from "../services/resolution/merge";
 import type { BosConfigInput } from "../types";
-import type { AppDescriptor, AppRegistry, AttachmentRef, PipelineFields } from "./schema";
+import type {
+  AppDescriptor,
+  AppRegistry,
+  AttachmentRef,
+  PipelineFields,
+  PluginAttachmentRef,
+} from "./schema";
 import { AppDescriptorSchema } from "./schema";
 
 /**
@@ -42,6 +48,16 @@ export const ATTACHMENT_FIELDS = [
   "version",
 ] as const;
 
+/**
+ * Fields ONLY `plugins.<key>` attachments carry — the plugins-only extension
+ * over `ATTACHMENT_FIELDS`. Iterated symmetrically by both converters
+ * (`attachmentToEntry` / `entryToAttachment`) so the next plugins-only field
+ * is one schema line + one entry here; never iterated by `slot()`, which
+ * fills the strict host/ui/api slots (that is why this is a separate list
+ * from ATTACHMENT_FIELDS, not a member of it).
+ */
+export const PLUGIN_ATTACHMENT_FIELDS = ["contract"] as const;
+
 /** Fields the attachment slots carry beyond the shared attachment set. */
 export const SLOT_INPUT_FIELDS = ["development", "extends", "integrity"] as const;
 
@@ -54,26 +70,34 @@ function stripLocal(development: string | undefined): string | undefined {
   return development?.startsWith(LOCAL_PREFIX) ? development.slice(LOCAL_PREFIX.length) : undefined;
 }
 
-function attachmentToEntry(attachment: AttachmentRef): Record<string, unknown> {
+function attachmentToEntry(
+  attachment: AttachmentRef | PluginAttachmentRef,
+): Record<string, unknown> {
   const development = devRef(attachment);
   return {
     ...(attachment.extends ? { extends: attachment.extends } : {}),
     ...(development ? { development } : {}),
-    ...pick(attachment, [...ATTACHMENT_FIELDS]),
-    ...(attachment.ui
-      ? {
-          ui: {
-            ...(attachment.ui.name ? { name: attachment.ui.name } : {}),
-            ...(attachment.ui.path
-              ? { development: `local:${attachment.ui.path}` }
-              : attachment.ui.development
-                ? { development: attachment.ui.development }
-                : {}),
-            ...(attachment.ui.integrity ? { integrity: attachment.ui.integrity } : {}),
-            ...(attachment.ui.pin ? { pin: attachment.ui.pin } : {}),
-          },
-        }
-      : {}),
+    // call-only attachments author proxy + contract; composed entries keep
+    // URL fields pipeline-owned (stamps inject them post-descriptor). Auth
+    // slots never carry plugins-only fields (stripped at parse), so the
+    // symmetric pick is a no-op there.
+    ...pick(attachment as PluginAttachmentRef, [...ATTACHMENT_FIELDS, ...PLUGIN_ATTACHMENT_FIELDS]),
+    ...(attachment.ui === false
+      ? { ui: false }
+      : attachment.ui
+        ? {
+            ui: {
+              ...(attachment.ui.name ? { name: attachment.ui.name } : {}),
+              ...(attachment.ui.path
+                ? { development: `local:${attachment.ui.path}` }
+                : attachment.ui.development
+                  ? { development: attachment.ui.development }
+                  : {}),
+              ...(attachment.ui.integrity ? { integrity: attachment.ui.integrity } : {}),
+              ...(attachment.ui.digest ? { digest: attachment.ui.digest } : {}),
+            },
+          }
+        : {}),
   };
 }
 
@@ -87,11 +111,16 @@ export function toConfigInput(descriptor: AppDescriptor): BosConfigInput {
       "description",
       "repository",
       "testnet",
+      "release",
+      // legacy key flows through so the unknown-key walker flags it and the
+      // upgrade codemod can find it — it never reaches a resolved config
       "platform",
       "staging",
+      "starter",
       "ci",
       "cdn",
       "publish",
+      "seed",
     ]),
   };
 
@@ -101,13 +130,14 @@ export function toConfigInput(descriptor: AppDescriptor): BosConfigInput {
     if (development) app.host = { development, ...pick(descriptor.host, ["secrets"]) };
   }
   if (descriptor.api) {
+    // Remote-only api entries (authored variables/secrets, no workspace) are
+    // meaningful and must round-trip — the development guard here silently
+    // deleted the whole slot on re-serialization (#566).
     const development = devRef(descriptor.api);
-    if (development) {
-      app.api = {
-        development,
-        ...pick(descriptor.api, ["proxy", "variables", "secrets", "routes", "shared", "dependsOn"]),
-      };
-    }
+    app.api = {
+      ...(development ? { development } : {}),
+      ...pick(descriptor.api, ["proxy", "variables", "secrets", "routes", "shared", "dependsOn"]),
+    };
   }
   if (descriptor.ui) {
     const development = devRef(descriptor.ui);
@@ -191,6 +221,10 @@ export function resolveApp(
 
   const resolved = { ...merged } as Record<string, unknown>;
   delete resolved.extends;
+  // Authoring-only: the descriptor's starter level never enters resolved
+  // configs (the schema strips it by design) — but `toConfigInput` now carries
+  // it losslessly for re-serialization (#565).
+  delete resolved.starter;
   applyDeployMap(resolved, deployMap[name]);
   return resolved as BosConfigInput;
 }
@@ -219,7 +253,13 @@ export function applyDevOverlay(
   resolved: BosConfigInput,
   overlay: Partial<AppDescriptor>,
 ): BosConfigInput {
-  return mergeBosConfigWithExtends(resolved, toConfigInput(overlay as AppDescriptor));
+  const merged = mergeBosConfigWithExtends(resolved, toConfigInput(overlay as AppDescriptor));
+  // The overlay is dev-only, but it may carry the authoring-only starter
+  // level — never let it bleed into the resolved shape (JSON parents' starter
+  // *block* is parent-publish metadata and survives; only the string level is
+  // authoring-only).
+  if (typeof merged.starter === "string") delete merged.starter;
+  return merged;
 }
 
 /** Resolve every app in the registry. */
@@ -253,12 +293,14 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
     "description",
     "repository",
     "testnet",
+    "release",
     "platform",
     "staging",
     "starter",
     "ci",
     "cdn",
     "publish",
+    "seed",
   ] as const) {
     if (source[field] !== undefined) descriptor[field] = source[field];
   }
@@ -266,8 +308,18 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
   const app = (input.app ?? {}) as Record<string, Record<string, unknown>>;
   const slot = (key: "host" | "ui" | "api"): Record<string, unknown> | undefined => {
     const entry = app[key];
-    if (!entry?.development) return undefined;
-    const out: Record<string, unknown> = { path: stripLocal(entry.development as string) };
+    if (!entry) return undefined;
+    // host/ui are path-strict — a pathless entry there is meaningless. api
+    // carries authored variables/secrets and is meaningful remote-only (#566):
+    // the same guard class that dropped remote-only auth attachments.
+    if (!entry.development && key !== "api") return undefined;
+    const out: Record<string, unknown> = {};
+    const localPath = stripLocal(entry.development as string | undefined);
+    if (localPath !== undefined) {
+      out.path = localPath;
+    } else if (entry.development !== undefined) {
+      out.development = entry.development;
+    }
     for (const field of ATTACHMENT_FIELDS) {
       if (field === "name") continue;
       if (entry[field] !== undefined) out[field] = entry[field];
@@ -280,7 +332,10 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
   }
 
   const auth = app.auth;
-  if (auth?.development) descriptor.auth = entryToAttachment("auth", auth);
+  // No `development` guard: a remote-only auth attachment (published plugin
+  // with variables/secrets, no local path) must round-trip like the plugins
+  // loop below — dropping it deleted authored auth config.
+  if (auth) descriptor.auth = entryToAttachment("auth", auth);
 
   const plugins: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries((input.plugins ?? {}) as Record<string, unknown>)) {
@@ -306,18 +361,27 @@ function entryToAttachment(key: string, entry: Record<string, unknown>): Record<
   const development = entry.development as string | undefined;
   const path = stripLocal(development);
   if (path !== undefined) out.path = path;
+  // call-only entries author proxy + contract directly; composed entries
+  // keep URL fields pipeline-owned (stamps inject them post-descriptor) so
+  // the emitted authored file never freezes a parent's deploy state. The
+  // plugins-only set iterates symmetrically with attachmentToEntry.
+  for (const field of PLUGIN_ATTACHMENT_FIELDS) {
+    if (entry[field] !== undefined) out[field] = entry[field];
+  }
   for (const field of ATTACHMENT_FIELDS) {
     if (field === "name") continue;
     if (entry[field] !== undefined) out[field] = entry[field];
   }
-  const ui = entry.ui as Record<string, unknown> | undefined;
-  if (ui && typeof ui === "object") {
+  const ui = entry.ui as Record<string, unknown> | false | undefined;
+  if (ui === false) {
+    out.ui = false;
+  } else if (ui && typeof ui === "object") {
     const uiPath = stripLocal(ui.development as string | undefined);
     out.ui = {
       ...(typeof ui.name === "string" ? { name: ui.name } : {}),
       ...(uiPath !== undefined ? { path: uiPath } : {}),
       ...(ui.integrity !== undefined ? { integrity: ui.integrity } : {}),
-      ...(ui.pin !== undefined ? { pin: ui.pin } : {}),
+      ...(ui.digest !== undefined ? { digest: ui.digest } : {}),
     };
   }
   return out;

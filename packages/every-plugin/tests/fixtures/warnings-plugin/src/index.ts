@@ -22,7 +22,7 @@ export const WarningsPlugin = createPlugin({
     if (config.secrets.OPTIONAL_TOKEN) return [];
     return ["OPTIONAL_TOKEN is not set"];
   },
-  initialize: () => Effect.succeed(Layer.empty as Layer.Layer<any, Error, never>),
+  initialize: () => Effect.succeed(Layer.empty as never),
   createRouter: (builder) => ({
     ping: builder.ping.handler(async () => ({ ok: true })),
   }),

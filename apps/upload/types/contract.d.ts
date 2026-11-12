@@ -103,6 +103,16 @@ export declare const contract: {
           import("zod/v4/core").$strip
         >;
       };
+      CONFLICT: {
+        readonly status: 409;
+        readonly data: import("zod").ZodObject<
+          {
+            resource: import("zod").ZodOptional<import("zod").ZodString>;
+            detail: import("zod").ZodOptional<import("zod").ZodString>;
+          },
+          import("zod/v4/core").$strip
+        >;
+      };
       CONNECTION_ERROR: {
         readonly status: 502;
         readonly data: import("zod").ZodObject<
@@ -339,6 +349,7 @@ export declare const contract: {
             version: import("zod").ZodString;
             builtAt: import("zod").ZodOptional<import("zod").ZodString>;
             gitSha: import("zod").ZodOptional<import("zod").ZodString>;
+            dir: import("zod").ZodOptional<import("zod").ZodString>;
             entry: import("zod").ZodString;
             entryIntegrity: import("zod").ZodString;
             ssr: import("zod").ZodOptional<
@@ -367,6 +378,15 @@ export declare const contract: {
             >;
             files: import("zod").ZodOptional<
               import("zod").ZodRecord<import("zod").ZodString, import("zod").ZodString>
+            >;
+            source: import("zod").ZodOptional<
+              import("zod").ZodObject<
+                {
+                  file: import("zod").ZodString;
+                  integrity: import("zod").ZodString;
+                },
+                import("zod/v4/core").$strip
+              >
             >;
           },
           import("zod/v4/core").$strip

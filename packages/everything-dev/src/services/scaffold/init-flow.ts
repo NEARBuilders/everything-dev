@@ -11,7 +11,7 @@ import { generateCodeArtifacts } from "../codegen/artifacts";
 import { timePhase } from "../dev/progress";
 import type { ResolvedPlatformManifest } from "../platform/manifest";
 import { resolvePlatformManifest } from "../platform/manifest";
-import { parseBosUrl } from "../registry/fastkv";
+import { parseRuntimeRef } from "../registry/keys";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import {
@@ -28,6 +28,7 @@ import {
   releaseRefCandidates,
   removeStrayLockfiles,
   resolveSourceDir,
+  runPnpmApproveAll,
   runPnpmInstall,
   runTypesGen,
   scaffoldMinimalProject,
@@ -35,6 +36,16 @@ import {
   writeInitSnapshot,
 } from "./init";
 import { pruneUnusedUiFiles } from "./prune";
+
+/**
+ * The production root the scaffold extends when the operator names none —
+ * the ONLY default gateway in the codebase. The dead-end
+ * `dev.everything.dev` gateway must never reappear here (the gateway
+ * incident's permanent lesson); `tests/unit/scaffold-root.test.ts` locks
+ * the constants and their registry-key shape.
+ */
+export const DEFAULT_PARENT_ACCOUNT = "dev.everything.near";
+export const DEFAULT_PARENT_GATEWAY = "everything.dev";
 
 export async function fetchInitParent(
   extendsAccount: string,
@@ -48,6 +59,10 @@ export async function fetchInitParent(
   return { parentConfig, parentPluginKeys };
 }
 
+function flowWarn(message: string): void {
+  console.warn(message);
+}
+
 function normalizeExtendsRef(extendsInput: string | undefined, fallback: string): string {
   if (!extendsInput) return fallback;
   return extendsInput.startsWith("bos://") ? extendsInput : `bos://${extendsInput}`;
@@ -56,7 +71,7 @@ function normalizeExtendsRef(extendsInput: string | undefined, fallback: string)
 export class InitFlowService extends Context.Service<
   InitFlowService,
   {
-    run: (input: InitOptions) => Effect.Effect<InitResult, unknown>;
+    run: (input: InitOptions) => Effect.Effect<InitResult, never>;
   }
 >()("bos/InitFlowService") {
   static Live = Layer.succeed(
@@ -76,7 +91,7 @@ export class InitFlowService extends Context.Service<
 
             if (input.extends) {
               try {
-                const { accountId, gatewayId } = parseBosUrl(
+                const { accountId, gatewayId } = parseRuntimeRef(
                   normalizeExtendsRef(input.extends, ""),
                 );
                 extendsAccount = accountId;
@@ -87,8 +102,8 @@ export class InitFlowService extends Context.Service<
               }
             }
 
-            extendsAccount = extendsAccount || "dev.everything.near";
-            extendsGateway = extendsGateway || "everything.dev";
+            extendsAccount = extendsAccount || DEFAULT_PARENT_ACCOUNT;
+            extendsGateway = extendsGateway || DEFAULT_PARENT_GATEWAY;
 
             directory = directory || domain || extendsGateway;
             const targetDir = resolve(directory);
@@ -103,7 +118,7 @@ export class InitFlowService extends Context.Service<
               parentConfig = parent.parentConfig;
               parentPluginKeys = parent.parentPluginKeys;
             } catch (e) {
-              console.warn(
+              flowWarn(
                 `[init] Failed to fetch parent config from ${extendsAccount}/${extendsGateway}: ${
                   e instanceof Error ? e.message : String(e)
                 }`,
@@ -148,12 +163,12 @@ export class InitFlowService extends Context.Service<
               (await detectGitRemoteUrl(process.cwd()).catch(() => undefined)) ??
               parentConfig?.repository;
 
-            // ADR 0034: init scaffolds a pinned snapshot. Resolve the platform
-            // release manifest first (unpinned — the child does not exist yet,
-            // and its future pin must not constrain introducing it); the
-            // framework version becomes the scaffold's release ref and the
-            // authored config's `platform` pin. No manifest and no explicit
-            // --source → fail loud.
+            // ADR 0034: init scaffolds a release snapshot. Resolve the platform
+            // release manifest first (release-free — the child does not exist
+            // yet, and its future authored release must not constrain
+            // introducing it); the framework version becomes the scaffold's
+            // release ref and the authored config's `release` field. No
+            // manifest and no explicit --source → fail loud.
             let platform: ResolvedPlatformManifest | undefined;
             if (!input.source) {
               const chainManifest = await timePhase(timings, "platform manifest", () =>
@@ -162,14 +177,14 @@ export class InitFlowService extends Context.Service<
                   localConfig: {
                     ...(parentConfig as Record<string, unknown>),
                     extends: extendsRef,
-                    platform: undefined,
+                    release: undefined,
                   },
                   cacheRead: () => null,
                   cacheWrite: () => {},
                 }),
               );
               if (!chainManifest) {
-                console.warn(
+                flowWarn(
                   `[init] No platform release manifest resolves behind ${extendsRef} — publish one or scaffold with --source`,
                 );
                 return {
@@ -227,7 +242,7 @@ export class InitFlowService extends Context.Service<
                     description: parentConfig?.description,
                     starter: level,
                     catalog: platform?.manifest.catalog,
-                    platform: platform?.manifest.frameworkVersion,
+                    release: platform?.manifest.frameworkVersion,
                   }),
                 );
 
@@ -247,7 +262,7 @@ export class InitFlowService extends Context.Service<
                     staging: parentConfig?.staging,
                     starter: level,
                     catalog: platform?.manifest.catalog,
-                    platform: platform?.manifest.frameworkVersion,
+                    release: platform?.manifest.frameworkVersion,
                   }),
                 );
 
@@ -302,7 +317,7 @@ export class InitFlowService extends Context.Service<
                     staging: parentConfig?.staging,
                     starter: level,
                     catalog: platform?.manifest.catalog,
-                    platform: platform?.manifest.frameworkVersion,
+                    release: platform?.manifest.frameworkVersion,
                   }),
                 );
 
@@ -357,16 +372,17 @@ export class InitFlowService extends Context.Service<
 
               const initConfig = await timePhase(timings, "resolve config", () =>
                 openResolution({ cwd: targetDir }).catch((error: unknown) => {
-                  console.warn(
-                    "[init] Skipping config resolution — the child has no node_modules yet; `bos dev` resolves after `pnpm install`.",
-                    error instanceof Error ? error.message : error,
+                  flowWarn(
+                    `[init] Skipping config resolution — the child has no node_modules yet; \`bos dev\` resolves after \`pnpm install\` (${
+                      error instanceof Error ? error.message : String(error)
+                    })`,
                   );
                   return null;
                 }),
               );
               const initRuntime = initConfig?.runtime;
               if (initRuntime) {
-                await timePhase(timings, "generate env/docker", async () => {
+                await timePhase(timings, "generate env", async () => {
                   await materializeViaLayer(targetDir, initRuntime);
                 });
               }
@@ -376,6 +392,9 @@ export class InitFlowService extends Context.Service<
 
               if (!input.noInstall) {
                 await timePhase(timings, "install dependencies", () => runPnpmInstall(targetDir));
+                await timePhase(timings, "approve pnpm permissions", () =>
+                  runPnpmApproveAll(targetDir),
+                );
                 await timePhase(timings, "generate types", () => runTypesGen(targetDir));
                 await timePhase(timings, "generate migrations", () =>
                   generateDatabaseMigrations(targetDir),
@@ -425,7 +444,7 @@ export class InitFlowService extends Context.Service<
               error: error instanceof Error ? error.message : "Unknown error",
             };
           },
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
     }),
   );
 }

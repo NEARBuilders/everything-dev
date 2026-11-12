@@ -33,12 +33,12 @@ import {
   personalizeConfig,
   writeInitSnapshot,
 } from "../../src/cli/init";
-import { readSnapshot } from "../../src/cli/snapshot";
 import * as platformManifestModule from "../../src/services/platform/manifest";
 import * as initSourceModule from "../../src/services/resolution/init-source";
 import { loadInProcessDescriptor } from "../../src/services/resolution/load";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as scaffoldInitModule from "../../src/services/scaffold/init";
+import { readSnapshot } from "../../src/services/scaffold/snapshot";
 import { syncTemplate } from "../../src/services/scaffold/sync";
 import { loadParentConfigFixture, writeChildAppDescriptorFixture } from "../helpers/parent-config";
 
@@ -251,6 +251,123 @@ describe("syncTemplate", () => {
     expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
     expect(readFileSync(join(projectDir, "api", "tsconfig.json"), "utf-8")).toBe(pristineSnapshot);
     expect(existsSync(join(projectDir, ".bos", "sync-backup"))).toBe(false);
+  });
+
+  it("conflicts when a hand-edit has no recorded baseline — never a silent template win (ADR 0047)", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"]);
+    tempDirs.push(projectDir);
+
+    // The regression this pins: a repo with no baseline anywhere — a fresh
+    // clone that never committed a lock (template.sync) or snapshot. The
+    // hand-edit's history is unknown, so the template must not win silently.
+    rmSync(join(projectDir, ".bos", "sync-snapshot.json"));
+    const childEdits = `{ "local": "hand-edit" }\n`;
+    writeFileSync(join(projectDir, "biome.json"), childEdits);
+
+    const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+
+    expect(result.status).toBe("conflicted");
+    expect(result.conflicted).toContain("biome.json");
+    expect(result.error).toContain("no recorded baseline");
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
+    expect(existsSync(join(projectDir, ".bos", "sync-backup"))).toBe(false);
+
+    // The remedy: one --force takes the template (backed up) and re-baselines
+    // everything — the next sync is clean.
+    const forced = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      force: true,
+    });
+    expect(forced.status).toBe("synced");
+    expect(existsSync(join(projectDir, ".bos", "sync-snapshot.json"))).toBe(true);
+
+    const again = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+    expect(again.status).toBe("synced");
+    expect(again.conflicted).toEqual([]);
+  });
+
+  it("an approved write set writes the selection and preserves the rest — never an abort", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"]);
+    tempDirs.push(projectDir);
+
+    const parentFixture = mkdtempSync(join(tmpdir(), "bos-sync-parent-plan-"));
+    tempDirs.push(parentFixture);
+    mkdirSync(join(parentFixture, "api"), { recursive: true });
+    writeFileSync(
+      join(parentFixture, "bos.config.json"),
+      `${JSON.stringify({ account: "dev.everything.near", domain: "everything.dev" }, null, 2)}\n`,
+    );
+    // Two kinds of divergence: a hand-edited file whose template also moved
+    // (conflicted), and an untouched file whose template moved (updated).
+    const conflictedTemplate = `{"template": "reformed"}\n`;
+    writeFileSync(join(parentFixture, "biome.json"), conflictedTemplate);
+    const updatedTemplate = `{"compilerOptions": {"target": "ES2029"}}\n`;
+    writeFileSync(join(parentFixture, "api", "tsconfig.json"), updatedTemplate);
+    const childEdits = `{ "local": "hand-edit" }\n`;
+    writeFileSync(join(projectDir, "biome.json"), childEdits);
+
+    initSourceModule.resolveSourceDir.mockResolvedValue({
+      sourceDir: parentFixture,
+      parentConfig: { account: "dev.everything.near", domain: "everything.dev" } as never,
+      cleanup: async () => {},
+    });
+
+    const result = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      overwrite: ["api/tsconfig.json"],
+    });
+
+    expect(result.status).toBe("synced");
+    expect(result.conflicted).toContain("biome.json");
+    expect(result.updated).toContain("api/tsconfig.json");
+    // The selected file carries template bytes; the deselected conflict keeps
+    // the local copy.
+    expect(readFileSync(join(projectDir, "api", "tsconfig.json"), "utf-8")).toBe(updatedTemplate);
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
+    expect(result.backupDir).toBeDefined();
+  });
+
+  it("a preserved conflict re-asks on the next upgrade instead of going stale", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"]);
+    tempDirs.push(projectDir);
+
+    const parentFixture = mkdtempSync(join(tmpdir(), "bos-sync-parent-preserve-"));
+    tempDirs.push(parentFixture);
+    mkdirSync(join(parentFixture, "api"), { recursive: true });
+    writeFileSync(
+      join(parentFixture, "bos.config.json"),
+      `${JSON.stringify({ account: "dev.everything.near", domain: "everything.dev" }, null, 2)}\n`,
+    );
+    const conflictedTemplate = `{"template": "reformed"}\n`;
+    writeFileSync(join(parentFixture, "biome.json"), conflictedTemplate);
+    const childEdits = `{ "local": "hand-edit" }\n`;
+    writeFileSync(join(projectDir, "biome.json"), childEdits);
+
+    initSourceModule.resolveSourceDir.mockResolvedValue({
+      sourceDir: parentFixture,
+      parentConfig: { account: "dev.everything.near", domain: "everything.dev" } as never,
+      cleanup: async () => {},
+    });
+
+    // Upgrade 1: the user preserves the conflicted file (not in the write set).
+    const first = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      overwrite: [],
+    });
+    expect(first.status).toBe("synced");
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
+
+    // Upgrade 2, non-interactive: the template hasn't moved again, and the
+    // file's baseline still names the ORIGINAL template — the preserve did
+    // not launder the local fork into the new baseline, so it conflicts
+    // (re-asks) instead of silently resolving either way.
+    const second = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+    expect(second.status).toBe("conflicted");
+    expect(second.conflicted).toContain("biome.json");
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
   });
 
   it("with force the template wins and the child fork is backed up", async () => {

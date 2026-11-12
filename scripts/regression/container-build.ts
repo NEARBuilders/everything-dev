@@ -17,12 +17,12 @@ import { emitCoreUiStubs } from "every-plugin/build/ui";
 import { containerName } from "every-plugin/identity";
 import { composeVersionManifest } from "every-plugin/version-manifest";
 import { writeResolvedConfig } from "../../packages/everything-dev/src/config";
+import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/services/deploy/version-manifest";
 import {
   checkFederationTrain,
   resolveAuthWorkspace,
 } from "../../packages/everything-dev/src/services/federation/train";
 import { openResolution } from "../../packages/everything-dev/src/services/resolution/session";
-import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/services/deploy/version-manifest";
 
 /**
  * Local production fixture rewriting (ADR 0009): a section named in the plan
@@ -31,26 +31,44 @@ import { readBuildReport as readWorkspaceBuildReport } from "../../packages/ever
  * artifact to a deployment and local artifacts change every build. Sections
  * absent from the plan stay verbatim.
  */
-interface SlotPin {
+interface RemoteDigest {
   manifest: string;
   integrity: string;
 }
 
 interface OriginPlan {
   host?: string;
-  hostPin?: SlotPin;
-  ui?: { production?: string; ssr?: string; name?: string; publicUrl?: string; pin?: SlotPin };
+  hostDigest?: RemoteDigest;
+  ui?: {
+    production?: string;
+    ssr?: string;
+    name?: string;
+    publicUrl?: string;
+    digest?: RemoteDigest;
+  };
   api?: string;
-  apiPin?: SlotPin;
+  apiDigest?: RemoteDigest;
   auth?: string;
-  authPin?: SlotPin;
-  authUi?: { production?: string; ssr?: string; name?: string; publicUrl?: string; pin?: SlotPin };
+  authDigest?: RemoteDigest;
+  authUi?: {
+    production?: string;
+    ssr?: string;
+    name?: string;
+    publicUrl?: string;
+    digest?: RemoteDigest;
+  };
   plugins?: Record<
     string,
     {
       production?: string;
-      pin?: SlotPin;
-      ui?: { production?: string; ssr?: string; name?: string; publicUrl?: string; pin?: SlotPin };
+      ui?: {
+        production?: string;
+        ssr?: string;
+        name?: string;
+        publicUrl?: string;
+        digest?: RemoteDigest;
+      };
+      digest?: RemoteDigest;
     }
   >;
 }
@@ -77,7 +95,7 @@ function rewriteUi<
         ssr?: string;
         name?: string;
         publicUrl?: string;
-        pin?: SlotPin;
+        digest?: RemoteDigest;
       }
     | undefined,
 ): T {
@@ -97,8 +115,8 @@ function rewriteUi<
   if (planned.publicUrl !== undefined) {
     next.publicUrl = planned.publicUrl;
   }
-  if (planned.pin !== undefined) {
-    (next as Record<string, unknown>).pin = planned.pin;
+  if (planned.digest !== undefined) {
+    (next as Record<string, unknown>).digest = planned.digest;
   }
   return next;
 }
@@ -108,14 +126,14 @@ function rewritePluginRef(
   planned:
     | {
         production?: string;
-        pin?: SlotPin;
         ui?: {
           production?: string;
           ssr?: string;
           name?: string;
           publicUrl?: string;
-          pin?: SlotPin;
+          digest?: RemoteDigest;
         };
+        digest?: RemoteDigest;
       }
     | undefined,
 ): Record<string, unknown> {
@@ -125,8 +143,8 @@ function rewritePluginRef(
       planned.production !== undefined ? { ...plugin, production: planned.production } : plugin,
     ),
   } as Record<string, unknown>;
-  if (planned.pin !== undefined) {
-    next.pin = planned.pin;
+  if (planned.digest !== undefined) {
+    next.digest = planned.digest;
   }
   if (next.ui) {
     next.ui = rewriteUi({ ...(next.ui as Record<string, unknown>) }, planned.ui);
@@ -144,7 +162,7 @@ function prepareLocalProductionConfig(
     app.host = {
       ...(app.host as Record<string, unknown>),
       production: plan.host,
-      ...(plan.hostPin ? { pin: plan.hostPin } : {}),
+      ...(plan.hostDigest ? { digest: plan.hostDigest } : {}),
     };
   }
 
@@ -155,7 +173,7 @@ function prepareLocalProductionConfig(
   if (app.api && plan.api !== undefined) {
     app.api = {
       ...stripIntegrity({ ...(app.api as Record<string, unknown>), production: plan.api }),
-      ...(plan.apiPin ? { pin: plan.apiPin } : {}),
+      ...(plan.apiDigest ? { digest: plan.apiDigest } : {}),
     };
   }
 
@@ -167,7 +185,7 @@ function prepareLocalProductionConfig(
               ...(app.auth as Record<string, unknown>),
               production: plan.auth,
             }),
-            ...(plan.authPin ? { pin: plan.authPin } : {}),
+            ...(plan.authDigest ? { digest: plan.authDigest } : {}),
           }
         : app.auth;
     const authRef = auth as Record<string, unknown>;
@@ -200,7 +218,7 @@ const imageDir = path.join(root, ".bos", "regression", "image");
 // descriptor (bos.app.ts) in-process and write the generated resolved config
 // the Dockerfile bakes into the image. Development resolution mirrors the
 // old source of truth (the config `bos dev` wrote); the fixture rewriting
-// below pins the production slot shapes.
+// below digests the production remote shapes.
 const resolutionEnv = "development";
 const session = await openResolution({ cwd: root, env: resolutionEnv });
 if (!session?.config) {
@@ -219,7 +237,7 @@ const localPlugins = Object.entries(bosConfig.plugins ?? {})
   .map(([key, ref]) => [key, ref.development.slice("local:".length)] as const)
   .sort(([a], [b]) => a.localeCompare(b));
 
-// app.auth is an app-slot, not a plugins.* entry — its workspace build
+// app.auth is an app remote, not a plugins.* entry — its workspace build
 // (`every-plugin build`) covers the api remote AND the folder-form ui.
 const authWorkspace = resolveAuthWorkspace(bosConfig);
 
@@ -254,7 +272,7 @@ const build = () => {
   run("pnpm", ["run", "build"], "api");
 
   if (authWorkspace) {
-    console.log("[container-build] auth app-slot (api remote + folder-form ui)…");
+    console.log("[container-build] auth app remote (api remote + folder-form ui)…");
     run("pnpm", ["run", "build"], authWorkspace);
   }
 
@@ -298,8 +316,7 @@ function assertFederationTrain(distDir: string): void {
 }
 
 // Fixed in-container port map — every service is container-local, so only the
-// host port needs mapping at `docker run`. Plugin ui bundle keys occupy
-// basePort+20+idx (mirroring platform-deploy's `<key>-ui` bundle shape).
+// host port needs mapping at `docker run`.
 const basePort = 4100;
 const ports = {
   hostDist: basePort + 5,
@@ -310,7 +327,9 @@ const ports = {
 };
 
 // One plugin→port mapping for the whole staging plan — auth serves on its own
-// slot port, the other local plugins are indexed from basePort+10.
+// port, the other local plugins are indexed from basePort+10. Plugin ui bundle
+// keys occupy basePort+20+idx (mirroring platform-deploy's `<key>-ui` bundle
+// shape).
 const pluginPort = (key: string): number =>
   key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
 
@@ -350,19 +369,19 @@ const readBuildReport = (distDir: string): BuildEntryReport | null =>
   readWorkspaceBuildReport(path.join(root, distDir));
 
 /**
- * The fixture pins every slot it serves (ADR 0009 amendment: version-manifest
- * pins are the only production slot shape). Composes the workspace's version
+ * The fixture digests every slot it serves (ADR 0009 amendment: version-manifest
+ * digests are the only production slot shape). Composes the workspace's version
  * manifest from its dist build reports + locally-computed SRI — the staged
  * static servers ARE the storage boundary here — writes it at
  * `versions/<version>.json` inside the dist (both the image copy and the
- * BOS_BUNDLE_DIR namespace copy carry it), and returns the slot's `pin`.
+ * BOS_BUNDLE_DIR namespace copy carry it), and returns the remote's `digest`.
  */
-function pinDist(distDir: string, ssrDistDir?: string): SlotPin {
+function digestDist(distDir: string, ssrDistDir?: string): RemoteDigest {
   const report = readBuildReport(distDir);
   if (!report) {
     throw new Error(
-      `[container-build] ${distDir} has no build-report.json — the fixture pins every ` +
-        `remote slot (atomic-deploys hard break); rebuild the workspace`,
+      `[container-build] ${distDir} has no build-report.json — the fixture digests every ` +
+        `remote (atomic-deploys hard break); rebuild the workspace`,
     );
   }
   const ssrReport = ssrDistDir ? readBuildReport(ssrDistDir) : null;
@@ -407,29 +426,29 @@ const stage = () => {
     cpSync(source, path.join(dist, to), { recursive: true });
   };
 
-  // app.auth is an app-slot, not a plugins.* entry — stage its api dist and
+  // app.auth is an app remote, not a plugins.* entry — stage its api dist and
   // give it its server entry explicitly. `authWorkspace` is derived once at
   // module level from the resolved config.
 
-  // Slot pins are composed FIRST, from the repo dist dirs, so both the image
+  // Remote digests are composed FIRST, from the repo dist dirs, so both the image
   // copy and the namespace copy carry the version manifests.
-  const pins: Record<string, SlotPin> = {
-    host: pinDist("host/dist"),
-    ui: pinDist("ui/dist", "ui/dist/ssr"),
-    api: pinDist("api/dist"),
+  const digests: Record<string, RemoteDigest> = {
+    host: digestDist("host/dist"),
+    ui: digestDist("ui/dist", "ui/dist/ssr"),
+    api: digestDist("api/dist"),
     ...(authWorkspace
       ? {
-          auth: pinDist(path.join(authWorkspace, "dist")),
+          auth: digestDist(path.join(authWorkspace, "dist")),
           // The auth ui ships an SSR entry (the ssr fixture variant composes
           // it) — pin it like the core ui so ssrEntryUrl derives.
-          authUi: pinDist("plugins/auth/ui/dist", "plugins/auth/ui/dist/ssr"),
+          authUi: digestDist("plugins/auth/ui/dist", "plugins/auth/ui/dist/ssr"),
         }
       : {}),
     ...Object.fromEntries(
-      localPlugins.map(([key, workspace]) => [key, pinDist(path.join(workspace, "dist"))]),
+      localPlugins.map(([key, workspace]) => [key, digestDist(path.join(workspace, "dist"))]),
     ),
     ...Object.fromEntries(
-      [...pluginUiSlots].map(([key, slot]) => [`${key}Ui`, pinDist(slot.uiDist, slot.uiDistSsr)]),
+      [...pluginUiSlots].map(([key, slot]) => [`${key}Ui`, digestDist(slot.uiDist, slot.uiDistSsr)]),
     ),
   };
 
@@ -483,29 +502,29 @@ const stage = () => {
     readFileSync(path.join(root, "plugins", "auth", "package.json"), "utf8"),
   ).name as string;
 
-  // Bundle slots are addressed at the namespace path shape, served by the
+  // Bundle remotes are addressed at the namespace path shape, served by the
   // harness's own static servers (the host's /bundles/* route is gone —
   // ADR 0020). The production URL carries the base path; publicUrl is not
   // needed because the browser base is the same absolute URL.
   const nsBase = nsAccount && nsGateway ? `/bundles/${nsAccount}/${nsGateway}` : undefined;
-  const slotUrl = (port: number, slot: string) =>
-    nsBase ? `http://localhost:${port}${nsBase}/${slot}` : `http://localhost:${port}`;
+  const slotUrl = (port: number, remote: string) =>
+    nsBase ? `http://localhost:${port}${nsBase}/${remote}` : `http://localhost:${port}`;
 
   const plan = {
     host: `http://localhost:${ports.hostDist}`,
-    hostPin: pins.host,
+    hostDigest: digests.host,
     ui: {
       production: slotUrl(ports.ui, "ui"),
-      pin: pins.ui,
+      digest: digests.ui,
     },
     api: `http://localhost:${ports.api}`,
-    apiPin: pins.api,
+    apiDigest: digests.api,
     auth: slotUrl(ports.auth, "auth"),
-    authPin: pins.auth,
+    authDigest: digests.auth,
     authUi: {
       production: slotUrl(ports.authUi, "auth-ui"),
       name: containerName(authPkgName),
-      pin: pins.authUi,
+      digest: digests.authUi,
     },
     plugins: Object.fromEntries(
       localPlugins.map(([key]) => {
@@ -515,13 +534,13 @@ const stage = () => {
           key,
           {
             production: slotUrl(port, key),
-            pin: pins[key],
+            digest: digests[key],
             ...(ui
               ? {
                   ui: {
                     production: slotUrl(ui.port, `${key}-ui`),
                     name: ui.name,
-                    pin: pins[`${key}Ui`],
+                    digest: digests[`${key}Ui`],
                   },
                 }
               : {}),
@@ -547,8 +566,8 @@ const stage = () => {
           const ui = pluginUiSlots.get(key);
           const slot = value as {
             production?: string;
-            pin?: SlotPin;
-            ui?: { production?: string; name?: string; pin?: SlotPin };
+            digest?: RemoteDigest;
+            ui?: { production?: string; name?: string; digest?: RemoteDigest };
           };
           return [
             key,

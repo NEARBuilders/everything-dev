@@ -13,6 +13,12 @@
 FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS builder
 WORKDIR /app
 
+# pnpm 12 resolves git-hosted dependencies by shelling out to git — the
+# catalog pins one (@hot-labs/near-connect from the near-connect fork), and
+# the pre-run installs verifyDepsBeforeRun triggers for `pnpm run` below
+# re-resolve it. The alpine node base ships without git.
+RUN apk add --no-cache git
+
 # The git SHA the build's bytes bake into the platform release manifest
 # (#537): docker contexts carry no .git, so the workflow / local deploy
 # train pass it as a build arg; omitted (regression builds) → the field

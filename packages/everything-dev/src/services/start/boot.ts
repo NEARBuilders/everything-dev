@@ -7,7 +7,12 @@ import {
 } from "../../config";
 import type { StartOptions } from "../../contract";
 import { isRailwayPublicProxyUrl } from "../../db/driver";
-import { deleteProcessEnv, getProcessEnv, processEnvRecord } from "../../env/process-env";
+import {
+  deleteProcessEnv,
+  getProcessEnv,
+  operatorEnvRecord,
+  processEnvRecord,
+} from "../../env/process-env";
 import { captureShellEnv, ProjectEnv } from "../../env/project-env";
 import { planInfra } from "../../infra/planner";
 import type { InfraPlan } from "../../infra/types";
@@ -17,8 +22,13 @@ import { type BootstrapDeps, DevStepError, loadEnvStep } from "../dev/boot";
 import { emitProgress } from "../dev/progress";
 import { type AppOrchestrator, buildServiceDescriptorMap } from "../dev/service-descriptor";
 import type { DevSessionData, StartSummary } from "../dev/session";
-import { buildRegistryConfigUrl } from "../registry/fastkv";
+import { applyCompositionLockfile, type LockfileDrift } from "../lockfile/boot";
+import { readLockfileIfExists } from "../lockfile/schema";
+import { latestUrlFor } from "../registry/client";
+import { runtimeRefOf } from "../registry/keys";
 import { resolvePublishedConfig } from "../registry/published";
+import { bootSnapshotOf, readBootSnapshot, writeBootSnapshot } from "../snapshot/schema";
+import { bootSnapshotEnv, createRegistryConfigSource } from "./snapshot-source";
 import { isRegistryStart, resolveStartConfigSource, type StartConfigSource } from "./source";
 
 export class StartFetchFailed extends Data.TaggedError("StartFetchFailed")<{ message: string }> {}
@@ -30,6 +40,19 @@ export class StartRemoteConfigMissing extends Data.TaggedError("StartRemoteConfi
 export class StartConfigMissing extends Data.TaggedError("StartConfigMissing")<
   Record<string, never>
 > {}
+
+/** The degraded-boot rung's seams (ADR 0041): the live registry fetch, the
+ * persisted snapshot load, and the persist-on-resolution writer — one source
+ * for both the healthy and the degraded path. */
+const registryConfigSource = createRegistryConfigSource({
+  fetchPublishedConfig: (account, gateway, registryOverride) =>
+    resolvePublishedConfig(account, gateway, registryOverride),
+  loadSnapshot: (account, gateway, dir) =>
+    readBootSnapshot(account, gateway, dir ? { dir } : undefined),
+  persistSnapshot: async (account, gateway, resolved) => {
+    await writeBootSnapshot(bootSnapshotOf({ account, gateway, config: resolved }));
+  },
+});
 
 /**
  * A production start booting from an explicit config has declared that config
@@ -71,16 +94,27 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
     const registry = input.registry ?? getProcessEnv("BOS_REGISTRY");
     setSnapshotWatchIntervalForBoot(explicitConfig, bosEnv);
 
+    const warnings: string[] = [];
+
     let config: BosConfig | null = null;
-    let remoteConfig: BosConfig | null = null;
+    let configResolutionSource: "registry" | "snapshot" | undefined;
 
     if (explicitConfig.configPath) {
       config = deps.session?.config ?? null;
     } else if (explicitConfig.registry) {
       const { account, domain } = explicitConfig.registry;
-      const expectedUrl = buildRegistryConfigUrl(account, domain, registry);
-      remoteConfig = yield* Effect.tryPromise({
-        try: () => resolvePublishedConfig(account, domain, registry),
+      const expectedUrl = latestUrlFor(
+        { kind: "runtimeConfig", ref: runtimeRefOf({ accountId: account, gatewayId: domain }) },
+        registry !== undefined ? { registry } : undefined,
+      );
+      const resolved = yield* Effect.tryPromise({
+        try: () =>
+          registryConfigSource.resolve({
+            account,
+            gateway: domain,
+            registry: registry !== undefined ? registry : undefined,
+            allowSnapshot: getProcessEnv("BOS_SNAPSHOT_BOOT") !== "never",
+          }),
         catch: (error) =>
           new StartFetchFailed({
             message: `Failed to fetch config for bos://${account}/${domain}: ${
@@ -88,12 +122,15 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
             }\nExpected URL: ${expectedUrl}`,
           }),
       });
-      if (remoteConfig) {
-        config = remoteConfig;
-      } else {
+      if (resolved === null) {
         return yield* new StartRemoteConfigMissing({
           message: `No config found at bos://${account}/${domain}. Verify the account and gateway are correct and the config has been published.\nExpected URL: ${expectedUrl}`,
         });
+      }
+      config = resolved.config;
+      configResolutionSource = resolved.source;
+      for (const warning of resolved.warnings) {
+        warnings.push(warning);
       }
     } else {
       config = deps.session?.config ?? null;
@@ -109,6 +146,28 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       }
       if (explicitConfig.registry?.domain) {
         config = { ...config, domain: explicitConfig.registry.domain };
+      }
+    }
+
+    // The composition lockfile is the boot's authority for remote coordinates
+    // (ADR 0042 ticket 03): frozen descriptors stamp over the resolved
+    // composition — filling missing pins, overriding drifted ones — and every
+    // disagreement rides the start summary as a warning. Enforcement lives in
+    // CI (`bos lock --check`), not in the boot: a stale lockfile must never
+    // brick a restart.
+    const lockfile = yield* Effect.tryPromise(() => readLockfileIfExists(sessionRoot)).pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
+    if (lockfile) {
+      const application = applyCompositionLockfile(config, lockfile);
+      config = application.config;
+      for (const entry of application.applied) {
+        warnings.push(`composition lockfile stamped ${entry} — the resolved remote had no pin`);
+      }
+      for (const entry of application.drift as LockfileDrift[]) {
+        warnings.push(
+          `composition lockfile drift at ${entry.path}: ${entry.detail} — the frozen composition wins; run \`bos lock\` to refresh`,
+        );
       }
     }
     const baseConfig: BosConfig = config;
@@ -151,7 +210,6 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
     yield* emitProgress({ phase: "generate artifacts", status: "done" });
 
     const productionEnv: Record<string, string> = {};
-    const warnings: string[] = [];
 
     const localhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
     const corsOrigin = getProcessEnv("CORS_ORIGIN");
@@ -219,6 +277,14 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       }
     }
 
+    if (!operatorEnvRecord().API_DATABASE_URL && !operatorEnvRecord().AUTH_DATABASE_URL) {
+      warnings.push(
+        "No *_DATABASE_URL set — workspaces boot on per-identity local PGlite defaults " +
+          "(.bos/db/<slug>, one data dir per workspace). Set API_DATABASE_URL/AUTH_DATABASE_URL " +
+          "in .env to a postgres:// URL for production durability.",
+      );
+    }
+
     const stagingEnvVars: Record<string, string> = isStaging
       ? { BOS_GATEWAY: baseConfig.staging?.domain ?? baseConfig.domain ?? "" }
       : {};
@@ -226,6 +292,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
     const plan: InfraPlan = yield* planInfra({
       configDir: sessionRoot,
       bosConfig: runtimeConfig,
+      operatorEnv: operatorEnvRecord(),
       cli: {
         port: input.port,
         ssr: false,
@@ -242,18 +309,22 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
 
     const configSource = explicitConfig.configPath
       ? explicitConfig.configPath
-      : remoteConfig
-        ? `bos://${explicitConfig.registry?.account}/${explicitConfig.registry?.domain}`
+      : explicitConfig.registry
+        ? `bos://${explicitConfig.registry.account}/${explicitConfig.registry.domain}`
         : (findConfigPath() ?? "bos.config.json");
 
-    const configSourceHttp =
-      remoteConfig && explicitConfig.registry
-        ? buildRegistryConfigUrl(
-            explicitConfig.registry.account,
-            explicitConfig.registry.domain,
-            registry,
-          )
-        : undefined;
+    const configSourceHttp = explicitConfig.registry
+      ? latestUrlFor(
+          {
+            kind: "runtimeConfig",
+            ref: runtimeRefOf({
+              accountId: explicitConfig.registry.account,
+              gatewayId: explicitConfig.registry.domain,
+            }),
+          },
+          registry !== undefined ? { registry } : undefined,
+        )
+      : undefined;
 
     const summary: StartSummary = {
       configSource,
@@ -273,6 +344,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       packages: ["host"],
       env: {
         NODE_ENV: "production",
+        ...bootSnapshotEnv(configResolutionSource),
         ...productionEnv,
         ...stagingEnvVars,
         ...plan.launch.env,

@@ -63,9 +63,9 @@ export const cliDeployTrainRender: DeployTrainRender = {
     console.log();
     console.log("  Publishing to:");
     console.log(`    ${colors.cyan(info.registryUrl)}`);
-    console.log(`    ${colors.dim("Fingerprint:")} ${info.fingerprint}`);
-    for (const [slot, pin] of info.slotPins) {
-      console.log(`    ${colors.dim(`${slot}:`)}`);
+    console.log(`    ${colors.dim("Pointer digest:")} ${info.pointerDigest}`);
+    for (const [remote, pin] of info.remoteDigests) {
+      console.log(`    ${colors.dim(`${remote}:`)}`);
       console.log(`      ${pin}`);
     }
     console.log(

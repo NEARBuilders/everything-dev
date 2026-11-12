@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import {
@@ -72,7 +72,7 @@ describe("bos init — structure", () => {
     expect(existsSync(join(testDir, ".github", "workflows", "deploy.yml"))).toBe(true);
     expect(existsSync(join(testDir, ".github", "renovate.json"))).toBe(false);
     expect(existsSync(join(testDir, ".github", "workflows", "packages-release.yml"))).toBe(false);
-    expect(existsSync(join(testDir, ".github", "workflows", "release.yml"))).toBe(true);
+    expect(existsSync(join(testDir, ".github", "workflows", "release.yml"))).toBe(false);
     expect(existsSync(join(testDir, ".github", "workflows", "staging.yml"))).toBe(true);
     expect(existsSync(join(testDir, "CONTRIBUTING.md"))).toBe(true);
     expect(existsSync(join(testDir, "api/src/contract.ts"))).toBe(true);
@@ -87,7 +87,8 @@ describe("bos init — structure", () => {
     expect(existsSync(join(testDir, "plans"))).toBe(false);
     expect(existsSync(join(testDir, ".agent"))).toBe(false);
     expect(existsSync(join(testDir, ".opencode"))).toBe(false);
-    expect(existsSync(join(testDir, ".changeset"))).toBe(true);
+    // #572: children have no changesets — no scaffold, no version/release scripts
+    expect(existsSync(join(testDir, ".changeset"))).toBe(false);
   });
 
   it("copies selected plugin directories when plugins override is active", async () => {
@@ -103,6 +104,48 @@ describe("bos init — structure", () => {
       expect(existsSync(join(selectedDir, "plugins", "example"))).toBe(false);
     } finally {
       rmSync(selectedDir, { recursive: true, force: true });
+    }
+  });
+
+  it("never copies generated artifacts from a dirty source tree", async () => {
+    const dirtySourceDir = mkdtempSync(join(tmpdir(), "bos-init-dirty-source-"));
+    const dirtyChildDir = mkdtempSync(join(tmpdir(), "bos-init-dirty-child-"));
+    try {
+      const writeSource = (path: string, content: string) => {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      };
+      writeSource(
+        join(dirtySourceDir, "plugins", "_template", "src", "index.ts"),
+        "export const plugin = {};",
+      );
+      writeSource(
+        join(dirtySourceDir, "plugins", "_template", "src", "lib", "auth-types.gen.ts"),
+        'export type * from "../../../auth/src/auth-export.ts";',
+      );
+      writeSource(join(dirtySourceDir, "ui", "src", "lib", "api.ts"), "export const api = 1;");
+      writeSource(
+        join(dirtySourceDir, "ui", "src", "lib", "api-types.gen.ts"),
+        "export type ApiContract = Record<string, never>;",
+      );
+
+      const patterns = buildInitPatterns(["ui", "plugins"], ["template"], {
+        template: "_template",
+      });
+      await copyFilteredFiles(dirtySourceDir, dirtyChildDir, patterns, {
+        overrides: ["ui", "plugins"],
+        plugins: ["template"],
+      });
+
+      expect(existsSync(join(dirtyChildDir, "plugins", "_template", "src", "index.ts"))).toBe(true);
+      expect(
+        existsSync(join(dirtyChildDir, "plugins", "_template", "src", "lib", "auth-types.gen.ts")),
+      ).toBe(false);
+      expect(existsSync(join(dirtyChildDir, "ui", "src", "lib", "api.ts"))).toBe(true);
+      expect(existsSync(join(dirtyChildDir, "ui", "src", "lib", "api-types.gen.ts"))).toBe(false);
+    } finally {
+      rmSync(dirtySourceDir, { recursive: true, force: true });
+      rmSync(dirtyChildDir, { recursive: true, force: true });
     }
   });
 
@@ -183,7 +226,10 @@ describe("bos init — structure", () => {
     expect(rootPkg.private).toBe(true);
     expect(rootPkg.module).toBeUndefined();
     expect(rootPkg.peerDependencies).toBeUndefined();
-    expect(rootPkg.scripts?.version).toBe("changeset version");
+    // #572: children have no changesets — no version/release/changeset scripts
+    expect(rootPkg.scripts?.version).toBeUndefined();
+    expect(rootPkg.scripts?.release).toBeUndefined();
+    expect(rootPkg.scripts?.changeset).toBeUndefined();
     expect(rootPkg.scripts?.["sync-catalog"]).toBeUndefined();
     expect(rootCatalog?.["everything-dev"]).toBe(MANIFEST_SPEC.rootCatalog["everything-dev"]);
     expect(rootCatalog?.["every-plugin"]).toBe(MANIFEST_SPEC.rootCatalog["every-plugin"]);
@@ -317,5 +363,18 @@ describe("bos init — structure", () => {
     expect(agentsMd).toContain("Never use bun");
     expect(agentsMd).not.toMatch(/\bbun (install|run|x)\b/);
     expect(agentsMd).toContain("Docker Desktop");
+  });
+
+  it("generated AGENTS.md links the promoted agent docs (#597)", () => {
+    const agentsMd = buildChildAgentsMd("", { overrides: ["ui", "api", "host"] });
+
+    expect(agentsMd).toContain(
+      "[`docs/agents/coding-standards.md`](docs/agents/coding-standards.md)",
+    );
+    expect(agentsMd).toContain(
+      "[`docs/agents/change-placement.md`](docs/agents/change-placement.md)",
+    );
+    expect(agentsMd).toContain("[`docs/agents/how-it-fits.md`](docs/agents/how-it-fits.md)");
+    expect(agentsMd).toContain("[`docs/agents/testing.md`](docs/agents/testing.md)");
   });
 });

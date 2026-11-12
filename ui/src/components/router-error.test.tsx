@@ -27,7 +27,7 @@ describe("router error fallback", () => {
   });
 
   it("omits the details block from server-rendered fallbacks by default", () => {
-    const markup = renderToStaticMarkup(<RouterError error={new Error(SCRIPT)} />);
+    const markup = renderToStaticMarkup(<RouterError error={new Error(SCRIPT)} reset={() => {}} />);
 
     expect(markup).toContain("This page didn’t load");
     expect(markup).not.toContain("<summary");
@@ -37,7 +37,7 @@ describe("router error fallback", () => {
 
   it("showErrorDetails={true} renders the details block even on the server, escaped", () => {
     const markup = renderToStaticMarkup(
-      <RouterError error={new Error(SCRIPT)} showErrorDetails={true} />,
+      <RouterError error={new Error(SCRIPT)} reset={() => {}} showErrorDetails={true} />,
     );
 
     expect(markup).toContain("<summary");
@@ -47,7 +47,7 @@ describe("router error fallback", () => {
 
   it("showErrorDetails={false} never renders the details block", () => {
     const markup = renderToStaticMarkup(
-      <RouterError error={new Error(SCRIPT)} showErrorDetails={false} />,
+      <RouterError error={new Error(SCRIPT)} reset={() => {}} showErrorDetails={false} />,
     );
 
     expect(markup).toContain("This page didn’t load");
@@ -55,7 +55,7 @@ describe("router error fallback", () => {
   });
 
   it("reveals the details block after a client mount, escaped", async () => {
-    const screen = render(<RouterError error={new Error(SCRIPT)} />);
+    const screen = render(<RouterError error={new Error(SCRIPT)} reset={() => {}} />);
 
     await act(async () => {});
     const details = screen.getByText("Error details").closest("details");

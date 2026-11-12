@@ -34,7 +34,7 @@ describe("startVersionWatch", () => {
     fakeDoc = fakeDocument();
     onNewVersion = vi.fn();
     fetchImpl = vi.fn(
-      async () => new Response(JSON.stringify({ fingerprint: "v2" }), { status: 200 }),
+      async () => new Response(JSON.stringify({ deploymentDigest: "v2" }), { status: 200 }),
     );
   });
 
@@ -45,14 +45,14 @@ describe("startVersionWatch", () => {
 
   const start = (overrides?: Partial<Parameters<typeof startVersionWatch>[0]>) =>
     startVersionWatch({
-      currentFingerprint: "v1",
+      currentDeploymentDigest: "v1",
       onNewVersion,
       documentRef: fakeDoc as unknown as Document,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       ...overrides,
     });
 
-  it("calls onNewVersion when the served fingerprint differs", async () => {
+  it("calls onNewVersion when the served deployment digest differs", async () => {
     start();
     await vi.advanceTimersByTimeAsync(61_000);
     expect(onNewVersion).toHaveBeenCalledTimes(1);
@@ -76,9 +76,9 @@ describe("startVersionWatch", () => {
     expect(onNewVersion).toHaveBeenCalledTimes(1);
   });
 
-  it("stays silent when the fingerprint matches", async () => {
+  it("stays silent when the deployment digest matches", async () => {
     fetchImpl = vi.fn(
-      async () => new Response(JSON.stringify({ fingerprint: "v1" }), { status: 200 }),
+      async () => new Response(JSON.stringify({ deploymentDigest: "v1" }), { status: 200 }),
     );
     start();
     await vi.advanceTimersByTimeAsync(61_000);
