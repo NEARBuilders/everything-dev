@@ -27,7 +27,6 @@ export interface RollbackSnapshotInput {
   registry?: string;
   network?: "mainnet" | "testnet";
   privateKey?: string;
-  wallet?: boolean;
   verbose?: boolean;
   dryRun?: boolean;
 }
@@ -148,7 +147,6 @@ export async function publishRollbackSnapshot(
     packages: "all",
     network: input.network,
     privateKey: input.privateKey,
-    wallet: input.wallet ?? false,
     registry: input.registry,
     exactPayload: true,
     ...(opts?.restorePlatformPointer

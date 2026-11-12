@@ -1,6 +1,6 @@
 import { Effect, Exit } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { nearAccount } from "../../src/db/schema";
+import { custodyWallet, nearAccount } from "../../src/db/schema";
 import type { PluginServices } from "../../src/service-types";
 import { buildApiKeysService } from "../../src/services/api-keys";
 import {
@@ -33,6 +33,24 @@ async function linkTestNearAccount(
     network: "mainnet",
     publicKey: "ed25519:test-public-key",
     isPrimary: true,
+    createdAt: new Date(),
+  });
+}
+
+const CUSTODY_HEX_ACCOUNT = "2e6f1f3a9c8d4b2e1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b";
+
+async function insertCustodyWallet(
+  svc: PluginServices,
+  userId: string,
+  nearAccountId: string,
+): Promise<void> {
+  await svc.db.insert(custodyWallet).values({
+    id: `cw-${crypto.randomUUID()}`,
+    userId,
+    network: "mainnet",
+    walletId: `wallet-${crypto.randomUUID()}`,
+    nearAccountId,
+    encryptedApiKey: "sealed",
     createdAt: new Date(),
   });
 }
@@ -268,6 +286,28 @@ describe("API key handlers", () => {
           context: { reqHeaders: user.reqHeaders },
         }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("mints for the custody wallet's hex account without a NEAR-account link", async () => {
+      const user = await createTestUser(services.services);
+      await insertCustodyWallet(services.services, user.userId, CUSTODY_HEX_ACCOUNT);
+      const handlers = createTestHandlers(services.services);
+
+      const created = await handlers.apiKeys.createDeployKey({
+        input: { account: CUSTODY_HEX_ACCOUNT, gateway: "citynode.app" },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      expect(created.key).toMatch(/^api_/);
+
+      const verified = await handlers.apiKeys.verifyApiKey({
+        input: { key: created.key, permissions: { bundles: ["write"] } },
+        context: { reqHeaders: {} },
+      });
+      expect(verified.valid).toBe(true);
+      expect(verified.key?.metadata).toMatchObject({
+        account: CUSTODY_HEX_ACCOUNT,
+        gateway: "citynode.app",
+      });
     });
   });
 

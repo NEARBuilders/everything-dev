@@ -9,11 +9,13 @@ const {
   submitRegistryWriteDelegatedMock,
   classifyTransactionOutcomeMock,
   checkPublishKeyHealthMock,
+  hasLocalSigningKeyMock,
 } = vi.hoisted(() => ({
   ensureDelegateKeyMock: vi.fn(),
   submitRegistryWriteDelegatedMock: vi.fn(),
   classifyTransactionOutcomeMock: vi.fn(),
   checkPublishKeyHealthMock: vi.fn(),
+  hasLocalSigningKeyMock: vi.fn(),
 }));
 
 vi.mock("../../src/services/auth/delegate-signer", () => ({
@@ -27,6 +29,7 @@ vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
     ...actual,
     classifyTransactionOutcome: classifyTransactionOutcomeMock,
     checkPublishKeyHealth: checkPublishKeyHealthMock,
+    hasLocalSigningKey: hasLocalSigningKeyMock,
   };
 });
 
@@ -47,6 +50,7 @@ vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   };
 });
 
+import { preflightPublish } from "../../src/services/deploy/preflight";
 import { publishToFastKv } from "../../src/services/deploy/train";
 import { stripLocalDevelopmentTargets } from "../../src/services/resolution/merge";
 import type { BosConfig } from "../../src/types";
@@ -90,13 +94,25 @@ function sessionFixture(accountId: string | null) {
 
 describe("publishToFastKv publish.auth guard", () => {
   let configDir: string;
+  let savedEnv: Record<string, string | undefined>;
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), "bos-publish-guard-"));
     checkPublishKeyHealthMock.mockResolvedValue({ ok: true });
+    hasLocalSigningKeyMock.mockResolvedValue(false);
+    savedEnv = {
+      NEAR_PRIVATE_KEY: process.env.NEAR_PRIVATE_KEY,
+      BOS_NEAR_PRIVATE_KEY: process.env.BOS_NEAR_PRIVATE_KEY,
+    };
+    delete process.env.NEAR_PRIVATE_KEY;
+    delete process.env.BOS_NEAR_PRIVATE_KEY;
   });
 
   afterEach(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     writeSessionGuardCleanup();
   });
 
@@ -112,7 +128,7 @@ describe("publishToFastKv publish.auth guard", () => {
       dryRun: true,
     });
     expect(result.status).toBe("error");
-    expect(result.error).toContain("Run bos login");
+    expect(result.error).toContain("bos login");
   });
 
   it("errors on account mismatch between session and config", async () => {
@@ -138,7 +154,7 @@ describe("publishToFastKv publish.auth guard", () => {
     expect(result.status).toBe("dry-run");
   });
 
-  it("a session without an accountId is accepted", async () => {
+  it("a session without an accountId cannot relay — publish.auth=session fails before the build", async () => {
     writeSessionHandle(configDir, sessionFixture(null));
     const result = await publishToFastKv({
       ...baseInput,
@@ -146,10 +162,11 @@ describe("publishToFastKv publish.auth guard", () => {
       configDir,
       dryRun: true,
     });
-    expect(result.status).toBe("dry-run");
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("no NEAR account");
   });
 
-  it("rejects the not-yet-implemented custody lane", async () => {
+  it("custody mode without a stored custody wallet fails with the login hint", async () => {
     writeSessionHandle(configDir, sessionFixture("dev.everything.near"));
     const result = await publishToFastKv({
       ...baseInput,
@@ -159,6 +176,35 @@ describe("publishToFastKv publish.auth guard", () => {
     });
     expect(result.status).toBe("error");
     expect(result.error).toContain("custody");
+    expect(result.error).toContain("bos login --custody");
+  });
+
+  it("a custody publish without a session credential still passes the guards (uploads use the minted key)", async () => {
+    writeSessionHandle(configDir, {
+      version: 1,
+      credential: null,
+      publishKey: null,
+      delegateKey: null,
+      custodyWallet: {
+        apiKey: "wk_test",
+        walletId: "wallet-1",
+        nearAccountId: "2e6f1f3a9c8d4b2e1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b",
+        network: "mainnet",
+        handoffUrl: null,
+        registeredAt: new Date().toISOString(),
+      },
+    });
+    const result = await publishToFastKv({
+      ...baseInput,
+      bosConfig: {
+        ...bosConfig,
+        account: "2e6f1f3a9c8d4b2e1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b",
+        publish: { auth: "custody" },
+      },
+      configDir,
+      dryRun: true,
+    });
+    expect(result.status).toBe("dry-run");
   });
 
   it("an explicit private key bypasses the session requirement", async () => {
@@ -172,18 +218,23 @@ describe("publishToFastKv publish.auth guard", () => {
     expect(result.status).toBe("dry-run");
   });
 
-  it("errors when --wallet has no session", async () => {
-    const result = await publishToFastKv({
-      ...baseInput,
+  it("an implicit session for the config account resolves to session signing", async () => {
+    writeSessionHandle(configDir, sessionFixture("dev.everything.near"));
+    const preflight = await preflightPublish({
+      bosConfig,
       configDir,
-      dryRun: true,
-      wallet: true,
+      env: "production",
+      build: false,
+      dryRun: false,
+      packages: "",
     });
-    expect(result.status).toBe("error");
-    expect(result.error).toContain("--wallet requires");
+    expect(preflight.kind).toBe("ready");
+    if (preflight.kind === "ready") {
+      expect(preflight.plan.signing.mode).toBe("session");
+    }
   });
 
-  it("submits config + manifest atomically through the relay in --wallet mode", async () => {
+  it("submits config + manifest atomically through the relay for a logged-in session", async () => {
     writeSessionHandle(configDir, sessionFixture("dev.everything.near"));
     ensureDelegateKeyMock.mockResolvedValue({
       publicKey: "ed25519:delegate",
@@ -211,7 +262,6 @@ describe("publishToFastKv publish.auth guard", () => {
       ...baseInput,
       configDir,
       dryRun: false,
-      wallet: true,
     });
 
     expect(result.status).toBe("published");

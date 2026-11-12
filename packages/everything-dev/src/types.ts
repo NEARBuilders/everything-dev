@@ -427,9 +427,13 @@ export const CiConfigSchema = z.object({
 });
 export type CiConfig = z.infer<typeof CiConfigSchema>;
 
-/** Where this runtime's built bundles are served from. Inherited via extends. */
+/** Where this runtime's built bundles are served from (`origin`) and uploaded
+ * to (`upload` — the bundle-write control plane, ADR 0027). Inherited via
+ * extends; the env vars (`BOS_BUNDLE_CDN_ORIGIN` / `BOS_STORAGE_ORIGIN`) are
+ * the overrides. */
 export const CdnConfigSchema = z.object({
   origin: z.string().optional(),
+  upload: z.string().optional(),
 });
 export type CdnConfig = z.infer<typeof CdnConfigSchema>;
 
@@ -470,6 +474,11 @@ export const SeedConfigSchema = z
   .strict();
 export type SeedConfig = z.infer<typeof SeedConfigSchema>;
 
+/** How publishes sign: "session" (gasless relay under the delegate key the
+ * browser approved at `bos login`), "key" (direct key signing for CI —
+ * `NEAR_PRIVATE_KEY` or `~/.near-credentials`), or "custody" (an OutLayer
+ * custody wallet whose implicit hex account is the config's `account`).
+ * Absent: an available key wins, else the login session. */
 export const PublishAuthSchema = z.enum(["session", "key", "custody"]);
 export type PublishAuth = z.infer<typeof PublishAuthSchema>;
 

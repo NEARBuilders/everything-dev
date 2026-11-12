@@ -8,13 +8,19 @@ import {
   type LogoutResult,
 } from "../contract";
 import { DeviceLoginService, openInBrowser } from "../services/auth/device-login";
+import { generateNearKeyPair } from "../services/auth/near-cli";
 import { loginOutlayerCli } from "../services/auth/outlayer";
 import { mintPublishKey } from "../services/auth/publish-key";
-import type { SessionCredential } from "../services/auth/session";
+import type { DelegateKeyRecord, SessionCredential } from "../services/auth/session";
 import { SessionStore } from "../services/auth/session-store";
 import { SiteClient, type SiteClientShape } from "../services/auth/site-client";
+import {
+  fetchBosConfigFromFastKv,
+  getRegistryNamespaceForAccount,
+} from "../services/registry/fastkv";
 import type { ResolutionSession } from "../services/resolution/session";
 import { ResolutionSessionService } from "../services/resolution/session";
+import { parseBosRef } from "../utils/bos-ref";
 import { formatUnknownError } from "../utils/errors";
 import { getNetworkIdForAccount } from "../utils/network";
 import { colors } from "../utils/theme";
@@ -40,26 +46,43 @@ export function registerKeys(builder: BosBuilder) {
         input.expiresIn ??
         (input.key ? DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS : DEFAULT_LOGIN_EXPIRES_IN_SECONDS);
 
-      const siteUrl = resolveLoginSiteUrl(input.site, session, staging);
+      // The scoped deploy key (bundles:write for the config's account/gateway)
+      // is the session credential whenever the config names both — uploads
+      // verify it, so `bos deploy` works right after login.
       let deployKey: { account: string; gateway: string } | undefined;
-      if (input.key) {
-        if (!account || !gateway) {
-          return {
-            status: "error" as const,
-            siteUrl: siteUrl,
-            error:
-              "Deploy keys scope to the authored config's account and domain — set both in bos.config.json (or drop --key for a plain login)",
-          } satisfies LoginResult;
-        }
+      if (account && gateway) {
         deployKey = { account, gateway };
       }
+
+      const siteUrl = yield* Effect.promise(() =>
+        resolveLoginSiteUrl(input.site, session, staging, input.registry),
+      );
+
+      // The gasless-publish delegate key is approved in the same browser trip:
+      // the CLI generates the keypair, the approval page adds its public half
+      // to the account, and the private half never leaves .bos/session.json.
+      const network = getNetworkIdForAccount(account);
+      const contract = account ? getRegistryNamespaceForAccount(account, input.registry) : "";
+      const existingDelegate = sessions.read(session?.root ?? process.cwd())?.delegateKey ?? null;
+      const reusableDelegate =
+        existingDelegate &&
+        existingDelegate.accountId === account &&
+        existingDelegate.contract === contract &&
+        existingDelegate.network === network
+          ? existingDelegate
+          : null;
+      const pendingKeyPair =
+        account && !reusableDelegate && !input.custody ? generateNearKeyPair() : null;
 
       const login = yield* deviceLogin
         .start({
           siteUrl,
           device: input.device,
           account: account || undefined,
-          custody: input.custody ? { network: getNetworkIdForAccount(account) } : undefined,
+          custody: input.custody ? { network } : undefined,
+          delegate: pendingKeyPair
+            ? { pubKey: pendingKeyPair.publicKey, contract, network }
+            : undefined,
           expiresIn,
           deployKey,
         })
@@ -103,6 +126,24 @@ export function registerKeys(builder: BosBuilder) {
           const expiresAt = isoAt(startedMs + expiresIn * 1000);
           const configDir = session?.root ?? process.cwd();
           const existingSession = sessions.read(configDir);
+          let delegateKey: DelegateKeyRecord | null = reusableDelegate;
+          let delegateNote: string | null = null;
+          if (pendingKeyPair) {
+            if (approval.accountId === account) {
+              delegateKey = {
+                publicKey: pendingKeyPair.publicKey,
+                privateKey: pendingKeyPair.privateKey,
+                accountId: account,
+                network,
+                contract,
+                mintedAt: isoAt(startedMs),
+              };
+            } else {
+              delegateNote = approval.accountId
+                ? `Gasless publish key not installed: signed in as ${approval.accountId}, but the configured account is ${account}.`
+                : `Gasless publish key not installed: no NEAR wallet was connected on the approval page (needed to add a key to ${account}).`;
+            }
+          }
           sessions.write(configDir, {
             version: 1,
             credential: {
@@ -116,11 +157,17 @@ export function registerKeys(builder: BosBuilder) {
               expiresAt,
             },
             publishKey: null,
-            delegateKey: null,
+            delegateKey,
             custodyWallet: approval.custodyWallet ?? existingSession?.custodyWallet ?? null,
           });
 
           let warning: string | null = null;
+          if (approval.deployKeyWarning) {
+            warning = approval.deployKeyWarning;
+          }
+          if (delegateNote) {
+            warning = warning ? `${warning} ${delegateNote}` : delegateNote;
+          }
           if (input.custody && !approval.custodyWallet) {
             warning =
               "Custody wallet credential could not be fetched after approval. Re-run `bos login --custody` — the wallet is kept server-side.";
@@ -160,7 +207,7 @@ export function registerKeys(builder: BosBuilder) {
             loginUrl: login.verificationUrl,
             publishKey,
             deployKey:
-              deployKey && approval.apiKey
+              input.key && deployKey && approval.apiKey && !approval.deployKeyWarning
                 ? {
                     key: approval.apiKey.key,
                     account: deployKey.account,
@@ -253,24 +300,62 @@ async function logoutBody(
   } satisfies LogoutResult;
 }
 
-function resolveLoginSiteUrl(
+/**
+ * The login site hosts the device-approval page, custody registration, and
+ * the gasless relay — platform services that live at the **root** of the
+ * extends chain, not at the child's own domain. Derived by walking the
+ * resolution session's extends chain to its furthest on-chain ancestor and
+ * reading that runtime's published `domain`; an explicit `--site` always
+ * wins (that is how a local stack is targeted), and a derivation failure
+ * falls back to the authored domain.
+ */
+async function resolveLoginSiteUrl(
   siteInput: string | undefined,
   session: ResolutionSession | null,
   staging: boolean,
-): string {
+  registry?: string,
+): Promise<string> {
   if (siteInput) {
     return siteInput.replace(/\/+$/, "");
   }
   if (staging) {
     const stagingDomain = session?.config?.staging?.domain ?? session?.config?.domain;
-    return stagingDomain ? `https://${stagingDomain}` : (session?.runtime?.ui?.url ?? "");
+    return stagingDomain ? `https://${stagingDomain}` : "";
   }
-  const devUiUrl = session?.runtime?.ui?.url;
-  if (devUiUrl && /^https?:\/\/(localhost|127\.0\.0\.1)/.test(devUiUrl)) {
-    return devUiUrl.replace(/\/+$/, "");
+  const derived = await deriveExtendsRootSite(session, registry);
+  if (derived) {
+    return derived;
   }
   const domain = session?.config?.domain;
   return domain ? `https://${domain}` : "";
+}
+
+async function deriveExtendsRootSite(
+  session: ResolutionSession | null,
+  registry?: string,
+): Promise<string | null> {
+  const chain = session?.chain ?? [];
+  const rootRef = [...chain].reverse().find((ref) => ref.startsWith("bos://"));
+  if (!rootRef || !session) {
+    return null;
+  }
+  const parsed = parseBosRef(rootRef);
+  if (!parsed) {
+    return null;
+  }
+  try {
+    const parent = await fetchBosConfigFromFastKv<{ domain?: string }>(rootRef, registry);
+    if (parent?.domain) {
+      return `https://${parent.domain}`;
+    }
+  } catch {
+    console.log(
+      colors.dim(
+        `  Note: could not derive the login site from ${rootRef} — falling back to the authored domain`,
+      ),
+    );
+  }
+  return null;
 }
 
 /** `login --key`'s export: the shared mint, then the near-cli-rs keystore

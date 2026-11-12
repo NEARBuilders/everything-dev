@@ -70,6 +70,18 @@ export async function resolveSigningKey(opts: {
   throw new NearTransactionError("No signing key available");
 }
 
+export async function hasLocalSigningKey(opts: {
+  account: string;
+  network: NetworkId;
+}): Promise<boolean> {
+  try {
+    await resolveSigningKey(opts);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveSigningStrategy(opts: {
   privateKey?: string;
   account: string;
@@ -88,10 +100,10 @@ export async function resolveSigningStrategy(opts: {
 
   throw new NearTransactionError(
     `No signing key available for ${opts.account} on ${opts.network}. ` +
-      `Set NEAR_PRIVATE_KEY (or BOS_NEAR_PRIVATE_KEY), store credentials at ` +
-      `~/.near-credentials/${opts.network}/${opts.account}.json, or sign with the ` +
-      `near-cli-rs keychain (install it, then retry from an interactive terminal). ` +
-      `Generate a publish key with: bos login --key`,
+      `Run \`bos login\` to sign through your browser (no local key), or set NEAR_PRIVATE_KEY ` +
+      `(or BOS_NEAR_PRIVATE_KEY) / store credentials at ` +
+      `~/.near-credentials/${opts.network}/${opts.account}.json for direct key signing ` +
+      `(mint one with \`bos login --key\`).`,
   );
 }
 

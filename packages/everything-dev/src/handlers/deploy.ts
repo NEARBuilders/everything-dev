@@ -81,7 +81,6 @@ export function registerDeploy(builder: BosBuilder) {
           packages: "all",
           network: input.network,
           privateKey: input.privateKey,
-          wallet: input.wallet,
           registry: input.registry,
         })
         .pipe(Effect.catchTag("PublishTrainError", mapTrainError));
@@ -141,7 +140,6 @@ export function registerDeploy(builder: BosBuilder) {
             verbose: input.verbose,
             network: input.network,
             privateKey: input.privateKey,
-            wallet: input.wallet,
             promote: true,
           }),
         catch: (error) => ({
@@ -204,7 +202,6 @@ async function rollbackBody(
     verbose: boolean;
     network?: "mainnet" | "testnet";
     privateKey?: string;
-    wallet: boolean;
     /** Promote framing (ADR 0042 ticket 05): activate a recorded deployment
      * without the rolledBackFrom brand; requires an explicit version, and an
      * already-live target is a legitimate idempotent no-op rather than a
@@ -333,7 +330,6 @@ async function rollbackBody(
       registry: input.registry,
       network: input.network,
       privateKey: input.privateKey,
-      wallet: input.wallet,
       verbose: input.verbose,
       dryRun: input.dryRun,
     },
