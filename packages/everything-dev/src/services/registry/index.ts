@@ -9,9 +9,12 @@
 export {
   type Manifest,
   ManifestSchema,
+  type ManifestTag,
+  ManifestTagSchema,
 } from "../platform/manifest-schema";
 export * from "./cache";
 export * from "./client";
 export * from "./confirm";
+export * from "./deploy-record";
 export * from "./keys";
 export * from "./resolution";

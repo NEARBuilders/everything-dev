@@ -14,10 +14,10 @@ const NS = { account: "app1.near", gateway: "app1.dev" };
 const ENTRY: ReconcilerWatchEntry = { ...NS };
 
 const deployRow = (overrides: Partial<DeploySummary> = {}): DeploySummary => ({
-  key: "apps/app1.near/app1.dev/manifests/2026-10-22T00-00-00.json",
+  key: "apps/app1.near/app1.dev/deploys/2026-10-22T00-00-00.json",
   publishedAt: "2026-10-22T00:00:00.000Z",
   pointerDigest: "fp-1",
-  imageRef: "ghcr.io/nearbuilders/everything-dev@v1",
+  imageRef: "ghcr.io/nearbuilders/everything-dev:v1",
   blockHeight: 100,
   ...overrides,
 });
@@ -237,7 +237,7 @@ describe("reconciler tick", () => {
     const descriptor = h.descriptorOf(1);
     expect(descriptor).toMatchObject({
       instance: "hosted-app1.near-app1.dev",
-      image: "ghcr.io/nearbuilders/everything-dev@v1",
+      image: "ghcr.io/nearbuilders/everything-dev:v1",
       identityEnv: { BOS_ACCOUNT: "app1.near", BOS_GATEWAY: "app1.dev" },
     });
   });
@@ -260,16 +260,16 @@ describe("reconciler tick", () => {
     await runTick(h);
     h.setDeploys([
       deployRow({
-        key: "apps/app1.near/app1.dev/manifests/2026-10-22T01-00-00.json",
+        key: "apps/app1.near/app1.dev/deploys/2026-10-22T01-00-00.json",
         publishedAt: "2026-10-22T01:00:00.000Z",
         pointerDigest: "fp-2",
-        imageRef: "ghcr.io/nearbuilders/everything-dev@v2",
+        imageRef: "ghcr.io/nearbuilders/everything-dev:v2",
         blockHeight: 110,
       }),
     ]);
     const status = await runTick(h);
     expect(status.namespaces[0]).toMatchObject({ convergedDigest: "fp-2" });
-    expect(h.descriptorOf(2)?.image).toBe("ghcr.io/nearbuilders/everything-dev@v2");
+    expect(h.descriptorOf(2)?.image).toBe("ghcr.io/nearbuilders/everything-dev:v2");
   });
 
   it("surfaces a convergence failure as drift and clears it on the next success", async () => {

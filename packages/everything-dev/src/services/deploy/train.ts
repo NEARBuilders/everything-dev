@@ -39,6 +39,7 @@ import {
 import type { Manifest } from "../platform/manifest";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { type ConfirmLeg, confirmPublish, describeConfirmTimeout } from "../registry/confirm";
+import { DeployRecordSchema } from "../registry/deploy-record";
 import { pointerDigest, remoteDigests } from "../registry/digest";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
 import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
@@ -1072,27 +1073,29 @@ export async function runPublishTrain(
       }
     }
   }
-  registryEntries[manifestKey] = JSON.stringify({
-    account,
-    gateway,
-    network,
-    publishedAt,
-    registryUrl,
-    ...(lockfileDigest && lock
-      ? { lockfile: { digest: lockfileDigest, pointerDigest: lock.pointerDigest } }
-      : {}),
-    ...(platformManifest
-      ? {
-          platformManifest: {
-            version: platformManifest.manifest.frameworkVersion,
-            tag: platformManifest.tag.key,
-            tagIntegrity: platformManifest.tag.integrity,
-            record: platformManifest.record.key,
-            integrity: platformManifest.record.integrity,
-          },
-        }
-      : {}),
-  });
+  registryEntries[manifestKey] = JSON.stringify(
+    DeployRecordSchema.parse({
+      account,
+      gateway,
+      network,
+      publishedAt,
+      registryUrl,
+      ...(lockfileDigest && lock
+        ? { lockfile: { digest: lockfileDigest, pointerDigest: lock.pointerDigest } }
+        : {}),
+      ...(platformManifest
+        ? {
+            platformManifest: {
+              version: platformManifest.manifest.frameworkVersion,
+              tag: platformManifest.tag.key,
+              tagIntegrity: platformManifest.tag.integrity,
+              record: platformManifest.record.key,
+              integrity: platformManifest.record.integrity,
+            },
+          }
+        : {}),
+    }),
+  );
   if (platformManifest) {
     // One atomic write (#573): the immutable version record + the thin-tag flip.
     registryEntries[platformManifest.record.key] = platformManifest.record.value;
