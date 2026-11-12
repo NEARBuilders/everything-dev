@@ -151,6 +151,10 @@ export default App({
       secrets: ["AI_API_KEY"],
       ui: { name: "ai-ui", path: "plugins/ai/ui" },
     }),
+    docs: Plugin("docs").path("plugins/docs", {
+      name: "@everything-dev/docs-plugin",
+      ui: { name: "docs-ui", path: "plugins/docs/ui" },
+    }),
     "agent-connect": Plugin("agent-connect").path("plugins/agent-connect", {
       name: "@everything-dev/agent-connect-plugin",
       variables: {

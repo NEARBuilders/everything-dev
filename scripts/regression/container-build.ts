@@ -61,11 +61,14 @@ interface OriginPlan {
     string,
     {
       production?: string;
-      ui?: string;
-      uiName?: string;
-      uiPublicUrl?: string;
+      ui?: {
+        production?: string;
+        ssr?: string;
+        name?: string;
+        publicUrl?: string;
+        digest?: RemoteDigest;
+      };
       digest?: RemoteDigest;
-      uiDigest?: RemoteDigest;
     }
   >;
 }
@@ -123,11 +126,14 @@ function rewritePluginRef(
   planned:
     | {
         production?: string;
-        ui?: string;
-        uiName?: string;
-        uiPublicUrl?: string;
+        ui?: {
+          production?: string;
+          ssr?: string;
+          name?: string;
+          publicUrl?: string;
+          digest?: RemoteDigest;
+        };
         digest?: RemoteDigest;
-        uiDigest?: RemoteDigest;
       }
     | undefined,
 ): Record<string, unknown> {
@@ -141,15 +147,7 @@ function rewritePluginRef(
     next.digest = planned.digest;
   }
   if (next.ui) {
-    next.ui = rewriteUi(
-      { ...(next.ui as Record<string, unknown>) },
-      {
-        ...(planned.ui ? { production: planned.ui } : {}),
-        ...(planned.uiName ? { name: planned.uiName } : {}),
-        ...(planned.uiPublicUrl ? { publicUrl: planned.uiPublicUrl } : {}),
-        ...(planned.uiDigest ? { digest: planned.uiDigest } : {}),
-      },
-    );
+    next.ui = rewriteUi({ ...(next.ui as Record<string, unknown>) }, planned.ui);
   }
   return next;
 }
@@ -329,9 +327,40 @@ const ports = {
 };
 
 // One plugin→port mapping for the whole staging plan — auth serves on its own
-// port, the other local plugins are indexed from basePort+10.
+// port, the other local plugins are indexed from basePort+10. Plugin ui bundle
+// keys occupy basePort+20+idx (mirroring platform-deploy's `<key>-ui` bundle
+// shape).
 const pluginPort = (key: string): number =>
   key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
+
+/**
+ * Folder-form plugin ui slots (plugins.<key>.ui with a local workspace that
+ * hosts a `ui/` source — the shape platform-deploy uploads as `<key>-ui`).
+ * Mirrors the deploy train: without these entries the plugin ui resolves with
+ * no production URL and the composer drops its routes.
+ */
+const pluginUiSlots = new Map(
+  localPlugins
+    .filter(([key, workspace]) => {
+      if (key === "auth") return false;
+      const uiPath = path.join(workspace, "ui");
+      return existsSync(path.join(root, uiPath, "src"));
+    })
+    .map(([key, workspace], index) => {
+      const pkgName = JSON.parse(readFileSync(path.join(root, workspace, "package.json"), "utf8"))
+        .name as string;
+      return [
+        key,
+        {
+          workspace,
+          port: basePort + 20 + index,
+          name: containerName(pkgName),
+          uiDist: path.join(workspace, "ui/dist"),
+          uiDistSsr: path.join(workspace, "ui/dist/ssr"),
+        },
+      ] as const;
+    }),
+);
 
 const sri384 = (bytes: string | Uint8Array): string =>
   `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
@@ -418,6 +447,9 @@ const stage = () => {
     ...Object.fromEntries(
       localPlugins.map(([key, workspace]) => [key, digestDist(path.join(workspace, "dist"))]),
     ),
+    ...Object.fromEntries(
+      [...pluginUiSlots].map(([key, slot]) => [`${key}Ui`, digestDist(slot.uiDist, slot.uiDistSsr)]),
+    ),
   };
 
   copyDist("host/dist", "host");
@@ -429,6 +461,9 @@ const stage = () => {
   copyDist("plugins/auth/ui/dist", "auth-ui");
   for (const [key, workspace] of localPlugins) {
     copyDist(path.join(workspace, "dist"), path.join("plugins", key));
+  }
+  for (const [key, slot] of pluginUiSlots) {
+    copyDist(slot.uiDist, `${key}-ui`);
   }
 
   // Namespace staging (plan 043): the same artifacts laid out at the exact
@@ -452,6 +487,9 @@ const stage = () => {
       ...localPlugins
         .filter(([key]) => key !== "template")
         .map(([key, workspace]) => [path.join(workspace, "dist"), key] as const),
+      ...[...pluginUiSlots]
+        .filter(([key]) => key !== "template")
+        .map(([key, slot]) => [slot.uiDist, `${key}-ui`] as const),
     ]) {
       cpSync(path.join(root, from), path.join(ns, to), { recursive: true });
     }
@@ -489,13 +527,26 @@ const stage = () => {
       digest: digests.authUi,
     },
     plugins: Object.fromEntries(
-      localPlugins.map(([key]) => [
-        key,
-        {
-          production: slotUrl(pluginPort(key), key),
-          digest: digests[key],
-        },
-      ]),
+      localPlugins.map(([key]) => {
+        const port = pluginPort(key);
+        const ui = pluginUiSlots.get(key);
+        return [
+          key,
+          {
+            production: slotUrl(port, key),
+            digest: digests[key],
+            ...(ui
+              ? {
+                  ui: {
+                    production: slotUrl(ui.port, `${key}-ui`),
+                    name: ui.name,
+                    digest: digests[`${key}Ui`],
+                  },
+                }
+              : {}),
+          },
+        ];
+      }),
     ),
   };
 
@@ -510,6 +561,30 @@ const stage = () => {
         ...plan.authUi,
         ...(variant === "ssr" ? { ssr: `${plan.authUi.production}/ssr` } : {}),
       },
+      plugins: Object.fromEntries(
+        Object.entries(plan.plugins).map(([key, value]) => {
+          const ui = pluginUiSlots.get(key);
+          const slot = value as {
+            production?: string;
+            digest?: RemoteDigest;
+            ui?: { production?: string; name?: string; digest?: RemoteDigest };
+          };
+          return [
+            key,
+            {
+              ...slot,
+              ...(ui && slot.ui
+                ? {
+                    ui: {
+                      ...slot.ui,
+                      ...(variant === "ssr" ? { ssr: `${slot.ui.production}/ssr` } : {}),
+                    },
+                  }
+                : {}),
+            },
+          ] as const;
+        }),
+      ),
     });
     // The auth plugin's reachable origin is environment truth, not fixture
     // data: the harness injects BASE_URL/CORS_ORIGIN at `docker run`
@@ -544,6 +619,13 @@ const stage = () => {
       dir: `dist/plugins/${key}`,
       port: pluginPort(key),
       ...(nsBase ? { basePath: `${nsBase}/${key}` } : {}),
+    });
+  }
+  for (const [key, slot] of pluginUiSlots) {
+    servers.push({
+      dir: `dist/${key}-ui`,
+      port: slot.port,
+      ...(nsBase ? { basePath: `${nsBase}/${key}-ui` } : {}),
     });
   }
   writeFileSync(
