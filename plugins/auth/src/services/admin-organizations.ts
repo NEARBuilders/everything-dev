@@ -58,6 +58,9 @@ export class AdminOrganizationsService extends Context.Service<
       input: InferInput<"adminUpdateTeam">,
     ) => Effect.Effect<InferOutput<"adminUpdateTeam">, AuthFailure>;
     deleteTeam: (teamId: string) => Effect.Effect<{ success: boolean }, AuthFailure>;
+    listTeamMembers: (
+      teamId: string,
+    ) => Effect.Effect<InferOutput<"adminListTeamMembers">, AuthFailure>;
     addTeamMember: (
       input: InferInput<"adminAddTeamMember">,
     ) => Effect.Effect<InferOutput<"adminAddTeamMember">, AuthFailure>;
@@ -672,6 +675,27 @@ export const buildAdminOrganizationsService = ({
       );
       yield* attemptDb(() => db.delete(schema.team).where(eq(schema.team.id, teamId)));
       return { success: true };
+    }),
+
+    listTeamMembers: Effect.fn("AdminOrganizationsService.listTeamMembers")(function* (
+      teamId: string,
+    ) {
+      const team = yield* attemptDb(() =>
+        db.query.team.findFirst({ where: eq(schema.team.id, teamId) }),
+      );
+      if (!team) {
+        return yield* new TeamNotFound({ message: "Team not found", teamId });
+      }
+      const rows = yield* attemptDb(() =>
+        db.query.teamMember.findMany({ where: eq(schema.teamMember.teamId, team.id) }),
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        teamId: row.teamId,
+        userId: row.userId,
+        role: row.role,
+        createdAt: toDate(row.createdAt),
+      }));
     }),
 
     addTeamMember: Effect.fn("AdminOrganizationsService.addTeamMember")(function* (

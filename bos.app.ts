@@ -74,6 +74,7 @@ export default App({
         // override per-statement. Transcribed from the pre-config behavior
         // so nothing changes for this runtime.
         permissions: {
+          areas: ["node-operations", "finance", "things", "stake", "events"],
           statements: {
             organization: ["update", "delete"],
             member: ["create", "update", "delete"],

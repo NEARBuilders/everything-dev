@@ -103,6 +103,14 @@ export function createAdminOrganizationHandlers(
         return yield* mapDomainError(admin.deleteTeam(input.teamId));
       }),
 
+    adminListTeamMembers: builder.adminListTeamMembers
+      .use(requireAuth)
+      .use(requireAdmin)
+      .effect(function* ({ input }) {
+        const admin = yield* AdminOrganizationsService;
+        return yield* mapDomainError(admin.listTeamMembers(input.teamId));
+      }),
+
     adminAddTeamMember: builder.adminAddTeamMember
       .use(requireAuth)
       .use(requireAdmin)

@@ -18,6 +18,7 @@ const SETTINGS_SECTIONS: Record<string, string> = {
 
 const ADMIN_SECTIONS: Record<string, { label: string; detail: string }> = {
   users: { label: "Users", detail: "Users" },
+  orgs: { label: "Organizations", detail: "Organization" },
   system: { label: "System", detail: "System" },
 };
 

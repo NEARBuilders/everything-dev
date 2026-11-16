@@ -21,6 +21,7 @@ import { createNearHandlers } from "../src/handlers/near";
 import { createOnboardingHandlers } from "../src/handlers/onboarding";
 import { createOrganizationHandlers } from "../src/handlers/organizations";
 import { createPasskeyHandlers } from "../src/handlers/passkeys";
+import { createPermissionHandlers } from "../src/handlers/permissions";
 import { createSessionHandlers } from "../src/handlers/session";
 import { createTeamHandlers } from "../src/handlers/teams";
 import { type AuthHandlerContext, createRequireAuth } from "../src/middleware";
@@ -80,6 +81,7 @@ export const TEST_PERMISSIONS: AuthPermissionStatements = {
 
 export const TEST_REGISTRY = {
   statements: TEST_PERMISSIONS.statements,
+  areas: TEST_PERMISSIONS.areas ?? [],
   roleGrants: TEST_PERMISSIONS.roles,
 };
 
@@ -120,7 +122,13 @@ export async function createTestServices(
     apiKeyHeaders,
     membershipPolicy,
     onboardingCodeCipher,
-    permissionRegistry: TEST_REGISTRY,
+    permissionRegistry: configOverrides?.siwn
+      ? {
+          statements: configOverrides.siwn.permissions.statements,
+          areas: configOverrides.siwn.permissions.areas ?? [],
+          roleGrants: configOverrides.siwn.permissions.roles,
+        }
+      : TEST_REGISTRY,
     rateLimiter: createRateLimiter(configOverrides?.abuseControl?.rateLimits),
   };
 
@@ -304,6 +312,7 @@ export function createTestHandlers(services: PluginServices) {
     teams: wrap(createTeamHandlers(builder, requireAuth)),
     adminUsers: wrap(createAdminUsersHandlers(builder, requireAuth)),
     adminOrganizations: wrap(createAdminOrganizationHandlers(builder, requireAuth)),
+    permissions: wrap(createPermissionHandlers(builder, requireAuth)),
     near: wrap(createNearHandlers(builder, requireAuth)),
     onboarding: wrap(createOnboardingHandlers(builder, requireAuth)),
   };

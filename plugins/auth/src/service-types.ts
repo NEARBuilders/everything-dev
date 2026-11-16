@@ -11,6 +11,7 @@ export class RateLimiterTag extends Context.Service<RateLimiterTag, RateLimiterS
 
 export type PermissionRegistry = {
   statements: Record<string, string[]>;
+  areas: string[];
   roleGrants: Record<string, Record<string, string[]>>;
 };
 
