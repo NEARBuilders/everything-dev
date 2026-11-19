@@ -68,8 +68,10 @@ re-run `bos login` (or create a fresh key in the UI) when a key dies.
 
 **Other credentials:**
 
-- `bos login --key` mints a publish-scoped function-call access key
-  (`~/.near-credentials`) for the publish path — not an API-key replacement.
+- `bos login` mints a scoped deploy key (`bundles:write`) as the session
+  credential — that key powers uploads; `bos login --key` additionally mints
+  a publish-scoped function-call access key (`~/.near-credentials`) for CI
+  key signing — not an API-key replacement.
 - Device-link session tokens (`POST /device/token` +
   `POST /device-link/claim`, one-time hashed claim) yield a real Better Auth
   session that also passes the gate — cookie transport, no revocation UI.

@@ -166,7 +166,6 @@ export interface DeployTrainInput {
   packages: string;
   network?: "mainnet" | "testnet";
   privateKey?: string;
-  wallet?: boolean;
   registry?: string;
   /** Skip the diff upload and re-upload every dist file (escape hatch). */
   fullUpload?: boolean;
@@ -211,20 +210,30 @@ export async function runPublishTrain(
     return { status: "dry-run", registryUrl: preflight.registryUrl };
   }
   const plan: PublishPreflightPlan = preflight.plan;
-  const {
-    isStaging,
-    account,
-    gateway,
-    network,
-    registryUrl,
-    registryNamespace,
-    targets,
-    useWallet,
-    useCustody,
-    strategy,
-  } = plan;
+  const { isStaging, account, gateway, network, registryUrl, registryNamespace, targets, signing } =
+    plan;
   const storageOrigin = plan.storageOrigin;
   const storageApiKey = plan.storageApiKey;
+
+  if (signing.mode === "session") {
+    // Any browser approval (a missing delegate key) happens here, up front —
+    // never after the build and upload have already run.
+    try {
+      await deps.signer.ensureDelegateKey({
+        configDir: input.configDir,
+        account,
+        contract: registryNamespace,
+        network,
+        siteUrl: signing.credential.siteUrl,
+      });
+    } catch (error) {
+      throw new PublishTrainError({
+        kind: "preflight",
+        registryUrl,
+        error: `Could not obtain a delegate key for ${account}: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
 
   const { configDir } = input;
   const render = deps.render;
@@ -251,8 +260,8 @@ export async function runPublishTrain(
   })();
   let signManifest: ((payload: string) => Promise<ManifestSignature>) | undefined;
   if (verificationPublicKey) {
-    if (useCustody && plan.custodyWallet) {
-      const custodyWallet = plan.custodyWallet;
+    if (signing.mode === "custody") {
+      const { custodyWallet } = signing;
       signManifest = async (payload) => {
         const signed = await signManifestPayloadCustody(custodyWallet, payload, account);
         assertSigningIdentityMatches(signed.publicKey, verificationPublicKey);
@@ -1214,47 +1223,25 @@ export async function runPublishTrain(
     const submitOnce = async (): Promise<{ success: boolean; txHash?: string }> => {
       // Auth handles were validated once in preflight (guards once per run,
       // ticket #422) — the dispatch consumes the plan's handles.
-      if (useCustody) {
-        if (!plan.custodyWallet) {
-          throw new PublishTrainError({
-            kind: "submit",
-            registryUrl,
-            error: "custody publish requires the preflight custody wallet",
-          });
-        }
+      if (signing.mode === "custody") {
         return deps.signer.submit({
           mode: "custody",
           account,
           contract: registryNamespace,
           args: registryEntries,
-          custodyWallet: plan.custodyWallet,
+          custodyWallet: signing.custodyWallet,
           idempotencyKey: `bos-publish-${publishPointerDigest}`,
         });
       }
-      if (useWallet) {
-        const credential = plan.credential;
-        if (!credential || credential.accountId !== account) {
-          throw new PublishTrainError({
-            kind: "submit",
-            registryUrl,
-            error: `--wallet requires a CLI session under ${account}. Run bos login first.`,
-          });
-        }
+      if (signing.mode === "session") {
         return deps.signer.submit({
-          mode: "wallet",
+          mode: "session",
           account,
           contract: registryNamespace,
           network,
           args: registryEntries,
-          credential,
+          credential: signing.credential,
           configDir,
-        });
-      }
-      if (!strategy) {
-        throw new PublishTrainError({
-          kind: "submit",
-          registryUrl,
-          error: "non-wallet publish requires a resolved signing strategy",
         });
       }
       return deps.signer.submit({
@@ -1264,7 +1251,7 @@ export async function runPublishTrain(
         network,
         args: registryEntries,
         privateKey: input.privateKey,
-        strategy,
+        strategy: signing.strategy,
       });
     };
 
@@ -1329,7 +1316,7 @@ export async function runPublishTrain(
           // broadcast. Relay (wallet) and custody submissions move someone
           // else's signed transaction, so the probe would chase the wrong
           // sender and must not gate the wait.
-          ...(txHash && !useCustody && !useWallet
+          ...(txHash && signing.mode === "key"
             ? {
                 txStatus: (tx: string) => classifyTransactionOutcome(tx, account, network),
               }

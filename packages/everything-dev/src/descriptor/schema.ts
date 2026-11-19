@@ -151,6 +151,7 @@ export const AppDescriptorSchema = z
     cdn: z
       .object({
         origin: z.string().optional(),
+        upload: z.string().optional(),
       })
       .strict()
       .optional(),

@@ -10,6 +10,7 @@ export type AuthNetwork = "mainnet" | "testnet";
 
 export interface AuthPermissionStatements {
   statements: Record<string, string[]>;
+  areas?: string[];
   roles: Record<string, Record<string, string[]>>;
 }
 

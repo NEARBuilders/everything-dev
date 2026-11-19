@@ -214,6 +214,17 @@ export const adminOrganizationRoutes = {
     .output(z.object({ success: z.boolean() }))
     .errors(Errors),
 
+  adminListTeamMembers: oc
+    .route({
+      method: "GET",
+      path: "/v1/auth/admin/organizations/teams/{teamId}/members",
+      summary: "List the members of any team",
+      description: "Requires the platform admin role.",
+    })
+    .input(z.object({ teamId: z.string() }))
+    .output(z.array(teamMemberSchema))
+    .errors(Errors),
+
   adminAddTeamMember: oc
     .route({
       method: "POST",

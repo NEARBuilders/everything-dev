@@ -19,6 +19,7 @@ import { createNearHandlers } from "./handlers/near";
 import { createOnboardingHandlers } from "./handlers/onboarding";
 import { createOrganizationHandlers } from "./handlers/organizations";
 import { createPasskeyHandlers } from "./handlers/passkeys";
+import { createPermissionHandlers } from "./handlers/permissions";
 import { createSessionHandlers } from "./handlers/session";
 import { createTeamHandlers } from "./handlers/teams";
 import type { PluginsClient } from "./lib/plugins-client.gen";
@@ -64,6 +65,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       const rateLimiter = createRateLimiter(config.variables.abuseControl?.rateLimits);
       const permissionRegistry = {
         statements: authConfig.siwn.permissions.statements,
+        areas: authConfig.siwn.permissions.areas ?? [],
         roleGrants: authConfig.siwn.permissions.roles,
       };
 
@@ -100,6 +102,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
     return {
       ...createSessionHandlers(builder),
       ...createPasskeyHandlers(builder, requireAuth),
+      ...createPermissionHandlers(builder, requireAuth),
       ...createOrganizationHandlers(builder, requireAuth),
       ...createAdminOrganizationHandlers(builder, requireAuth),
       ...createMemberHandlers(builder, requireAuth),

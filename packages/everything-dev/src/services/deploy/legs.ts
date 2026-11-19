@@ -309,7 +309,6 @@ export interface PostPublishLegsInput {
   registry?: string;
   network?: "mainnet" | "testnet";
   privateKey?: string;
-  wallet?: boolean;
   verbose?: boolean;
   /** post-publish session identity (the possibly-refreshed runtime) */
   account?: string;

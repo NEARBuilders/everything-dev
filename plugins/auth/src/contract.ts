@@ -9,6 +9,7 @@ import { nearRoutes } from "./contract/near.contract";
 import { onboardingRoutes } from "./contract/onboarding.contract";
 import { organizationRoutes } from "./contract/organizations.contract";
 import { passkeyRoutes } from "./contract/passkeys.contract";
+import { permissionRoutes } from "./contract/permissions.contract";
 import { sessionRoutes } from "./contract/session.contract";
 import { teamRoutes } from "./contract/teams.contract";
 
@@ -27,6 +28,7 @@ export const contract = oc.router({
   ...nearRoutes,
   ...adminUsersRoutes,
   ...passkeyRoutes,
+  ...permissionRoutes,
 });
 
 export type ContractType = typeof contract;

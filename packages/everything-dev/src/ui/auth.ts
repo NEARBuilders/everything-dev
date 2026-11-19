@@ -224,6 +224,16 @@ export {
   requireSession,
 } from "./auth-guards";
 export { pluginHref, pluginPath, pluginSearch } from "./plugin-path";
+export {
+  createWorkspaceSynchronization,
+  reportWorkspaceRefreshError,
+  teamWorkspaceQueryKey,
+  WorkspaceRefreshError,
+  type WorkspaceRefreshStage,
+  type WorkspaceSynchronization,
+  type WorkspaceSynchronizationDependencies,
+  type WorkspaceSynchronizationOptions,
+} from "./workspace-sync";
 
 export type AuthClient = ReturnType<typeof createAuthClient>;
 

@@ -31,6 +31,43 @@ export function custodyFundUrl(custodyWallet: CustodyWalletRecord): string {
   return `https://app.outlayer.ai/wallet/fund?to=${custodyWallet.nearAccountId}&amount=0.05&token=near`;
 }
 
+export interface CustodyBalanceStatus {
+  /** false = the wallet needs funding before a publish can settle */
+  ok: boolean;
+  /** the funding instruction (balance below minimum) or the network failure detail */
+  message: string;
+  /** true = the check itself could not run (OutLayer unreachable) — informative only */
+  unreachable: boolean;
+}
+
+/** Non-throwing balance probe for preflight: a funding gap fails the deploy
+ * before the build train; an OutLayer outage only warns (the submit-time
+ * check remains the authoritative gate). */
+export async function checkCustodyBalance(
+  custodyWallet: CustodyWalletRecord,
+): Promise<CustodyBalanceStatus> {
+  const client = custodyClient(custodyWallet);
+  try {
+    const { balance } = await client.getBalance({ chain: "near" });
+    if (BigInt(balance) < BigInt(MIN_GAS_BALANCE)) {
+      return {
+        ok: false,
+        unreachable: false,
+        message:
+          `The custody wallet ${custodyWallet.nearAccountId} holds ${balance} yoctoNEAR on ` +
+          `${custodyWallet.network}, below the gas minimum. Fund it at ${custodyFundUrl(custodyWallet)}`,
+      };
+    }
+    return { ok: true, unreachable: false, message: balance };
+  } catch (error) {
+    return {
+      ok: true,
+      unreachable: true,
+      message: `custody balance check skipped (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
+}
+
 export async function ensureCustodyBalance(custodyWallet: CustodyWalletRecord): Promise<void> {
   const client = custodyClient(custodyWallet);
   try {

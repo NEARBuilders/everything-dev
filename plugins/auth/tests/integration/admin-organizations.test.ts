@@ -555,6 +555,25 @@ describe("admin organizations", () => {
     });
     expect(teamRow?.memberCount).toBe(1);
 
+    const listed = await handlers.adminListTeamMembers({
+      input: { teamId: team.id },
+      context: { reqHeaders: admin.reqHeaders },
+    });
+    expect(listed.map((row) => row.userId)).toEqual([outsider.userId]);
+
+    await expect(
+      handlers.adminListTeamMembers({
+        input: { teamId: team.id },
+        context: { reqHeaders: member.reqHeaders },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      handlers.adminListTeamMembers({
+        input: { teamId: "missing" },
+        context: { reqHeaders: admin.reqHeaders },
+      }),
+    ).rejects.toThrow();
+
     await expect(
       handlers.adminAddTeamMember({
         input: { teamId: team.id, userId: member.userId },

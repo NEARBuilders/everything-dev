@@ -43,6 +43,7 @@ export const sessionGasKeyNetworkSchema = z.object({
 
 export const permissionsSchema = z.object({
   statements: z.record(z.string(), z.array(z.string())),
+  areas: z.array(z.string()).optional(),
   roles: z
     .record(z.string(), z.record(z.string(), z.array(z.string())))
     .refine((roles) => ["owner", "admin", "member"].every((name) => name in roles), {

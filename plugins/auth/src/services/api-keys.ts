@@ -122,6 +122,11 @@ export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
 
     createDeployKey: (userId, input) =>
       Effect.gen(function* () {
+        // The publish account must belong to the logged-in user. A custody
+        // publish's account is the custody wallet's implicit hex address —
+        // never linked through the nearAccount table — so the ownership check
+        // falls back to the custodyWallet record for that network-less
+        // identity before refusing.
         const linked = yield* attemptDb(() =>
           db.query.nearAccount.findFirst({
             where: and(
@@ -130,7 +135,17 @@ export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
             ),
           }),
         );
-        if (!linked) {
+        const custodyOwned = linked
+          ? null
+          : yield* attemptDb(() =>
+              db.query.custodyWallet.findFirst({
+                where: and(
+                  eq(schema.custodyWallet.userId, userId),
+                  eq(schema.custodyWallet.nearAccountId, input.account),
+                ),
+              }),
+            );
+        if (!linked && !custodyOwned) {
           return yield* new DeployKeyAccountNotLinked({
             message: `Deploy keys can only be minted for NEAR accounts linked to your login — link ${input.account} first`,
             action: `deploy-key ${input.account}/${input.gateway}`,

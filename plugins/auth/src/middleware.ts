@@ -9,6 +9,7 @@ import {
   AuthApiTag,
   type MembershipPolicyTag,
   type OnboardingCodeCipherTag,
+  type PermissionRegistryTag,
   type PluginServices,
   type RateLimiterTag,
 } from "./service-types";
@@ -36,6 +37,7 @@ export type AuthEffectServices =
   | DatabaseTag
   | OnboardingCodeCipherTag
   | MembershipPolicyTag
+  | PermissionRegistryTag
   | OrganizationsService
   | InvitationsService
   | MembersService

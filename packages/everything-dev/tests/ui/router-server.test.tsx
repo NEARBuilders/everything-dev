@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, Outlet } from "@tanstack/react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createServerRouterModule } from "../../src/ui/router-server";
+import { createAuthClient } from "../../src/ui/auth";
+import { createServerRouterModule, pickAuthForwardHeaders } from "../../src/ui/router-server";
 
 vi.mock("../../src/ui/auth", () => ({ createAuthClient: vi.fn(() => ({})) }));
 
@@ -68,5 +69,40 @@ describe("SSR router module — injected app factory", () => {
     });
 
     expect(await streamText(result)).toContain("ssr-home-marker");
+  });
+});
+
+describe("SSR router module — request-scoped auth client", () => {
+  it("forwards the caller's session cookie and drops transport headers", async () => {
+    const tree = buildCoreTree();
+    const module = createServerRouterModule({ defaultRouteTree: tree });
+    const request = new Request("https://example.test/", {
+      headers: {
+        cookie: "better-auth.session_token=abc",
+        "user-agent": "vitest",
+        "accept-encoding": "br",
+        "content-length": "0",
+      },
+    });
+
+    await streamText(
+      await module.renderToStream(request, {
+        runtimeConfig: RUNTIME_CONFIG,
+        apiClient: {} as never,
+        routeTree: tree,
+      }),
+    );
+
+    const options = vi.mocked(createAuthClient).mock.calls.at(-1)![0]!;
+    const headers = new Headers(options.headers);
+    expect(headers.get("cookie")).toBe("better-auth.session_token=abc");
+    expect(headers.get("user-agent")).toBe("vitest");
+    expect(headers.has("accept-encoding")).toBe(false);
+    expect(headers.has("content-length")).toBe(false);
+  });
+
+  it("omits absent credentials instead of forwarding empty values", () => {
+    const forwarded = pickAuthForwardHeaders(new Headers({ host: "example.test" }));
+    expect([...forwarded.keys()]).toEqual([]);
   });
 });

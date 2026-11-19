@@ -41,9 +41,9 @@ function stepLink(step: NextStep) {
     case "save-account":
       return <Link to={pluginPath("/settings/auth-methods")} />;
     case "create-org":
-      return <Link to="/orgs/new" />;
+      return <Link to={pluginPath("/orgs/new")} />;
     case "choose-org":
-      return <Link to="/orgs" />;
+      return <Link to={pluginPath("/orgs")} />;
     case "open-things":
       return <Link to="/things" />;
     case "admin":
