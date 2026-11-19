@@ -41,7 +41,7 @@ permissions:
 
 jobs:
   start:
-    name: Start plane (http + browser, full suite)
+    name: Start-stack regression (http + browser, full suite)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -95,7 +95,7 @@ jobs:
           sudo docker image prune -af || true
           df -h /
 
-      - name: Run the start plane (http:start + browser start:ssr + start:csr)
+      - name: Run the start-stack suites (http:start + browser start:ssr + start:csr)
         run: pnpm run test:regression:start
 
       - name: Upload regression artifacts on failure or cancel
@@ -109,7 +109,7 @@ jobs:
             test-results/**
 
   unit-backcompat:
-    name: Unit plane (+ backcompat on nightly)
+    name: Unit regression (+ backcompat on nightly)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -165,7 +165,7 @@ jobs:
         if: inputs.tier == 'nightly'
         run: pnpm run test:regression:browser:install
 
-      - name: Run the backcompat plane (http + browser)
+      - name: Run the backcompat suites (http + browser)
         if: inputs.tier == 'nightly'
         run: pnpm run test:regression:backcompat
 
@@ -180,7 +180,7 @@ jobs:
             test-results/**
 
   dev:
-    name: Dev plane (dev server)
+    name: Dev-server regression
     # Dev-plane canary, not a gate: pins the 'bos dev' machinery
     # (source-mode dev server, --ssr boot) that app-code changes cannot
     # break -- see the workflow header.
@@ -229,7 +229,7 @@ jobs:
       - name: Install Playwright chromium
         run: pnpm run test:regression:browser:install
 
-      - name: Run the dev plane (http:dev + browser dev:ssr + dev:csr)
+      - name: Run the dev suites (http:dev + browser dev:ssr + dev:csr)
         run: pnpm run test:regression:dev
 
       - name: Upload regression artifacts on failure or cancel
@@ -243,7 +243,7 @@ jobs:
             test-results/**
 
   framework:
-    name: Framework plane (process death)
+    name: Framework regression (process death)
     # Dev-plane canary, not a gate: pins the CLI's lifecycle machinery
     # (teardown, orphan adoption, port cleanup) under deliberate process
     # death. Two stack slots: every test but one boots the confined
@@ -291,13 +291,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin dist
+      - name: Build template plugin dist
         run: pnpm run build template
 
-      # No "Build every-plugin dist" step here: the suite boots only 'bos
-      # dev', which resolves every-plugin from TS source through tsx
-      # (ADR 0018) -- a fresh checkout boots the same. The setup body above
-      # already skips both the Playwright install and the template build.
+      # (the framework suite needs the template plugin's built dist — the
+      # step above provides it; the boot itself resolves every-plugin from
+      # TS source through tsx, ADR 0018)
 
       - name: Run framework regression suite
         run: pnpm run test:regression:framework

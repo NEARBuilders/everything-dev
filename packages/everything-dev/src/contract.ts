@@ -287,6 +287,8 @@ export const RollbackResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  txUrl: z.string().optional(),
+  network: z.enum(["mainnet", "testnet"]).optional(),
   error: z.string().optional(),
   history: z.array(RollbackHistoryEntrySchema).optional(),
   verification: z.array(RollbackRemoteCheckSchema).optional(),
@@ -407,6 +409,8 @@ export const SeedResultSchema = z.object({
   workspaces: z.array(z.string()).optional(),
   owner: SeedOwnerOutcomeSchema.nullable().optional(),
   steps: z.array(SeedStepOutcomeSchema).optional(),
+  /** why a run was skipped — benign; `error` means a real failure only */
+  reason: z.string().optional(),
   error: z.string().optional(),
 });
 
@@ -450,7 +454,7 @@ export const DeployOptionsSchema = z.object({
       message: "image digest must be sha256:<64 hex characters>",
     })
     .describe(
-      "Digest (sha256:…) of a pre-pushed runtime image — skips the image build/push leg and pins Railway to this digest",
+      "Digest (sha256:…) of a pre-pushed runtime image — skips the image build and push, pinning Railway to this digest",
     ),
   fullUpload: z
     .boolean()
@@ -497,6 +501,7 @@ export const DeployResultSchema = z.object({
   txHash: z.string().optional(),
   txUrl: z.string().optional(),
   kind: z.string().optional(),
+  network: z.enum(["mainnet", "testnet"]).optional(),
   pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   history: z.array(DeployManifestListEntrySchema).optional(),
@@ -519,7 +524,7 @@ export const SmokeOptionsSchema = z.object({
   image: z
     .string()
     .optional()
-    .describe("Runtime image ref to boot — required unless defaulted by the deploy train"),
+    .describe("Runtime image ref to boot — required unless the deploy derives it"),
   port: z
     .number()
     .int()
@@ -635,7 +640,7 @@ export const LoginResultSchema = z.object({
       detail: z.string().nullish(),
     })
     .nullish(),
-  warning: z.string().nullish(),
+  warnings: z.array(z.string()).nullish(),
   error: z.string().optional(),
 });
 
@@ -647,7 +652,7 @@ export const LogoutResultSchema = z.object({
   status: z.enum(["logged-out", "error"]),
   revokedApiKey: z.boolean(),
   removedPublishKey: z.boolean(),
-  warning: z.string().nullish(),
+  warnings: z.array(z.string()).nullish(),
   error: z.string().optional(),
 });
 
@@ -820,7 +825,7 @@ export const UpgradeOptionsSchema = z.object({
   from: z
     .enum(["v1"])
     .optional()
-    .describe("v1 train: audit upgrade readiness and rewrite the pre-v2 tree in place"),
+    .describe("Upgrade from v1: audit upgrade readiness and rewrite the pre-v2 tree in place"),
 
   audit: z
     .boolean()
@@ -1650,7 +1655,7 @@ export const cliCommandMeta = {
   publish: {
     commandPath: ["publish"],
     summary:
-      "Publish the current workspace configuration (no build — use bos deploy for the full train)",
+      "Publish the current workspace configuration (config-only — use `bos deploy` to build and ship everything)",
     interactive: false,
   },
   lock: {
@@ -1679,7 +1684,7 @@ export const cliCommandMeta = {
   promote: {
     commandPath: ["promote"],
     summary:
-      "Activate a recorded deployment without rebuilding — verified republish, no rollback branding (the lockfile + pointer ride the train)",
+      "Activate a recorded deployment without rebuilding — verified republish, no rollback branding (the lockfile and config pointer publish atomically)",
     interactive: false,
     fields: {
       version: { positional: true },
@@ -1688,7 +1693,7 @@ export const cliCommandMeta = {
   deploy: {
     commandPath: ["deploy"],
     summary:
-      "Deploy train: preflight → build → upload bundles → publish config → runtime image (pre-pushed digest or local docker build) → post-publish smoke (optional) → Railway (image-backed, no build)",
+      "Deploy: preflight, build, upload bundles, publish config, runtime image (pre-pushed digest or local docker build), optional post-publish smoke, then a Railway redeploy",
     interactive: false,
   },
   smoke: {

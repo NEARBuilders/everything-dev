@@ -193,7 +193,7 @@ jobs:
 
       # Staleness-checked prerequisite builds + the template plugin target —
       # contract types + manifest pipeline in one command.
-      - name: Build template plugin (contract types + manifest pipeline)
+      - name: Build template plugin dist
         run: pnpm run build template
 
   workflows-lint:
@@ -253,7 +253,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build framework dists
+      - name: Build template plugin dist
         run: pnpm run build template
 
       - name: Test everything-dev (unit)
@@ -292,7 +292,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build framework dists
+      - name: Build template plugin dist
         run: pnpm run build template
 
       - name: Test everything-dev (integration)
@@ -380,7 +380,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build framework dists
+      - name: Build template plugin dist
         run: pnpm run build template
 
       - name: Fresh init + dev boot gate
@@ -419,7 +419,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build framework dists
+      - name: Build template plugin dist
         run: pnpm run build template
 
       - name: Test every-plugin
@@ -486,7 +486,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build framework dists
+      - name: Build template plugin dist
         run: pnpm run build template
 
       - name: Test ui
@@ -540,7 +540,7 @@ jobs:
       - name: Patch Effect TypeScript-Go (tsgo) and Oxlint
         run: pnpm run prepare
 
-      - name: Build framework dists
+      - name: Build template plugin dist
         run: pnpm run build template
 
       - name: Test host

@@ -127,7 +127,7 @@ jobs:
       tier: release
 
   release:
-    name: Process Changesets
+    name: Publish to npm / open version PR
     needs: [gate, regression]
     # Run when: the tip is current AND (no publish is imminent, so only the
     # version-PR leg is needed) OR the regression gate went green.

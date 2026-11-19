@@ -25,7 +25,7 @@ export const lockRenderers: Record<string, ResultRenderer> = {
       console.log(`  ${colors.dim("Written:")} ${result.path}`);
     }
     if (result.pointerDigest) {
-      console.log(`  ${colors.dim("Pointer digest:")} ${result.pointerDigest}`);
+      console.log(`  ${colors.dim("config fingerprint:")} ${result.pointerDigest}`);
     }
     console.log();
   },

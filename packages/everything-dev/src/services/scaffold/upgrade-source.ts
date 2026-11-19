@@ -37,7 +37,7 @@ function unresolvableError(outcome: Extract<ResolutionOutcome, { state: "Unresol
   const chain = outcome.context.chain.join(" → ");
   if (outcome.reason === "unreachable") {
     return new Error(
-      `The registry is unreachable — cannot choose a release to stamp (${outcome.detail ?? "read failed"})` +
+      `The FastKV registry is unreachable — cannot choose a release to stamp (${outcome.detail ?? "read failed"})` +
         `${chain ? ` — chain: ${chain}` : ""}. Retry when the registry is reachable.`,
     );
   }

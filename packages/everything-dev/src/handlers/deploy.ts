@@ -10,6 +10,7 @@ import type {
 import type { PublishTrainError, PublishTrainOk } from "../services/deploy/errors";
 import { isValidImageDigest } from "../services/deploy/image";
 import { runPostPublishLegs } from "../services/deploy/legs";
+import { nearblocksUrl } from "../services/deploy/output";
 import { summarizeRemoteDigests, verifyRollbackSnapshot } from "../services/deploy/rollback";
 import {
   fetchLiveConfig,
@@ -353,9 +354,11 @@ async function rollbackBody(
   }
 
   return {
-    status: rollback.dryRun ? "dry-run" : "published",
+    status: rollback.dryRun ? ("dry-run" as const) : ("published" as const),
     registryUrl: rollback.registryUrl,
     txHash: rollback.txHash,
+    ...(rollback.txHash ? { txUrl: nearblocksUrl(rollback.txHash, input.network) } : {}),
+    network: input.network,
     history: historyEntries,
     ...(remoteChecks.length > 0 ? { verification: remoteChecks } : {}),
   };
@@ -405,6 +408,7 @@ async function deployBody(
       return {
         status: "list",
         registryUrl: "",
+        network: input.network,
         history: manifests.map((entry) => ({
           key: entry.key,
           blockHeight: entry.blockHeight,

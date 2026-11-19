@@ -49,14 +49,14 @@ export function registerSeed(builder: BosBuilder) {
     seed: builder.seed.effect(function* (_opts, input) {
       const session = yield* ResolutionSessionService;
       if (!session?.config) {
-        return { status: "skipped" as const, env: input.env, error: MISSING_CONFIG_MESSAGE };
+        return { status: "skipped" as const, env: input.env, reason: MISSING_CONFIG_MESSAGE };
       }
       const seed = session.config.seed;
       if (!seed) {
         return {
           status: "skipped" as const,
           env: input.env,
-          error: "No seed block declared in the authored config (bos.app.ts / bos.dev.ts)",
+          reason: "No seed block declared in the authored config (bos.app.ts / bos.dev.ts)",
         };
       }
       const configDir = input.configDir ?? session.root ?? process.cwd();

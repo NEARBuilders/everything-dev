@@ -1189,7 +1189,7 @@ export async function runPublishTrain(
       // generation is unstaged and nothing will boot from it.
       console.log(
         colors.yellow(
-          `  ! Boot snapshot NOT staged — restarts will resolve from the live registry instead of the pinned generation: ${
+          `  ⚠ Boot snapshot NOT staged — restarts will resolve from the live registry instead of the pinned generation: ${
             error instanceof Error ? error.message : String(error)
           }`,
         ),

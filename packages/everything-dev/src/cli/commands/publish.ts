@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { nearblocksBlockUrl } from "../../services/deploy/output";
 import { colors, frames, gradients, icons } from "../../utils/theme";
 import { exitCodeFor } from "../exit-codes";
 import { failedDeployLegs, renderDeployLegs, renderTrainFailure } from "../render/deploy";
@@ -90,11 +91,12 @@ export const publishRenderers: Record<string, ResultRenderer> = {
   pluginPublish: async (result, _ctx) => {
     console.log();
     console.log(colors.green(`${icons.ok} Published plugin ${result.key}`));
-    if (result.path) console.log(`  ${colors.dim("Path:")} ${result.path}`);
-    if (result.production) console.log(`  ${colors.dim("Production:")} ${result.production}`);
-    if (result.version) console.log(`  ${colors.dim("Version:")} ${result.version}`);
-    if (result.pointerDigest)
-      console.log(`  ${colors.dim("Pointer digest:")} ${result.pointerDigest}`);
+    if (result.path) console.log(`  ${colors.dim("path:")} ${result.path}`);
+    if (result.production) console.log(`  ${colors.dim("production:")} ${result.production}`);
+    if (result.version) console.log(`  ${colors.dim("version:")} ${result.version}`);
+    if (result.pointerDigest) {
+      console.log(`  ${colors.dim("config fingerprint:")} ${result.pointerDigest}`);
+    }
     console.log();
     return;
   },
@@ -127,7 +129,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     if (result.status === "dry-run") {
       console.log();
       console.log(colors.cyan(`${icons.ok} Dry run complete`));
-      console.log(`  ${colors.dim("Registry URL:")} ${result.registryUrl}`);
+      console.log(`  ${colors.dim("registry:")} ${result.registryUrl}`);
       console.log();
       return;
     }
@@ -140,17 +142,15 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     if (result.status === "published") {
       console.log();
       console.log(colors.green(`${icons.ok} Published successfully`));
-      console.log(`  ${colors.dim("Registry URL:")} ${result.registryUrl}`);
-      if (result.txUrl) {
-        console.log(`  ${colors.dim("Transaction:")} ${result.txUrl}`);
-      } else if (result.txHash) {
-        console.log(`  ${colors.dim("Transaction:")} ${result.txHash}`);
+      console.log(`  ${colors.dim("registry:")} ${result.registryUrl}`);
+      if (result.txUrl ?? result.txHash) {
+        console.log(`  ${colors.dim("transaction:")} ${result.txUrl ?? result.txHash}`);
       }
       if (result.built && result.built.length > 0) {
-        console.log(`  ${colors.dim("Built:")} ${result.built.join(", ")}`);
+        console.log(`  ${colors.dim("built:")} ${result.built.join(", ")}`);
       }
       if (result.skipped && result.skipped.length > 0) {
-        console.log(`  ${colors.dim("Skipped:")} ${result.skipped.join(", ")}`);
+        console.log(`  ${colors.dim("skipped:")} ${result.skipped.join(", ")}`);
       }
       if (result.deployResults) {
         const warnings = result.deployResults.flatMap((r: any) => r.warnings ?? []);
@@ -190,16 +190,18 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     if (rollbackResult.status === "dry-run") {
       console.log();
       console.log(colors.cyan(`${icons.ok} Rollback dry run complete`));
-      console.log(`  ${colors.dim("Registry URL:")} ${rollbackResult.registryUrl}`);
+      console.log(`  ${colors.dim("registry:")} ${rollbackResult.registryUrl}`);
       console.log();
       return;
     }
 
     console.log();
     console.log(colors.green(`${icons.ok} Rolled back`));
-    console.log(`  ${colors.dim("Registry URL:")} ${rollbackResult.registryUrl}`);
-    if (rollbackResult.txHash) {
-      console.log(`  ${colors.dim("Transaction:")} ${rollbackResult.txHash}`);
+    console.log(`  ${colors.dim("registry:")} ${rollbackResult.registryUrl}`);
+    if (rollbackResult.txUrl ?? rollbackResult.txHash) {
+      console.log(
+        `  ${colors.dim("transaction:")} ${rollbackResult.txUrl ?? rollbackResult.txHash}`,
+      );
     }
     console.log();
     return;
@@ -228,18 +230,18 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     if (promoteResult.status === "dry-run") {
       console.log();
       console.log(colors.cyan(`${icons.ok} Promote dry run complete`));
-      console.log(`  ${colors.dim("Registry URL:")} ${promoteResult.registryUrl}`);
+      console.log(`  ${colors.dim("registry:")} ${promoteResult.registryUrl}`);
       console.log();
       return;
     }
 
     console.log();
     console.log(colors.green(`${icons.ok} Promoted — the recorded deployment is live again`));
-    console.log(`  ${colors.dim("Registry URL:")} ${promoteResult.registryUrl}`);
-    if (promoteResult.txHash) {
-      console.log(`  ${colors.dim("Transaction:")} ${promoteResult.txHash}`);
+    console.log(`  ${colors.dim("registry:")} ${promoteResult.registryUrl}`);
+    if (promoteResult.txUrl ?? promoteResult.txHash) {
+      console.log(`  ${colors.dim("transaction:")} ${promoteResult.txUrl ?? promoteResult.txHash}`);
     }
-    console.log(`  ${colors.dim("Lockfile:")} bos.lock.json now freezes the promoted composition`);
+    console.log(`  ${colors.dim("lockfile:")} bos.lock.json now freezes the promoted composition`);
     console.log();
     return;
   },
@@ -250,20 +252,21 @@ export const publishRenderers: Record<string, ResultRenderer> = {
       console.log();
       console.log(colors.cyan("Recent publishes (audit trail)"));
       for (const entry of deployResult.history ?? []) {
+        const blockLink = nearblocksBlockUrl(entry.blockHeight, deployResult.network);
         console.log(
-          `  ${entry.blockTimestamp}  ${colors.dim(`block ${entry.blockHeight}`)}${entry.publishedAt ? colors.dim(`  ${entry.publishedAt}`) : ""}`,
+          `  ${entry.blockTimestamp}  ${colors.dim(`block ${entry.blockHeight}`)} ${colors.dim(blockLink)}${entry.publishedAt ? colors.dim(`  ${entry.publishedAt}`) : ""}`,
         );
       }
       console.log();
       return;
     }
     if (deployResult.pointerDigest) {
-      console.log(`  ${colors.dim("Pointer digest:")} ${deployResult.pointerDigest}`);
+      console.log(`  ${colors.dim("config fingerprint:")} ${deployResult.pointerDigest}`);
     }
     if (deployResult.status === "dry-run") {
       console.log();
       console.log(colors.cyan(`${icons.ok} Dry run complete`));
-      console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
+      console.log(`  ${colors.dim("registry:")} ${deployResult.registryUrl}`);
       console.log();
       return;
     }
@@ -306,17 +309,23 @@ export const publishRenderers: Record<string, ResultRenderer> = {
 
     if (deployResult.status === "published") {
       const failedLegs = failedDeployLegs(deployResult.legs);
+      const legNames: Record<string, string> = {
+        image: "image push",
+        smoke: "boot gate",
+        railway: "Railway redeploy",
+      };
+      const failedNames = failedLegs.map((leg) => legNames[leg] ?? leg);
       console.log();
       console.log(
         colors.yellow(
-          failedLegs.length > 0
-            ? `${icons.err} Config published, but the ${failedLegs.join(" and ")} leg(s) failed`
-            : `${icons.err} Config published, but a deploy leg failed`,
+          failedNames.length > 0
+            ? `${icons.err} Config published, but the ${failedNames.join(" and ")} failed`
+            : `${icons.err} Config published, but a post-publish step failed`,
         ),
       );
-      console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
+      console.log(`  ${colors.dim("registry:")} ${deployResult.registryUrl}`);
       if (deployResult.txUrl ?? deployResult.txHash) {
-        console.log(`  ${colors.dim("Transaction:")} ${deployResult.txUrl ?? deployResult.txHash}`);
+        console.log(`  ${colors.dim("transaction:")} ${deployResult.txUrl ?? deployResult.txHash}`);
       }
       if (deployResult.error) {
         console.log(`  ${colors.dim("Error:")} ${deployResult.error}`);

@@ -63,7 +63,9 @@ export async function checkCustodyBalance(
     return {
       ok: true,
       unreachable: true,
-      message: `custody balance check skipped (${error instanceof Error ? error.message : String(error)})`,
+      message:
+        `custody balance check skipped — OutLayer unreachable (${error instanceof Error ? error.message : String(error)}); ` +
+        `continuing without a funding check (the submit-time balance gate still applies)`,
     };
   }
 }

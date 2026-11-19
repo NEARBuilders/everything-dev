@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   registry-sentinel:
-    name: Registry sentinel (cold-cache resolution)
+    name: Published-chain resolution check (cold cache)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:

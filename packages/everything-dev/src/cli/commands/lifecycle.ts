@@ -5,12 +5,14 @@ export const lifecycleRenderers: Record<string, ResultRenderer> = {
   login: async (result, _ctx) => {
     console.log();
     console.log(colors.green(`${icons.ok} Logged in to ${result.siteUrl}`));
-    if (result.accountId) console.log(`  ${colors.dim("Account:")} ${result.accountId}`);
-    if (result.expiresAt) console.log(`  ${colors.dim("Expires:")} ${result.expiresAt}`);
-    if (result.warning) console.log(`  ${colors.yellow("⚠")} ${result.warning}`);
+    if (result.accountId) console.log(`  ${colors.dim("account:")} ${result.accountId}`);
+    if (result.expiresAt) console.log(`  ${colors.dim("expires:")} ${result.expiresAt}`);
+    for (const warning of result.warnings ?? []) {
+      console.log(`  ${colors.yellow("⚠")} ${warning}`);
+    }
     if (result.deployKey) {
       console.log(
-        `  ${colors.dim("Deploy key:")} ${result.deployKey.account}/${result.deployKey.gateway} scope ${colors.dim("(also stored in .bos/session.json)")}`,
+        `  ${colors.dim("deploy key:")} ${result.deployKey.account}/${result.deployKey.gateway} scope ${colors.dim("(also stored in .bos/session.json)")}`,
       );
       if (!process.stdout.isTTY) {
         process.stderr.write(
@@ -22,19 +24,19 @@ export const lifecycleRenderers: Record<string, ResultRenderer> = {
     }
     if (result.publishKey) {
       console.log(
-        `  ${colors.dim("Publish key:")} ${result.publishKey.publicKey} ${colors.dim(
+        `  ${colors.dim("publish key:")} ${result.publishKey.publicKey} ${colors.dim(
           `(${result.publishKey.network}, exported to ${result.publishKey.exportedTo})`,
         )}`,
       );
     }
     if (result.custodyWallet) {
       console.log(
-        `  ${colors.dim("Custody wallet:")} ${result.custodyWallet.nearAccountId} ${colors.dim(
+        `  ${colors.dim("custody wallet:")} ${result.custodyWallet.nearAccountId} ${colors.dim(
           `(${result.custodyWallet.network})`,
         )}`,
       );
       if (result.custodyWallet.handoffUrl) {
-        console.log(`  ${colors.dim("Policy & funding:")} ${result.custodyWallet.handoffUrl}`);
+        console.log(`  ${colors.dim("policy & funding:")} ${result.custodyWallet.handoffUrl}`);
       }
     }
     if (result.outlayerCli?.status === "linked") {
@@ -55,9 +57,12 @@ export const lifecycleRenderers: Record<string, ResultRenderer> = {
   logout: async (result, _ctx) => {
     console.log();
     console.log(colors.green(`${icons.ok} Logged out`));
-    if (result.revokedApiKey) console.log(`  ${colors.dim("Revoked API key")}`);
-    if (result.removedPublishKey) console.log(`  ${colors.dim("Removed exported publish key")}`);
-    if (result.warning) console.log(`  ${colors.yellow("⚠")} ${result.warning}`);
+    if (result.revokedApiKey) console.log(`  ${colors.dim("revoked the API key")}`);
+    if (result.removedPublishKey)
+      console.log(`  ${colors.dim("removed the exported publish key")}`);
+    for (const warning of result.warnings ?? []) {
+      console.log(`  ${colors.yellow("⚠")} ${warning}`);
+    }
     console.log();
     return;
   },
