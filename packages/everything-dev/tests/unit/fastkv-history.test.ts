@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchConfigHistory } from "../../src/services/registry/fastkv";
+import { fetchConfigHistory, fetchDeployManifests } from "../../src/services/registry/fastkv";
 import { clearHttpCache } from "../../src/utils/http-client";
 
 beforeEach(() => {
@@ -108,5 +108,53 @@ describe("fetchConfigHistory", () => {
     });
 
     expect(history[0]?.value).toEqual({ account: "a" });
+  });
+});
+
+describe("fetchDeployManifests", () => {
+  it("lists the deploys/ key family through the history-by-prefix endpoint, newest-first", async () => {
+    const fetchMock = vi.fn(async () =>
+      historyResponse([
+        {
+          key: "apps/v1.citynode.near/citynode.app/deploys/2026-11-12T01-16-17-604Z.json",
+          block_height: 900,
+          block_timestamp: "1794446188348446544",
+          value: JSON.stringify({ account: "v1.citynode.near", publishedAt: "b" }),
+        },
+        {
+          key: "apps/v1.citynode.near/citynode.app/deploys/2026-11-11T23-24-21-688Z.json",
+          block_height: 880,
+          block_timestamp: "1794439468723765494",
+          value: JSON.stringify({ account: "v1.citynode.near", publishedAt: "a" }),
+        },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const entries = await fetchDeployManifests({
+      accountId: "v1.citynode.near",
+      gatewayId: "citynode.app",
+      limit: 20,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      "https://kv.main.fastnear.com/v0/history/dev.everything.near/v1.citynode.near",
+    );
+    const body = JSON.parse(init?.body as string) as {
+      key_prefix: string;
+      asc: boolean;
+      limit: number;
+    };
+    expect(body.key_prefix).toBe("apps/v1.citynode.near/citynode.app/deploys/");
+    expect(body.asc).toBe(false);
+    expect(body.limit).toBe(20);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]?.key).toBe(
+      "apps/v1.citynode.near/citynode.app/deploys/2026-11-12T01-16-17-604Z.json",
+    );
+    expect(entries[0]?.blockHeight).toBe(900);
+    expect(entries[1]?.blockHeight).toBe(880);
   });
 });

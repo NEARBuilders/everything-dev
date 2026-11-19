@@ -21,11 +21,13 @@ export type FetchError = FetchNetworkError | FetchTimeoutError | FetchHttpError;
 
 // --- Options ---
 
+type FetchInit = NonNullable<Parameters<typeof globalThis.fetch>[1]>;
+
 export interface FetchOptions {
   method?: string;
   headers?: Record<string, string>;
-  body?: BodyInit;
-  redirect?: RequestRedirect;
+  body?: FetchInit["body"];
+  redirect?: FetchInit["redirect"];
   timeout?: Duration.Input;
 }
 

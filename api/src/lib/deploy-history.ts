@@ -1,22 +1,20 @@
 import { Context, Data, Effect, Layer } from "effect";
 import { pointerDigest } from "everything-dev/digest";
+import {
+  type DeployRecord,
+  DeployRecordSchema,
+  deployRecordTsOf,
+  keyPathOf,
+  ManifestTagSchema,
+  PlatformManifestPinSchema,
+  RegistryError,
+  type RegistryHistoryEntry,
+  type RegistryKey,
+  registryClientShape,
+  runtimeRefOf,
+} from "everything-dev/registry";
+import { type DeployManifestEntry, fetchDeployManifests } from "everything-dev/registry/fastkv";
 import { z } from "zod";
-
-export const DeployAuditManifestSchema = z.object({
-  account: z.string(),
-  gateway: z.string(),
-  network: z.string(),
-  publishedAt: z.string(),
-  registryUrl: z.string(),
-  platformManifest: z
-    .object({
-      file: z.string(),
-      integrity: z.string(),
-    })
-    .optional(),
-});
-
-export type DeployAuditManifest = z.infer<typeof DeployAuditManifestSchema>;
 
 export const DeploySummarySchema = z.object({
   key: z.string(),
@@ -24,12 +22,8 @@ export const DeploySummarySchema = z.object({
   network: z.string().optional(),
   registryUrl: z.string().optional(),
   pointerDigest: z.string().optional(),
-  platformManifest: z
-    .object({
-      file: z.string(),
-      integrity: z.string(),
-    })
-    .optional(),
+  platformManifest: PlatformManifestPinSchema.optional(),
+  releaseVersion: z.string().optional(),
   imageRef: z.string().optional(),
   rolledBackFrom: z.string().optional(),
   blockHeight: z.number().int(),
@@ -54,94 +48,7 @@ export class DeployHistoryReadError extends Data.TaggedError("DeployHistoryReadE
   cause?: unknown;
 }> {}
 
-export type NetworkId = "mainnet" | "testnet";
-
-const FASTKV_TESTNET_URL = "https://kv.test.fastnear.com";
-const FASTKV_MAINNET_URL = "https://kv.main.fastnear.com";
-const REGISTRY_NAMESPACE_TESTNET = "dev.allthethings.testnet";
-const REGISTRY_NAMESPACE_MAINNET = "dev.everything.near";
 const FASTKV_HISTORY_MAX_LIMIT = 200;
-
-export function networkIdForAccount(accountId: string): NetworkId {
-  return accountId.endsWith(".testnet") ? "testnet" : "mainnet";
-}
-
-export function registryBaseUrlForAccount(accountId: string): string {
-  return networkIdForAccount(accountId) === "testnet" ? FASTKV_TESTNET_URL : FASTKV_MAINNET_URL;
-}
-
-export function registryNamespaceForAccount(accountId: string, registry?: string): string {
-  if (registry) return registry;
-  return networkIdForAccount(accountId) === "testnet"
-    ? REGISTRY_NAMESPACE_TESTNET
-    : REGISTRY_NAMESPACE_MAINNET;
-}
-
-export function registryConfigKey(account: string, gateway: string): string {
-  return `apps/${account}/${gateway}/bos.config.json`;
-}
-
-export function auditManifestKeyPrefix(account: string, gateway: string): string {
-  return `apps/${account}/${gateway}/manifests/`;
-}
-
-export function platformManifestKey(account: string, gateway: string): string {
-  return `apps/${account}/${gateway}/platform.json`;
-}
-
-export function auditManifestKey(account: string, gateway: string, publishedAt: string): string {
-  return `${auditManifestKeyPrefix(account, gateway)}${publishedAt.replace(/[:.]/g, "-")}.json`;
-}
-
-export function historyUrlForPrefix(opts: {
-  account: string;
-  keyPrefix: string;
-  limit: number;
-  registry?: string;
-}): string {
-  const baseUrl = registryBaseUrlForAccount(opts.account);
-  const namespace = registryNamespaceForAccount(opts.account, opts.registry);
-  return `${baseUrl}/v0/history/${encodeURIComponent(namespace)}/${encodeURIComponent(opts.account)}`;
-}
-
-export function historyPrefixBody(opts: {
-  keyPrefix: string;
-  limit: number;
-}): Record<string, unknown> {
-  return { key_prefix: opts.keyPrefix, asc: false, limit: opts.limit };
-}
-
-export function historyUrlForKey(opts: {
-  account: string;
-  keyPath: string;
-  limit: number;
-  registry?: string;
-}): string {
-  const baseUrl = registryBaseUrlForAccount(opts.account);
-  const namespace = registryNamespaceForAccount(opts.account, opts.registry);
-  const key = encodeURIComponent(opts.keyPath);
-  return `${baseUrl}/v0/history/${encodeURIComponent(namespace)}/${encodeURIComponent(opts.account)}/${key}?limit=${opts.limit}`;
-}
-
-export interface RegistryHistoryEntry {
-  key?: string;
-  blockHeight: number;
-  blockTimestampNs: string | number;
-  txHash?: string;
-  value: unknown;
-}
-
-export function parseAuditManifest(value: unknown): DeployAuditManifest | null {
-  if (typeof value === "string" && value.length > 0) {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return null;
-    }
-  }
-  const parsed = DeployAuditManifestSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
-}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -154,66 +61,128 @@ function rolledBackFromOf(configValue: unknown): string | undefined {
   return typeof record?.rolledBackFrom === "string" ? record.rolledBackFrom : undefined;
 }
 
-/** The pin in force at a deploy, from the joined platform.json release
- * manifest value (`image: { ref, tags }` → `ref@tag`); the registry digest
- * itself is never persisted (it is resolved per deploy from the tag). */
-export function imageRefOfPlatformManifest(value: unknown): string | undefined {
+export interface ImagePin {
+  image: string;
+  tag: string;
+}
+
+/** The serving image's pin in a release record (`image: { ref, tags }`) —
+ * the registry digest itself is never persisted (it is resolved per deploy,
+ * ticket 08). */
+export function imagePinOfVersionRecord(value: unknown): ImagePin | undefined {
   const record = asRecord(value);
   const image = asRecord(record?.image);
   if (typeof image?.ref !== "string" || image.ref.length === 0) return undefined;
   const tags = Array.isArray(image.tags) ? image.tags : [];
-  const tag = tags.find((t): t is string => typeof t === "string");
-  return tag ? `${image.ref}@${tag}` : image.ref;
+  const tag = tags.find((t): t is string => typeof t === "string" && t.length > 0);
+  return tag ? { image: image.ref, tag } : undefined;
 }
 
-/** Most-recent platform-manifest entry at or before the deploy's block — the
- * pin in force when that deploy published (the manifest only lands on the
- * deploys that write it, so later rows reuse the pin still active). */
-export function platformPinAtBlock(
-  platformEntries: RegistryHistoryEntry[],
+export function imageRefOfPin(pin: ImagePin): string {
+  return `${pin.image}:${pin.tag}`;
+}
+
+/** The release version in force at a block — the newest `manifest.json` flip
+ * at or before the deploy's block (the tag only moves on release legs, so
+ * deploys without a release pointer reuse the version still active). */
+export function releaseVersionAtBlock(
+  tagEntries: RegistryHistoryEntry[],
   blockHeight: number,
 ): string | undefined {
-  const candidates = platformEntries
+  const candidates = [...tagEntries]
     .filter((entry) => entry.blockHeight <= blockHeight)
     .sort((a, b) => b.blockHeight - a.blockHeight);
   for (const entry of candidates) {
-    const ref = imageRefOfPlatformManifest(entry.value);
-    if (ref) return ref;
+    const tag = ManifestTagSchema.safeParse(entry.value);
+    if (tag.success) return tag.data.version;
   }
   return undefined;
 }
 
-export function assembleDeployRows(opts: {
-  manifestEntries: RegistryHistoryEntry[];
+/** The record's registry key, re-derived through the key model for history
+ * entries the endpoint served without a key. */
+function deployRecordKeyOf(record: DeployRecord): string {
+  return keyPathOf({
+    kind: "deployRecord",
+    ref: runtimeRefOf({ accountId: record.account, gatewayId: record.gateway }),
+    ts: deployRecordTsOf(record.publishedAt),
+  });
+}
+
+export interface DeployHistorySource {
+  /** The `deploys/<ts>.json` key family, newest-first (the train writes one
+   * record per publish, atomically with the tag swap). */
+  listDeployRecords: (opts: {
+    accountId: string;
+    gatewayId: string;
+    limit: number;
+  }) => Promise<DeployManifestEntry[]>;
+  /** Exact-key history for a registry key, newest-first — the config join
+   * and the manifest-tag fallback. */
+  keyHistory: (key: RegistryKey, limit: number) => Promise<RegistryHistoryEntry[]>;
+  /** Latest-state read of a registry key; an absent key resolves to null
+   * (an unreachable registry must still throw — a swallowed failure would
+   * silently drop the image pin). */
+  readVersionRecord: (key: RegistryKey) => Promise<unknown>;
+}
+
+export const DeployHistorySourceLive: DeployHistorySource = {
+  listDeployRecords: (opts) => fetchDeployManifests(opts),
+  keyHistory: (key, limit) => registryClientShape.history(key, limit),
+  readVersionRecord: async (key) => {
+    try {
+      return await registryClientShape.read(key);
+    } catch (error) {
+      if (error instanceof RegistryError && error.kind === "absent") return null;
+      throw error;
+    }
+  },
+};
+
+export async function assembleDeployRows(opts: {
+  records: DeployManifestEntry[];
   configEntries: RegistryHistoryEntry[];
-  platformEntries?: RegistryHistoryEntry[];
-}): DeploySummary[] {
+  manifestTagEntries: RegistryHistoryEntry[];
+  readVersionRecord: (version: string) => Promise<unknown>;
+}): Promise<DeploySummary[]> {
   const configByBlock = new Map<number, unknown>();
   for (const entry of opts.configEntries) {
     if (!configByBlock.has(entry.blockHeight)) {
       configByBlock.set(entry.blockHeight, entry.value);
     }
   }
-  const platformEntries = [...(opts.platformEntries ?? [])].sort(
-    (a, b) => b.blockHeight - a.blockHeight,
-  );
+  const tagEntries = [...opts.manifestTagEntries].sort((a, b) => b.blockHeight - a.blockHeight);
+  const pinCache = new Map<string, Promise<ImagePin | undefined>>();
+
+  const imagePinFor = (version: string): Promise<ImagePin | undefined> => {
+    const cached = pinCache.get(version);
+    if (cached) return cached;
+    const pin = opts.readVersionRecord(version).then(imagePinOfVersionRecord);
+    pinCache.set(version, pin);
+    return pin;
+  };
 
   const rows: DeploySummary[] = [];
-  for (const entry of opts.manifestEntries) {
-    const manifest = parseAuditManifest(entry.value);
-    if (!manifest) continue;
+  for (const entry of opts.records) {
+    const parsed = DeployRecordSchema.safeParse(entry.value);
+    if (!parsed.success) continue;
+    const record = parsed.data;
     const joinedConfig = configByBlock.get(entry.blockHeight);
     const pointerDigestValue = asRecord(joinedConfig)
       ? pointerDigest(joinedConfig as Parameters<typeof pointerDigest>[0])
       : undefined;
+    const releaseVersion =
+      record.platformManifest?.version ?? releaseVersionAtBlock(tagEntries, entry.blockHeight);
+    const pin = releaseVersion ? await imagePinFor(releaseVersion) : undefined;
     rows.push({
-      key: entry.key ?? auditManifestKey(manifest.account, manifest.gateway, manifest.publishedAt),
-      publishedAt: manifest.publishedAt,
-      network: manifest.network,
-      registryUrl: manifest.registryUrl,
+      key: entry.key || deployRecordKeyOf(record),
+      publishedAt: record.publishedAt,
+      network: record.network,
+      registryUrl: record.registryUrl,
       pointerDigest: pointerDigestValue,
-      platformManifest: manifest.platformManifest,
-      imageRef: platformPinAtBlock(platformEntries, entry.blockHeight),
+      platformManifest: record.platformManifest,
+      releaseVersion,
+      imageRef: pin ? imageRefOfPin(pin) : undefined,
       rolledBackFrom: rolledBackFromOf(joinedConfig),
       blockHeight: entry.blockHeight,
     });
@@ -221,52 +190,7 @@ export function assembleDeployRows(opts: {
   return rows;
 }
 
-export type HistoryFetch = (url: string, init?: RequestInit) => Promise<unknown>;
-
-export async function fetchHistoryJson(url: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      ...(init?.headers as Record<string, string> | undefined),
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} fetching ${url}`);
-  }
-  return (await response.json()) as unknown;
-}
-
-function parseJsonValue(value: string): unknown {
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return value;
-  }
-}
-
-function normalizeHistoryEntries(payload: unknown): RegistryHistoryEntry[] {
-  const raw = asRecord(payload)?.entries;
-  if (!Array.isArray(raw)) return [];
-  const list = raw.filter((entry): entry is Record<string, unknown> => Boolean(entry));
-  return list.map((entry) => {
-    const timestamp = entry.block_timestamp;
-    return {
-      key: typeof entry.key === "string" ? entry.key : undefined,
-      blockHeight: typeof entry.block_height === "number" ? entry.block_height : 0,
-      blockTimestampNs:
-        typeof timestamp === "number" || typeof timestamp === "string" ? timestamp : "",
-      txHash: typeof entry.tx_hash === "string" ? entry.tx_hash : undefined,
-      value:
-        typeof entry.value === "string" && entry.value.length > 0
-          ? parseJsonValue(entry.value)
-          : entry.value,
-    };
-  });
-}
-
-export function buildDeployHistoryService(fetchJson: HistoryFetch): {
+export function buildDeployHistoryService(source: DeployHistorySource = DeployHistorySourceLive): {
   listDeploys: (input: ListDeploysInput) => Effect.Effect<DeploySummary[], DeployHistoryReadError>;
 } {
   const listDeploys = (
@@ -274,37 +198,33 @@ export function buildDeployHistoryService(fetchJson: HistoryFetch): {
   ): Effect.Effect<DeploySummary[], DeployHistoryReadError> =>
     Effect.gen(function* () {
       const limit = Math.max(1, Math.min(input.limit, FASTKV_HISTORY_MAX_LIMIT));
-      const keyPrefix = auditManifestKeyPrefix(input.account, input.gateway);
-      const configKey = registryConfigKey(input.account, input.gateway);
-      const platformKey = platformManifestKey(input.account, input.gateway);
+      const ref = runtimeRefOf({ accountId: input.account, gatewayId: input.gateway });
+      const readError = (cause: unknown) =>
+        new DeployHistoryReadError({
+          message: `FastKV history read failed for ${input.account}/${input.gateway}`,
+          cause,
+        });
 
-      const [manifestPayload, configPayload, platformPayload] = yield* Effect.tryPromise({
+      const [records, configEntries, tagEntries] = yield* Effect.tryPromise({
         try: () =>
           Promise.all([
-            fetchJson(historyUrlForPrefix({ account: input.account, keyPrefix, limit }), {
-              method: "POST",
-              body: JSON.stringify(historyPrefixBody({ keyPrefix, limit })),
-            }),
-            fetchJson(historyUrlForKey({ account: input.account, keyPath: configKey, limit })),
-            fetchJson(historyUrlForKey({ account: input.account, keyPath: platformKey, limit })),
+            source.listDeployRecords({ accountId: input.account, gatewayId: input.gateway, limit }),
+            source.keyHistory({ kind: "runtimeConfig", ref }, limit),
+            source.keyHistory({ kind: "manifest", ref }, limit),
           ]),
-        catch: (cause) =>
-          new DeployHistoryReadError({
-            message: `FastKV history read failed for ${input.account}/${input.gateway}`,
-            cause,
-          }),
+        catch: readError,
       });
 
-      return assembleDeployRows({
-        manifestEntries: normalizeHistoryEntries(manifestPayload).sort(
-          (a, b) => b.blockHeight - a.blockHeight,
-        ),
-        configEntries: normalizeHistoryEntries(configPayload).sort(
-          (a, b) => b.blockHeight - a.blockHeight,
-        ),
-        platformEntries: normalizeHistoryEntries(platformPayload).sort(
-          (a, b) => b.blockHeight - a.blockHeight,
-        ),
+      return yield* Effect.tryPromise({
+        try: () =>
+          assembleDeployRows({
+            records: [...records].sort((a, b) => b.blockHeight - a.blockHeight),
+            configEntries: [...configEntries].sort((a, b) => b.blockHeight - a.blockHeight),
+            manifestTagEntries: [...tagEntries].sort((a, b) => b.blockHeight - a.blockHeight),
+            readVersionRecord: (version) =>
+              source.readVersionRecord({ kind: "version", ref, version }),
+          }),
+        catch: readError,
       });
     });
 
@@ -319,5 +239,5 @@ export class DeployHistoryService extends Context.Service<
     ) => Effect.Effect<DeploySummary[], DeployHistoryReadError>;
   }
 >()("api/DeployHistoryService") {
-  static readonly layer = Layer.succeed(this, this.of(buildDeployHistoryService(fetchHistoryJson)));
+  static readonly layer = Layer.succeed(this, this.of(buildDeployHistoryService()));
 }

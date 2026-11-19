@@ -174,7 +174,7 @@ function DeploysPage() {
                     <div className="flex gap-2 text-muted-foreground">
                       <span className="shrink-0">platform pin</span>
                       <span className="font-mono break-all text-foreground">
-                        {deploy.platformManifest.file} @ {deploy.platformManifest.integrity}
+                        release {deploy.platformManifest.version}
                       </span>
                     </div>
                   )}

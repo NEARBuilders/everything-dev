@@ -9,6 +9,7 @@
  * TODO(cutover): delete the templates below and re-point the helpers onto
  * keyPathOf({ kind: "manifest" | "version" | "deployRecord", ... }).
  */
+import { deployRecordTsOf } from "./deploy-record";
 import { fetchRegistryKey } from "./fastkv";
 
 /** The pointer key relative to `apps/<account>/<gateway>/` — the form
@@ -37,7 +38,7 @@ export function deployAuditKeyOf(
   gatewayId: string,
   publishedAt: string,
 ): string {
-  return `apps/${accountId}/${gatewayId}/deploys/${publishedAt.replace(/[:.]/g, "-")}.json`;
+  return `apps/${accountId}/${gatewayId}/deploys/${deployRecordTsOf(publishedAt)}.json`;
 }
 
 /** The release classifier's pointer read: absent (null) means no release has

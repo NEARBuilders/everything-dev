@@ -72,6 +72,15 @@
       "import": "./dist/services/registry/index.mjs",
       "require": "./dist/services/registry/index.cjs"
     },
+    "./registry/fastkv": {
+      "development": {
+        "types": "./src/services/registry/fastkv.ts",
+        "import": "./src/services/registry/fastkv.ts"
+      },
+      "types": "./dist/services/registry/fastkv.d.mts",
+      "import": "./dist/services/registry/fastkv.mjs",
+      "require": "./dist/services/registry/fastkv.cjs"
+    },
     "./hosting": {
       "development": {
         "types": "./src/services/hosting/adapter.ts",
