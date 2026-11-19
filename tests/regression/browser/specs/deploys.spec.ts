@@ -1,5 +1,3 @@
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { collectErrors, expectNoHydrationFailure, waitForApp } from "../helpers/page-ready";
 import { injectCookies } from "../helpers/seeded";
@@ -37,11 +35,7 @@ test.describe("Deploys", () => {
     expectNoHydrationFailure(pageErrors);
   });
 
-  test("loading the live root namespace renders a deploy row", async ({ page }, testInfo) => {
-    const traceDir = join(testInfo.outputDir, "traces");
-    mkdirSync(traceDir, { recursive: true });
-    await page.context().tracing.start({ screenshots: true, snapshots: true });
-
+  test("loading the live root namespace renders a deploy row", async ({ page }) => {
     await page.goto("/deploys", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
     await expect(page.getByTestId("deploys.heading")).toBeVisible({ timeout: 10000 });
@@ -62,18 +56,10 @@ test.describe("Deploys", () => {
       "ghcr.io/nearbuilders/everything-dev",
     );
 
-    await page.context().tracing.stop({
-      path: join(traceDir, "deploys-live-namespace.trace.zip"),
-    });
-
     expectNoHydrationFailure(pageErrors);
   });
 
-  test("own-namespace rows offer rollback and surface the outcome", async ({ page }, testInfo) => {
-    const traceDir = join(testInfo.outputDir, "traces");
-    mkdirSync(traceDir, { recursive: true });
-    await page.context().tracing.start({ screenshots: true, snapshots: true });
-
+  test("own-namespace rows offer rollback and surface the outcome", async ({ page }) => {
     await page.goto("/deploys", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
     await expect(page.getByTestId("deploys.heading")).toBeVisible({ timeout: 10000 });
@@ -95,25 +81,15 @@ test.describe("Deploys", () => {
       timeout: 15000,
     });
 
-    await page.context().tracing.stop({
-      path: join(traceDir, "deploys-rollback-outcome.trace.zip"),
-    });
-
     expectNoHydrationFailure(pageErrors);
   });
 
-  test("publish v2 → roll back → the config pointer shows rolledBackFrom", async ({
-    page,
-  }, testInfo) => {
+  test("publish v2 → roll back → the config pointer shows rolledBackFrom", async ({ page }) => {
     test.skip(
       !ROLLBACK_NAMESPACE.account || !ROLLBACK_NAMESPACE.gateway,
       "owner step: set ROLLBACK_SPEC_ACCOUNT/GATEWAY to a disposable namespace the stack's rollback key signs for, with two publishes behind it",
     );
     if (!ROLLBACK_NAMESPACE.account || !ROLLBACK_NAMESPACE.gateway) return;
-
-    const traceDir = join(testInfo.outputDir, "traces");
-    mkdirSync(traceDir, { recursive: true });
-    await page.context().tracing.start({ screenshots: true, snapshots: true });
 
     await page.goto("/deploys", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
@@ -138,10 +114,6 @@ test.describe("Deploys", () => {
     const rolledBackBadge = page.getByTestId("deploys-rolled-back-0");
     await expect(rolledBackBadge).toBeVisible({ timeout: 30000 });
     await expect(rolledBackBadge).toContainText(/rolled back from/);
-
-    await page.context().tracing.stop({
-      path: join(traceDir, "deploys-rollback-pointer.trace.zip"),
-    });
 
     expectNoHydrationFailure(pageErrors);
   });
