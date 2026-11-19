@@ -83,7 +83,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
         );
       } else if (dv.inSync) {
         console.log(
-          `  ${colors.dim("Deployed:")}    ${colors.green("in sync")} ${colors.dim(dv.publishedDigest.slice(0, 19) + "…")}`,
+          `  ${colors.dim("Deployed:")}    ${colors.green("in sync")} ${colors.dim(`${dv.publishedDigest.slice(0, 19)}…`)}`,
         );
       } else if (dv.error) {
         console.log(
