@@ -6,7 +6,7 @@
  * in-process through `alchemy/Deploy`'s `deploy()` — the same plan/apply and
  * state-ledger semantics as `alchemy deploy` without a CLI subprocess. The
  * choice was deliberate: `Deploy.deploy` is a public programmatic API and
- * alchemy's own test harness (`lib/Test/Core.js`) drives stacks exactly this
+ * alchemy's own test harness (`@alchemy.run/test`) drives stacks exactly this
  * way, so idempotency comes from Alchemy's plan diffing (an unchanged
  * descriptor yields a no-op apply and never recreates the container) and the
  * ledger is Alchemy's local file state store under `stateDir`.
@@ -22,12 +22,12 @@
  * only a re-create — i.e. a descriptor change — rebinds it.
  */
 
+import * as Docker from "@alchemy.run/docker";
 import * as Alchemy from "alchemy";
 import { AlchemyContext, AlchemyContextLive, AuthProviders, Stack, Stage } from "alchemy";
 import { AdoptPolicy } from "alchemy/AdoptPolicy";
 import { ArtifactStore, createArtifactStore } from "alchemy/Artifacts";
 import * as Deploy from "alchemy/Deploy";
-import * as Docker from "alchemy/Docker";
 import * as Interaction from "alchemy/Interaction";
 import * as State from "alchemy/State";
 import { PlatformServices } from "alchemy/Util/PlatformServices";
