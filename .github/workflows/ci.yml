@@ -149,7 +149,8 @@ jobs:
           AUDIT_STRICT: ${{ secrets.AUDIT_STRICT }}
         run: |
           set +e
-          timeout 240 pnpm audit --json > audit-output.json 2>audit-stderr.txt
+          audit_json="$RUNNER_TEMP/audit-output.json"
+          timeout 240 pnpm audit --json > "$audit_json" 2>"$RUNNER_TEMP/audit-stderr.txt"
           audit_exit=$?
           if [ "$audit_exit" -eq 124 ]; then
             echo "::warning::pnpm audit timed out after 240s — the vulnerability check DID NOT RUN"
@@ -162,7 +163,7 @@ jobs:
             exit 0
           fi
           audit_status=0
-          node .github/scripts/audit-summary.mjs audit-output.json || audit_status=$?
+          node .github/scripts/audit-summary.mjs "$audit_json" || audit_status=$?
           if [ "$audit_status" = "10" ]; then
             if [ "$AUDIT_STRICT" = "true" ]; then
               echo "::error::pnpm audit found critical or high vulnerabilities — failing the audit (AUDIT_STRICT=true)"

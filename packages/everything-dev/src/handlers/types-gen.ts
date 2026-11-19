@@ -1,28 +1,14 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
-import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
 import { generateCodeArtifacts } from "../services/codegen/artifacts";
-import { checkFederationCompat, checkUiCompositionCompat } from "../services/federation/service";
-import { readInstalledFrameworkVersion } from "../services/framework-version";
-import {
-  ManifestService,
-  type PlatformCompatViolation,
-  type ResolvedPlatformManifest,
-} from "../services/platform/manifest";
-import { resolvePublishedConfig } from "../services/registry/published";
 import { openResolution } from "../services/resolution/session";
-import { selectWorkspaceTargets } from "../services/workspace/build-train";
-import { readWorkspaceCatalog } from "../services/workspace/catalog";
-import { findWorkspaceRoot } from "../services/workspace/workspace";
-import type { BosConfig } from "../types";
-import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
 
 const nodeEnvProduction = (): boolean => process.env.NODE_ENV === "production";
-const envOf = (name: string): string | undefined => process.env[name];
+const _envOf = (name: string): string | undefined => process.env[name];
 
 export function registerTypesGen(builder: BosBuilder) {
   return {
