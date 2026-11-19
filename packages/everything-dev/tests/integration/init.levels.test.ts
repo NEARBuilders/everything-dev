@@ -101,14 +101,14 @@ describe("init starter levels", () => {
     );
   });
 
-  it("advanced level includes guards and orgs while excluding product routes", async () => {
+  it("advanced level includes guards while excluding orgs and product routes", async () => {
     const projectDir = await scaffoldProject({ overrides: ["ui"], level: "advanced" });
     tempDirs.push(projectDir);
 
     const routes = join(projectDir, "ui", "src", "routes");
     expect(existsSync(join(routes, "_authenticated.tsx"))).toBe(true);
     expect(existsSync(join(routes, "_admin.tsx"))).toBe(true);
-    expect(existsSync(join(routes, "_authenticated", "_dashboard", "orgs"))).toBe(true);
+    expect(existsSync(join(routes, "_authenticated", "_dashboard", "orgs"))).toBe(false);
     expect(existsSync(join(routes, "_authenticated", "_dashboard", "things", "index.tsx"))).toBe(
       true,
     );

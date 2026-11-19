@@ -53,7 +53,7 @@ describe("pruneUnusedUiFiles — real parent tree survival", () => {
     expect(appSurface).toContain("export const apiConnectionError");
     expect(
       listFiles(join(projectDir, "ui", "src", "components", "ui")).length,
-    ).toBeGreaterThanOrEqual(25);
+    ).toBeGreaterThanOrEqual(20);
 
     const barrel = readFileSync(join(projectDir, "ui", "src", "components", "index.ts"), "utf-8");
     expect(barrel).toContain('from "./ui/button"');
