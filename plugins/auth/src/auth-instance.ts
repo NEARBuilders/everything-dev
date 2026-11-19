@@ -16,6 +16,7 @@ import {
 import { createAccessControl } from "better-auth/plugins/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
 import { gt } from "drizzle-orm";
+import { apiKeyDefaultConfig } from "./api-key-default-config";
 import type {
   AuthConfig,
   AuthCrossSubDomainCookiesConfig,
@@ -468,6 +469,7 @@ export function createAuthInstance(
       }),
       deviceLink(db),
       custody(db, config.secret, network),
+      apiKeyDefaultConfig(),
       apiKey([
         {
           configId: "user-keys",
