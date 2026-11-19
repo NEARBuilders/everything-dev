@@ -12,7 +12,7 @@ export type { AuthPasskeyConfig, AuthSiwnConfig };
 export interface AuthConfig {
   secret: string;
   baseUrl: string;
-  organizationMembershipLimit?: number;
+  organizationMembershipLimit?: number | null | false;
   trustedOrigins?: string[];
   isProduction?: boolean;
   socialProviders?: {

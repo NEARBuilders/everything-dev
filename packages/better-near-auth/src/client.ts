@@ -177,13 +177,13 @@ export { isPasskeyWalletAvailable, type PasskeyWalletNetwork } from "./passkey.j
  */
 export const passkeyWalletManifest: WalletManifest = {
   id: "passkey",
-  version: "1.0.2",
+  version: "1.0.3",
   name: "Passkey",
   icon: "https://trezu.org/icons/passkey.svg",
   description: "Sign in with Face ID, Touch ID, or your device passcode.",
   website: "https://trezu.org",
   executor:
-    "https://raw.githubusercontent.com/NEAR-DevHub/near-connect-passkey/4974f12113ae7cf6642796a1a8a6563d32f32112/passkey-executor.js",
+    "https://raw.githubusercontent.com/NEAR-DevHub/near-connect-passkey/798e9e514d2b92365639927f6bbffd448cb15c60/passkey-executor.js",
   type: "sandbox",
   platform: ["web"],
   features: {
