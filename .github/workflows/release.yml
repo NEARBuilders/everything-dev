@@ -204,7 +204,14 @@ jobs:
       # is only logged at verbose level inside npm's debug log.
       - name: Dump npm OIDC diagnostics
         if: failure()
-        run: grep -i oidc /home/runner/.npm/_logs/*.log || true
+        run: |
+          echo "::group::npm OIDC diagnostics"
+          if compgen -G "/home/runner/.npm/_logs/*.log" >/dev/null; then
+            grep -i oidc /home/runner/.npm/_logs/*.log || echo "no OIDC lines in the npm debug logs — the failure is not token-exchange related"
+          else
+            echo "no npm debug logs found — publish failed before npm ran"
+          fi
+          echo "::endgroup::"
 
   # Version bumps structurally outdate the skills' library_version markers,
   # and the release event created with GITHUB_TOKEN is swallowed by GitHub's

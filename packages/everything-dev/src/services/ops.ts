@@ -185,8 +185,13 @@ async function deployedVersionStatus(
       `bos://${account}/${domain}`,
     );
     publishedDigest = pointerDigest(published as never);
-  } catch {
-    return undefined;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return computeDeployedVersionStatus({
+      servedError: /^No config found for/.test(message)
+        ? "nothing published yet"
+        : `published config unreachable — ${message}`,
+    });
   }
 
   const hostUrl = session?.runtime?.host?.url;

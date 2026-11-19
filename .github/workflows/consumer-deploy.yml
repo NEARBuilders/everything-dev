@@ -131,8 +131,8 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            echo "::warning::Pin verification FAILED — a published pin no longer resolves byte-for-byte (rot, #826). Run \`bos upgrade && bos deploy\` to re-pin."
             {
-              echo "::warning::Pin verification FAILED — a published pin no longer resolves byte-for-byte (rot, #826). Run \`bos upgrade && bos deploy\` to re-pin."
               echo "### Pin verification FAILED (rot, #826)"
               echo '```'
               cat verify-report.txt

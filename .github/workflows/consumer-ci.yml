@@ -79,24 +79,29 @@ jobs:
         env:
           AUDIT_STRICT: ${{ secrets.AUDIT_STRICT }}
         run: |
-          set +e -o pipefail
-          timeout 240 pnpm audit --json 2>&1 | tee audit-output.txt
+          set +e
+          timeout 240 pnpm audit --json > audit-output.json 2>audit-stderr.txt
           audit_exit=$?
           if [ "$audit_exit" -eq 124 ]; then
-            echo "::warning::pnpm audit timed out after 240s — skipping vulnerability check"
+            echo "::warning::pnpm audit timed out after 240s — the vulnerability check DID NOT RUN"
+            echo "- Security audit: **SKIPPED** (pnpm audit timed out after 240s)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [ "$audit_exit" -gt 1 ]; then
-            echo "::warning::pnpm audit exited with code $audit_exit — see output above"
+            echo "::warning::pnpm audit exited with code $audit_exit — the vulnerability check DID NOT RUN"
+            echo "- Security audit: **SKIPPED** (audit exited with $audit_exit)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if grep -qiE '(critical|high)' audit-output.txt; then
+          audit_status=0
+          node .github/scripts/audit-summary.mjs audit-output.json || audit_status=$?
+          if [ "$audit_status" = "10" ]; then
             if [ "$AUDIT_STRICT" = "true" ]; then
-              echo "::error::Critical or high vulnerabilities found — failing the audit"
+              echo "::error::pnpm audit found critical or high vulnerabilities — failing the audit (AUDIT_STRICT=true)"
               exit 1
-            else
-              echo "::warning::Critical or high vulnerabilities found — set AUDIT_STRICT=true secret to fail on these"
             fi
+            echo "::warning::pnpm audit found critical or high vulnerabilities — set AUDIT_STRICT=true to fail on these"
+          elif [ "$audit_status" = "3" ]; then
+            echo "- Security audit: **SKIPPED** (audit output unreadable)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Run Biome lint and format check

@@ -934,7 +934,7 @@ export const UpgradeResultSchema = z.object({
 });
 
 export const DeployedVersionStatusSchema = z.object({
-  publishedDigest: z.string(),
+  publishedDigest: z.string().optional(),
   servedDigest: z.string().optional(),
   inSync: z.boolean(),
   error: z.string().optional(),
@@ -946,6 +946,7 @@ export const StatusResultSchema = z.object({
   extends: z.string().optional(),
   account: z.string().optional(),
   domain: z.string().optional(),
+  parentUnreachable: z.string().optional(),
   packages: z.array(
     z.object({
       name: z.string(),

@@ -1,4 +1,6 @@
 import { isPrivateKey, Near, type PrivateKey } from "near-kit";
+import { colors } from "../../utils/theme";
+import { phase } from "../deploy/output";
 import type { NetworkId } from "../registry/fastkv";
 import { openInBrowser, startDeviceLogin } from "./device-login";
 import { generateNearKeyPair } from "./near-cli";
@@ -111,9 +113,10 @@ export async function ensureDelegateKey(
     account: opts.account,
   });
 
-  console.log(`  One-time code: ${login.userCode}`);
+  phase("Delegate key", `approve the gasless publish key for ${opts.account}`);
+  console.log(`  One-time code: ${colors.cyan(login.userCode)}`);
   await openInBrowser(login.verificationUrl).catch((error: unknown) => {
-    console.log(`  ⚠ ${(error as Error).message}`);
+    console.log(`  ${colors.yellow("⚠")} ${(error as Error).message}`);
   });
   console.log(`  Waiting for delegate-key approval at ${login.verificationUrl}…`);
 
