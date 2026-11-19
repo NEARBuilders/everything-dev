@@ -83,7 +83,7 @@ export interface AuthConfig {
   secret: string;
   baseUrl: string;
   network?: AuthNetwork;
-  organizationMembershipLimit?: number;
+  organizationMembershipLimit?: number | null | false;
   abuseControl?: { rateLimits?: RateRules };
   trustedOrigins?: string[];
   isProduction?: boolean;

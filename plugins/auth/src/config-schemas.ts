@@ -94,7 +94,9 @@ export const authVariablesSchema = z.object({
   baseUrl: z.string().optional(),
   trustedOrigins: z.array(z.string()).optional(),
   apiKeyHeaders: z.array(z.string()).default(["x-api-key"]),
-  organizationMembershipLimit: z.number().int().positive().optional(),
+  organizationMembershipLimit: z
+    .union([z.number().int().positive(), z.null(), z.literal(false)])
+    .optional(),
   abuseControl: z
     .object({
       rateLimits: z
