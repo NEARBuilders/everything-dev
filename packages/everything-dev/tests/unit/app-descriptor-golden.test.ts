@@ -88,6 +88,7 @@ describe("descriptor golden fixture — bos.app.ts ↔ bos.config.json", () => {
       readRpcUrl: "https://free.rpc.fastnear.com",
       recipients: { mainnet: "child.example", testnet: "child.testnet" },
       permissions: {
+        areas: ["node-operations", "finance", "things", "stake", "events"],
         statements: {
           organization: ["update", "delete"],
           member: ["create", "update", "delete"],

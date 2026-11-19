@@ -9,10 +9,7 @@ import {
   resolvedIntegrityMap,
   resolveRemoteVersion,
 } from "../../src/services/deploy/version-manifest";
-import {
-  createPluginRuntime,
-  installIntegrityFetchHook,
-} from "../../src/services/federation/service";
+import { installIntegrityFetchHook } from "../../src/services/federation/service";
 
 let cacheDir: string;
 

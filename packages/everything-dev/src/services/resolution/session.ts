@@ -489,9 +489,7 @@ export async function openResolution(
           }
         }
 
-        const unknownAuthoredKeys = [
-          ...collectUnknownKeys(rawConfig ?? null, BosConfigSchema),
-        ];
+        const unknownAuthoredKeys = [...collectUnknownKeys(rawConfig ?? null, BosConfigSchema)];
         const config = await resolveConfigComposableEntries(
           BosConfigSchema.parse(overlayMerged),
           dispatch.baseDir,
