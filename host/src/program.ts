@@ -90,6 +90,13 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     const getBaseConfig = async () =>
       (await Effect.runPromiseWith(effectContext)(snapshot.get)).config;
     const getServingState = () => Effect.runPromiseWith(effectContext)(snapshot.get);
+    const getPendingRestart = async (): Promise<readonly string[]> =>
+      Effect.runPromiseWith(effectContext)(
+        Effect.gen(function* () {
+          const coordinator = yield* Effect.serviceOption(SnapshotCoordinator);
+          return Option.isSome(coordinator) ? yield* coordinator.value.pendingRestart : [];
+        }),
+      );
     const bootedFromSnapshot = process.env.BOS_BOOT_SNAPSHOT === "1";
     const app = new Hono<HonoEnv>();
 
@@ -136,6 +143,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
       const composeOk = !ssrEnabled || compositionHealth.status === "ready";
       const probeFailed = compositionHealth.selfProbe?.status === "failed";
       const serving = await getServingState();
+      const pendingRestart = await getPendingRestart();
       const snapshotBoot = getSnapshotBootHealth(bootedFromSnapshot, serving.pointer !== undefined);
       return c.json(
         {
@@ -154,6 +162,12 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
                   "boot-frozen slots changed pin — the swap cannot adopt them; restart to serve the adopted generation",
               }
             : {}),
+          ...(pendingRestart.length
+            ? {
+                pendingRestart,
+                note: "a published generation is held — boot-frozen slots moved pin and the coherence guard refuses a partial swap; restart (replace the instance) to serve UI and backends together",
+              }
+            : {}),
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
           ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
@@ -167,7 +181,11 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
         Effect.gen(function* () {
           const state = yield* snapshot.get;
           const watch = yield* Effect.serviceOption(SnapshotWatch);
+          const coordinator = yield* Effect.serviceOption(SnapshotCoordinator);
           const lastOutcome = Option.isSome(watch) ? watch.value.lastOutcome : undefined;
+          const pendingRestart = Option.isSome(coordinator)
+            ? yield* coordinator.value.pendingRestart
+            : [];
           return {
             deploymentDigest: state.config.deploymentDigest ?? state.deploymentDigest,
             pointerDigest: state.pointer ? pointerDigest(state.pointer as never) : undefined,
@@ -176,6 +194,12 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
               ? {
                   restartRequired: state.restartRequired,
                   note: "boot-frozen slots changed pin — the swap cannot adopt them; restart to serve the adopted generation",
+                }
+              : {}),
+            ...(pendingRestart.length
+              ? {
+                  pendingRestart,
+                  note: "a published generation is held — boot-frozen slots moved pin and the coherence guard refuses a partial swap; restart (replace the instance) to serve UI and backends together",
                 }
               : {}),
             ...(platform

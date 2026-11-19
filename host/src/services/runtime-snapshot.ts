@@ -56,7 +56,7 @@ export function createRuntimeSnapshotState(input: {
     deploymentDigest: input.deploymentDigest,
     config: input.config,
     pointer: input.pointer,
-    ...(input.restartRequired ? { restartRequired: input.restartRequired } : {}),
+    ...(input.restartRequired?.length ? { restartRequired: input.restartRequired } : {}),
     composeState,
     clientConfigState,
     release: Effect.sync(() => {
