@@ -489,9 +489,12 @@ export async function openResolution(
           }
         }
 
+        // KEEP: the overlay is descriptor-shaped and gated by the strict
+        // descriptor parse (DevOverlayError names the file) — walking it
+        // against the resolved schema flags its valid api/ui/auth keys as
+        // unknown and fails every `bos deploy` (citynode.app, Nov 2026).
         const unknownAuthoredKeys = [
           ...collectUnknownKeys(rawConfig ?? null, BosConfigSchema),
-          ...(devOverlay ? collectUnknownKeys(devOverlay, BosConfigSchema) : []),
         ];
         const config = await resolveConfigComposableEntries(
           BosConfigSchema.parse(overlayMerged),
