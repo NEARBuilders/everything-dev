@@ -88,6 +88,9 @@ describe("descriptor golden fixture — bos.app.ts ↔ bos.config.json", () => {
       readRpcUrl: "https://free.rpc.fastnear.com",
       recipients: { mainnet: "child.example", testnet: "child.testnet" },
       permissions: {
+        // the root's authored permission areas ride the extends lineage too
+        // (#898): the flat areas merge into every child's flattened siwn
+        areas: ["node-operations", "finance", "things", "stake", "events"],
         statements: {
           organization: ["update", "delete"],
           member: ["create", "update", "delete"],
