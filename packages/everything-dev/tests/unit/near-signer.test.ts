@@ -249,6 +249,7 @@ describe("resolveSigningStrategy", () => {
     });
 
     await expect(promise).rejects.toThrow(/NEAR_PRIVATE_KEY/);
+    await expect(promise).rejects.toThrow(/near-credentials/);
     await expect(promise).rejects.toThrow(/bos login/);
   });
 });
