@@ -85,6 +85,7 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
           context?.authClient ??
           createAuthClient({
             runtimeConfig: context?.runtimeConfig,
+            headers: context?.headers,
             cspNonce: context?.cspNonce,
           }),
         session: context?.session,
@@ -150,7 +151,12 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
           context?.apiClient ??
           createApiClient({ hostUrl: runtimeConfig.hostUrl, rpcBase: runtimeConfig.rpcBase }),
         authClient:
-          context?.authClient ?? createAuthClient({ runtimeConfig, cspNonce: context?.cspNonce }),
+          context?.authClient ??
+          createAuthClient({
+            runtimeConfig,
+            headers: context?.headers,
+            cspNonce: context?.cspNonce,
+          }),
         session: context?.session,
         locale: context?.locale,
       },
@@ -179,6 +185,7 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
           context: {
             queryClient: localQueryClient,
             runtimeConfig: renderOptions.runtimeConfig,
+            headers: request.headers,
             apiClient: renderOptions.apiClient,
             authClient: createAuthClient({
               runtimeConfig: renderOptions.runtimeConfig,

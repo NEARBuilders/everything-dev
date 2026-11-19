@@ -9,6 +9,11 @@ export interface RouterContext<TSession = unknown> {
   session?: TSession;
   cspNonce?: string;
   locale?: string;
+  /**
+   * Incoming request headers (SSR only) — forwarded into the request-scoped
+   * auth client so loader-time auth fetches carry the caller's session cookie.
+   */
+  headers?: HeadersInit;
   /** nav manifest derived from composed routes' staticData.nav */
   pluginNav?: NavManifest;
 }
