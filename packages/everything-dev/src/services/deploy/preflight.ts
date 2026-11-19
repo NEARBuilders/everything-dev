@@ -25,6 +25,7 @@ import {
   type NetworkId,
 } from "../registry/fastkv";
 import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from "./cdn";
+import { phase, stepOk } from "./output";
 
 /**
  * Pure publish preflight (resolve, don't mutate) — every failure returns
@@ -364,6 +365,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
   }
 
   let signing: PublishSigning;
+  phase("Preflight");
   if (pendingSigning?.mode === "custody") {
     const { custodyWallet } = pendingSigning;
     // The custody wallet's gas balance gates the whole publish — checked
@@ -376,21 +378,21 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
     if (balance.unreachable) {
       console.log(colors.dim(`  ${balance.message}`));
     } else {
-      console.log(
-        `  Signing via ${colors.cyan(`OutLayer custody wallet ${custodyWallet.nearAccountId}`)}`,
+      stepOk(
+        `signing via ${colors.cyan(`OutLayer custody wallet ${custodyWallet.nearAccountId}`)}`,
       );
     }
     signing = pendingSigning;
   } else if (pendingSigning?.mode === "session") {
     signing = pendingSigning;
-    console.log(
-      `  Signing via ${colors.cyan(`gasless delegate key for ${account} (relayed by the platform relayer)`)}`,
+    stepOk(
+      `signing via ${colors.cyan(`gasless delegate key for ${account} (relayed by the platform relayer)`)}`,
     );
   } else {
     let strategy: SigningStrategy;
     try {
       strategy = await resolveSigningStrategy({ privateKey: input.privateKey, account, network });
-      console.log(`  Signing via ${colors.cyan(describeSigningStrategy(strategy))}`);
+      stepOk(`signing via ${colors.cyan(describeSigningStrategy(strategy))}`);
     } catch (error) {
       return fail(error instanceof Error ? error.message : "Unknown error");
     }
@@ -407,7 +409,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
         network,
       });
       if (health.warning) {
-        console.log(colors.dim(`  ${health.warning}`));
+        console.log(`  ${colors.yellow("⚠")} ${colors.yellow(health.warning)}`);
       }
       if (health.error) {
         return fail(health.error);
@@ -419,7 +421,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
       // exact top-up numbers.
       const balance = await checkPublishBalance({ account, network });
       if (balance.warning) {
-        console.log(colors.dim(`  ${balance.warning}`));
+        console.log(`  ${colors.yellow("⚠")} ${colors.yellow(balance.warning)}`);
       }
       if (balance.error) {
         return fail(balance.error);

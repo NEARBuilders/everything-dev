@@ -29,6 +29,8 @@ type TrainErrorResult = {
   registryUrl: string;
   error: string;
   txHash?: string;
+  txUrl?: string;
+  kind?: string;
   built?: string[];
   skipped?: string[];
   deployResults?: WorkspaceDeployResult[];
@@ -89,6 +91,8 @@ export function registerDeploy(builder: BosBuilder) {
         status: result.status,
         registryUrl: result.registryUrl,
         txHash: result.txHash,
+        ...(result.txUrl ? { txUrl: result.txUrl } : {}),
+        ...(result.status === "error" && result.kind ? { kind: result.kind } : {}),
         ...(result.status === "error" && result.error ? { error: result.error } : {}),
         built: result.built,
         skipped: result.skipped,
@@ -455,6 +459,7 @@ async function deployBody(
       status: "error",
       registryUrl: result.registryUrl,
       txHash: result.txHash,
+      kind: result.kind,
       built: result.built,
       skipped: result.skipped,
       error: result.error,
@@ -486,6 +491,7 @@ async function deployBody(
   const configPublished = {
     registryUrl: result.registryUrl,
     txHash: result.txHash,
+    ...(result.txUrl ? { txUrl: result.txUrl } : {}),
     pointerDigest: result.pointerDigest,
     remoteDigests: result.remoteDigests,
     built: result.built,

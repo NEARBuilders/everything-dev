@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { pgliteDefaultUrlForSlug } from "../../db/binding";
+import { formatElapsed, stepFail, stepOk } from "./output";
 
 /**
  * The runtime-image boot gate: boots a runtime image the way production
@@ -72,27 +73,31 @@ async function fetchStatusOk(url: string): Promise<Response> {
   return response;
 }
 
-/** Bounded poll: resolves with the check's result once it passes, rejects at the deadline. */
+/** Bounded poll: resolves with the check's result once it passes, rejects at
+ * the deadline. Boot readiness reads as time, not attempt counts — the
+ * container takes what it takes (image unpack, migrations, bundle fetch),
+ * and a slow-but-green boot is not a failure. */
 async function pollUntil<T>(
   name: string,
   check: () => Promise<T>,
   deadlineMs = BOOT_DEADLINE_MS,
 ): Promise<T> {
-  const deadline = Date.now() + deadlineMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + deadlineMs;
   let lastFailure = "no attempt";
-  let attempt = 0;
   while (Date.now() < deadline) {
-    attempt += 1;
     try {
       const detail = await check();
-      console.log(`  ✓ ${name} (attempt ${attempt})`);
+      console.log(`  ✓ ${name} — ${detail} (ready in ${formatElapsed(Date.now() - startedAt)})`);
       return detail;
     } catch (error) {
       lastFailure = error instanceof Error ? error.message : String(error);
     }
     await sleep(POLL_INTERVAL_MS);
   }
-  throw new Error(`${name} did not pass within the boot deadline — last failure: ${lastFailure}`);
+  throw new Error(
+    `${name} did not pass within ${formatElapsed(deadlineMs)} — last failure: ${lastFailure}`,
+  );
 }
 
 /** Resolves "exited" once the boot container has exited — the start stack
@@ -376,11 +381,11 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     console.log(`  ℹ image size: ${mb} MB (${image})`);
 
     const summary = `health: ${health}; ssr: ${ssr}; api: ${api}; mf compat: ${mf}; chain: ${chain}; platform: ${platformVersion}`;
-    console.log("smoke: PASS");
+    stepOk("boot gate passed");
     return { ok: true, image, summary };
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
-    console.error(`smoke: FAIL — ${failure}`);
+    stepFail(`boot gate failed — ${failure}`);
     const diagnosis = probeCdnFromContainer(
       container,
       image,

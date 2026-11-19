@@ -1,3 +1,4 @@
+import { phase } from "../../services/deploy/output";
 import type {
   DeployTrainRender,
   PublishSectionRender,
@@ -39,8 +40,7 @@ const NAME_COLUMN = 28;
  */
 export const cliDeployTrainRender: DeployTrainRender = {
   cdnBanner: (storageOrigin) => {
-    console.log();
-    console.log(`  CDN deploy — uploading workspace dists to ${storageOrigin}...`);
+    phase("Upload", `workspace dists → ${storageOrigin}`);
   },
 
   uploadOutcome: (outcome: UploadOutcomeRender) => {

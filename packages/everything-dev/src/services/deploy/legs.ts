@@ -16,6 +16,7 @@ import {
   resolveImageRef,
   resolveRegistryDigest,
 } from "./image";
+import { phase, stepFail, stepOk } from "./output";
 import { deriveImageRefFromPlatformManifest } from "./platform-manifest";
 import { rollbackToPreviousSnapshot } from "./rollback-flow";
 import { runSmoke } from "./smoke";
@@ -503,8 +504,7 @@ export async function runPostPublishLegs(
         console.log();
         console.log(colors.yellow(`  Post-publish smoke skipped: ${smokeSkip}`));
       } else {
-        console.log();
-        console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
+        phase("Verify — boot gate");
         // The manifest leg (sprint registry-primitive 05): on a release
         // train the pointer must already serve the version this train just
         // published — one registry read-back before the boot gate. A
@@ -532,9 +532,7 @@ export async function runPostPublishLegs(
                   `release pointer serves ${decoded.data.version}, ` +
                   `expected ${input.publishedFrameworkVersion}`;
               } else {
-                console.log(
-                  colors.dim(`  manifest leg: the release pointer serves ${decoded.data.version}`),
-                );
+                stepOk(`release pointer verified — manifest.json serves ${decoded.data.version}`);
               }
             }
           } catch (error) {
@@ -552,14 +550,12 @@ export async function runPostPublishLegs(
             diagnosis = smokeResult.diagnosis;
           } else {
             legs.smoke = { status: "ok", detail: smokeResult.summary };
-            console.log(
-              colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
-            );
+            stepOk(`boot gate passed — ${smokeResult.summary ?? ""}`);
           }
         }
         if (cause) {
           console.log();
-          console.log(colors.error(`  ${icons.err} Post-publish smoke failed: ${cause}`));
+          stepFail(`boot gate failed — ${cause}`);
           if (diagnosis) {
             console.log(colors.yellow(`  ${diagnosis}`));
           }
@@ -602,6 +598,7 @@ export async function runPostPublishLegs(
   // GitHub Actions exports set-but-empty env vars for absent secrets, so the
   // project token var is deleted even when empty: the railway CLI reads
   // Some("") as a set token and keeps failing the connect.
+  phase("Promote — Railway");
   const workspaceToken = process.env.RAILWAY_API_TOKEN;
   if (workspaceToken) {
     const projectToken = process.env.RAILWAY_TOKEN;
