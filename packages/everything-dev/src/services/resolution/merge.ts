@@ -39,7 +39,6 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 function unionArrays(a: unknown, b: unknown): unknown[] | undefined {
   const aArr = Array.isArray(a) ? a : [];
   const bArr = Array.isArray(b) ? b : [];
-  if (aArr.length === 0 && bArr.length === 0) return undefined;
   const seen = new Set<string>();
   const result: unknown[] = [];
   for (const item of [...aArr, ...bArr]) {
