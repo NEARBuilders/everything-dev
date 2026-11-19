@@ -161,21 +161,22 @@ export function registerKeys(builder: BosBuilder) {
             custodyWallet: approval.custodyWallet ?? existingSession?.custodyWallet ?? null,
           });
 
-          let warning: string | null = null;
+          const warnings: string[] = [];
           if (approval.deployKeyWarning) {
-            warning = approval.deployKeyWarning;
+            warnings.push(approval.deployKeyWarning);
           }
           if (delegateNote) {
-            warning = warning ? `${warning} ${delegateNote}` : delegateNote;
+            warnings.push(delegateNote);
           }
           if (input.custody && !approval.custodyWallet) {
-            warning =
-              "Custody wallet credential could not be fetched after approval. Re-run `bos login --custody` — the wallet is kept server-side.";
+            warnings.push(
+              "Custody wallet credential could not be fetched after approval. Re-run `bos login --custody` — the wallet is kept server-side.",
+            );
           }
           if (account && approval.accountId && approval.accountId !== account) {
-            warning = warning
-              ? `${warning} Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`
-              : `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`;
+            warnings.push(
+              `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`,
+            );
           }
 
           let publishKey: LoginResult["publishKey"] = null;
@@ -183,9 +184,11 @@ export function registerKeys(builder: BosBuilder) {
             try {
               publishKey = await exportPublishKey(sessions, account, input.registry);
             } catch (error) {
-              warning = `Session stored, but publish-key export failed: ${
-                error instanceof Error ? error.message : "unknown error"
-              }`;
+              warnings.push(
+                `Session stored, but publish-key export failed: ${
+                  error instanceof Error ? error.message : "unknown error"
+                }`,
+              );
             }
           }
 
@@ -194,8 +197,7 @@ export function registerKeys(builder: BosBuilder) {
           if (input.custody && custodyWallet) {
             outlayerCli = await loginOutlayerCli(custodyWallet);
             if (outlayerCli.status === "error") {
-              const failure = `OutLayer CLI login failed: ${outlayerCli.detail}`;
-              warning = warning ? `${warning} ${failure}` : failure;
+              warnings.push(`OutLayer CLI login failed: ${outlayerCli.detail}`);
             }
           }
 
@@ -223,7 +225,7 @@ export function registerKeys(builder: BosBuilder) {
                 }
               : null,
             outlayerCli,
-            warning,
+            warnings,
           } satisfies LoginResult;
         },
         catch: (error) =>
@@ -267,14 +269,15 @@ async function logoutBody(
   const stored = sessions.read(configDir);
   let revokedApiKey = false;
   let removedPublishKey = false;
-  let warning: string | null = null;
+  const warnings: string[] = [];
 
   const credential = stored?.credential;
   if (credential) {
     revokedApiKey = await revokeApiKey(siteClient, credential).catch(() => false);
     if (!revokedApiKey) {
-      warning =
-        "Could not revoke the API key remotely — revoke it manually under Settings → API keys.";
+      warnings.push(
+        "Could not revoke the API key remotely — revoke it manually under Settings → API keys.",
+      );
     }
   }
 
@@ -286,9 +289,7 @@ async function logoutBody(
       stored.publishKey.publicKey,
     );
     removedPublishKey = true;
-    warning = warning
-      ? `${warning} Re-run ${colors.cyan("bos login --key")} to re-export a publish key.`
-      : "Removed the exported publish key. Re-run bos login --key to re-export one.";
+    warnings.push("Removed the exported publish key. Re-run `bos login --key` to re-export one.");
   }
 
   sessions.delete(configDir);
@@ -296,7 +297,7 @@ async function logoutBody(
     status: "logged-out" as const,
     revokedApiKey,
     removedPublishKey,
-    warning,
+    warnings,
   } satisfies LogoutResult;
 }
 

@@ -376,7 +376,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
       return fail(balance.message);
     }
     if (balance.unreachable) {
-      console.log(colors.dim(`  ${balance.message}`));
+      console.log(`  ${colors.yellow("⚠")} ${balance.message}`);
     } else {
       stepOk(
         `signing via ${colors.cyan(`OutLayer custody wallet ${custodyWallet.nearAccountId}`)}`,
@@ -457,7 +457,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
       return fail(cdnDeploy.error);
     }
     if (cdnDeploy.warning) {
-      console.log(colors.yellow(`  ! ${cdnDeploy.warning}`));
+      console.log(`  ${colors.yellow("⚠")} ${cdnDeploy.warning}`);
     }
     const cdnOrigin = cdnDeploy.cdnOrigin;
     if (!cdnOrigin) {

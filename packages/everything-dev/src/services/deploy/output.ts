@@ -30,6 +30,14 @@ export function nearblocksUrl(txHash: string, network?: "mainnet" | "testnet"): 
   return `https://${host}/txns/${txHash}`;
 }
 
+export function nearblocksBlockUrl(
+  blockHeight: number | string,
+  network?: "mainnet" | "testnet",
+): string {
+  const host = network === "testnet" ? "testnet.nearblocks.io" : "nearblocks.io";
+  return `https://${host}/block/${blockHeight}`;
+}
+
 export function formatElapsed(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
   if (seconds < 60) return `${seconds}s`;

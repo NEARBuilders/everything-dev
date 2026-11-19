@@ -40,7 +40,7 @@ export const seedRenderers: Record<string, ResultRenderer> = {
       return;
     }
     if (r.status === "skipped") {
-      console.log(`  ${colors.dim(icons.ok)} skipped — ${r.error ?? "nothing to seed"}`);
+      console.log(`  ${colors.dim("–")} skipped — ${r.reason ?? r.error ?? "nothing to seed"}`);
       return;
     }
     const verb = r.status === "already-seeded" ? "already seeded" : "seeded";

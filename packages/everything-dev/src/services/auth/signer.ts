@@ -1,5 +1,4 @@
 import { Context, Layer } from "effect";
-import { colors } from "../../utils/theme";
 import type { NetworkId } from "../registry/fastkv";
 import { ensureCustodyBalance, submitRegistryWriteCustody } from "./custody-signer";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "./delegate-signer";
@@ -59,9 +58,6 @@ export const dispatchSubmit = (input: SubmitMode): Promise<SubmitOutcome> =>
   input.mode === "custody"
     ? (async () => {
         await ensureCustodyBalance(input.custodyWallet);
-        console.log(
-          `  Signing via ${colors.cyan(`OutLayer custody wallet ${input.custodyWallet.nearAccountId}`)}`,
-        );
         return submitRegistryWriteCustody({
           contract: input.contract,
           args: input.args,

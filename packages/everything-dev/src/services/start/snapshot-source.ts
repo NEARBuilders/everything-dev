@@ -68,7 +68,7 @@ export function createRegistryConfigSource(deps: RegistryConfigSourceDeps) {
           config: snapshot.config,
           source: "snapshot",
           warnings: [
-            `registry unreachable — serving the approved boot snapshot (written ${snapshot.writtenAt}${tag}); the pointer watch adopts the published config when the registry returns`,
+            `FastKV registry unreachable — serving the approved boot snapshot (written ${snapshot.writtenAt}${tag}); the pointer watch adopts the published config when the registry returns`,
           ],
         };
       }
