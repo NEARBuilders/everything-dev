@@ -344,6 +344,17 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
     expect(withEmptyOverlay?.rawConfig).toEqual(withoutOverlay?.rawConfig);
   });
 
+  it("a descriptor-form overlay (api/ui/auth keys) does not count as unknown authored keys", async () => {
+    const session = await openResolution(
+      { path: "/project/bos.config.json", env: "development" },
+      overlayIo(chainFiles({ "/project/bos.dev.ts": "export default {}" }), {
+        "/project/bos.dev.ts": overlayModule,
+      }),
+    );
+
+    expect(session?.unknownAuthoredKeys).toEqual([]);
+  });
+
   it("never reads the overlay in production or staging", async () => {
     const hostEntry = "remoteEntry.overlay-host.js";
     const hostManifest = {

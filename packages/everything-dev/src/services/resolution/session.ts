@@ -491,7 +491,6 @@ export async function openResolution(
 
         const unknownAuthoredKeys = [
           ...collectUnknownKeys(rawConfig ?? null, BosConfigSchema),
-          ...(devOverlay ? collectUnknownKeys(devOverlay, BosConfigSchema) : []),
         ];
         const config = await resolveConfigComposableEntries(
           BosConfigSchema.parse(overlayMerged),
