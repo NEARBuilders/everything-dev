@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   mirror:
+    timeout-minutes: 60
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
