@@ -40,7 +40,7 @@ describe("detect-changes path groups", () => {
     expect(out["regression-browser"]).toBe("false");
     expect(out["regression-http"]).toBe("false");
     expect(out["ui-api"]).toBe("true");
-    expect(out["host"]).toBe("true");
+    expect(out.host).toBe("true");
   });
 
   it("a mixed ui+api diff is not ui-only", () => {
@@ -53,7 +53,7 @@ describe("detect-changes path groups", () => {
     const out = pr(["ui/tsconfig.json"]);
     expect(out["everything-dev"]).toBe("false");
     expect(out["ui-api"]).toBe("true");
-    expect(out["host"]).toBe("true");
+    expect(out.host).toBe("true");
   });
 
   it("the regression lib pins its unit plane", () => {

@@ -81,6 +81,7 @@ import { formatNearError } from "./format";
 import { readFrameworkVersion } from "./image";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { assertSigningIdentityMatches, signManifestPayload } from "./manifest-signature";
+import { nearblocksUrl, phase, running, stepOk } from "./output";
 import { computeOwedWork } from "./owed";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
@@ -541,6 +542,7 @@ export async function runPublishTrain(
   };
 
   if (input.build) {
+    phase("Build");
     await generateCodeArtifacts(configDir, bosConfig, {
       env: "production",
       runtimeConfig: runtimeConfig ?? undefined,
@@ -968,12 +970,15 @@ export async function runPublishTrain(
       localFrameworkVersion: readFrameworkVersion(configDir),
     });
     const releaseLeg = owed.release;
-    console.log(
+    phase(
+      "Release",
       releaseLeg
-        ? colors.cyan(
-            `  Release leg: the platform tag (${owed.detail.pointerFrameworkVersion ?? "unset"}) trails the repo (${owed.detail.localFrameworkVersion}) — the release manifest moves`,
-          )
-        : colors.dim("  No release work owed — the platform manifest stays put"),
+        ? `the platform release manifest moves ${
+            owed.detail.pointerFrameworkVersion ?? "unset"
+          } → ${owed.detail.localFrameworkVersion}`
+        : `no release work owed — the platform manifest stays at ${
+            owed.detail.pointerFrameworkVersion ?? "unset"
+          }`,
     );
 
     const composed = composePlatformManifestPublishEntry({
@@ -1206,7 +1211,7 @@ export async function runPublishTrain(
       fetchConfig: deps.registry.fetchConfig,
     });
     if (alreadyPublished) {
-      console.log("  Already up to date — skipping transaction");
+      stepOk("already up to date — skipping the transaction");
       persistDeployState();
       persistLockfile();
       await stageBootSnapshot();
@@ -1255,13 +1260,14 @@ export async function runPublishTrain(
       });
     };
 
-    console.log(`  Submitting transaction on ${network}...`);
+    phase("Publish");
+    running(`submitting the publish transaction on ${network}`);
     let result = await submitOnce();
     if (result.txHash) {
-      console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
+      stepOk(`transaction submitted — ${nearblocksUrl(result.txHash, network)}`);
     }
 
-    console.log("  Waiting for publish confirmation...");
+    running("waiting for publish confirmation (registry read-back)");
     try {
       const confirmLegs: ConfirmLeg[] = [
         {
@@ -1342,9 +1348,9 @@ export async function runPublishTrain(
         );
         result = await submitOnce();
         if (result.txHash) {
-          console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
+          stepOk(`transaction submitted — ${nearblocksUrl(result.txHash, network)}`);
         }
-        console.log("  Waiting for publish confirmation...");
+        running("waiting for publish confirmation (registry read-back)");
         verdict = await runConfirm(result.txHash);
       }
       if (!verdict.ok) {
@@ -1355,6 +1361,7 @@ export async function runPublishTrain(
         kind: "confirm",
         registryUrl,
         error: formatNearError(error),
+        ...(result.txHash ? { txHash: result.txHash } : {}),
         built,
         skipped,
         deployResults,
@@ -1368,6 +1375,7 @@ export async function runPublishTrain(
       status: "published",
       registryUrl,
       txHash: result.txHash,
+      ...(result.txHash ? { txUrl: nearblocksUrl(result.txHash, network) } : {}),
       pointerDigest: publishPointerDigest,
       remoteDigests: publishRemoteDigests,
       built,

@@ -326,6 +326,8 @@ export const PublishResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  txUrl: z.string().optional(),
+  kind: z.string().optional(),
   pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
@@ -493,6 +495,8 @@ export const DeployResultSchema = z.object({
   status: z.enum(["deployed", "published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  txUrl: z.string().optional(),
+  kind: z.string().optional(),
   pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   history: z.array(DeployManifestListEntrySchema).optional(),
@@ -930,7 +934,7 @@ export const UpgradeResultSchema = z.object({
 });
 
 export const DeployedVersionStatusSchema = z.object({
-  publishedDigest: z.string(),
+  publishedDigest: z.string().optional(),
   servedDigest: z.string().optional(),
   inSync: z.boolean(),
   error: z.string().optional(),
@@ -942,6 +946,7 @@ export const StatusResultSchema = z.object({
   extends: z.string().optional(),
   account: z.string().optional(),
   domain: z.string().optional(),
+  parentUnreachable: z.string().optional(),
   packages: z.array(
     z.object({
       name: z.string(),

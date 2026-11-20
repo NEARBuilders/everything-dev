@@ -59,7 +59,7 @@ const healthyObjects = (extra: Record<string, string> = {}): Record<string, stri
     [chunkName]: sriOf("the chunk bytes"),
   };
   return {
-    [`https://cdn.test/bundles/a.test/gw.test/auth/versions/8f3ac1d2feedbeef.json`]: manifestDoc({
+    "https://cdn.test/bundles/a.test/gw.test/auth/versions/8f3ac1d2feedbeef.json": manifestDoc({
       files,
       dir,
     }),

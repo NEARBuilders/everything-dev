@@ -186,17 +186,21 @@ jobs:
           # intermittently 429s the shared runner pool.
           BUILD_OK=0
           for attempt in 1 2 3; do
-            if docker buildx build --target runtime "${BUILD_ARGS[@]}" .; then
+            echo "::group::docker build (attempt $attempt)"
+            if docker buildx build --target runtime "${BUILD_ARGS[@]}" . 2>&1 | tee "build-attempt-$attempt.log"; then
+              echo "::endgroup::"
               BUILD_OK=1
               break
             fi
+            echo "::endgroup::"
             if [ "$attempt" -lt 3 ]; then
               echo "::warning::docker build failed (attempt $attempt) — retrying in 60s"
               sleep 60
             fi
           done
           if [ "$BUILD_OK" != "1" ]; then
-            echo "::error::docker build failed after 3 attempts"
+            echo "::error::docker build failed after 3 attempts — last failure tail:"
+            tail -30 "build-attempt-3.log" 2>/dev/null || true
             exit 1
           fi
 

@@ -33,6 +33,9 @@ export interface PublishTrainOk {
   status: "published" | "dry-run";
   registryUrl: string;
   txHash?: string;
+  /** The txHash as a nearblocks explorer link, resolved against the train's
+   * network — the summary prints the link, never the bare hash. */
+  txUrl?: string;
   built?: string[];
   skipped?: string[];
   publishConfig?: BosConfigInput;
@@ -57,6 +60,10 @@ export interface PublishTrainFailureResult {
   status: "error";
   registryUrl: string;
   error: string;
+  /** The failed leg's identity — the CLI's failure block keys its
+   * why-it-matters / what-to-do guidance off this. */
+  kind?: TrainErrorKind;
+  txHash?: string;
   built?: string[];
   skipped?: string[];
   deployResults?: WorkspaceDeployResult[];
@@ -66,6 +73,9 @@ export class PublishTrainError extends Data.TaggedError("PublishTrainError")<{
   readonly kind: TrainErrorKind;
   readonly registryUrl: string;
   readonly error: string;
+  /** The broadcast hash, when the train died after submitting (confirm) —
+   * the failure block links it on nearblocks. */
+  readonly txHash?: string;
   readonly built?: string[];
   readonly skipped?: string[];
   readonly deployResults?: WorkspaceDeployResult[];
@@ -75,6 +85,8 @@ export class PublishTrainError extends Data.TaggedError("PublishTrainError")<{
       status: "error",
       registryUrl: this.registryUrl,
       error: this.error,
+      kind: this.kind,
+      ...(this.txHash !== undefined ? { txHash: this.txHash } : {}),
       ...(this.built !== undefined ? { built: this.built } : {}),
       ...(this.skipped !== undefined ? { skipped: this.skipped } : {}),
       ...(this.deployResults !== undefined ? { deployResults: this.deployResults } : {}),

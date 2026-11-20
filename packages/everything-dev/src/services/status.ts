@@ -82,13 +82,18 @@ function checkEnvFile(projectDir: string): "found" | "missing" | "example-only" 
   return "missing";
 }
 
-async function checkParentReachable(extendsRef: string | undefined): Promise<boolean | undefined> {
+async function checkParentReachable(
+  extendsRef: string | undefined,
+): Promise<{ reachable: boolean; detail?: string } | undefined> {
   if (!extendsRef?.startsWith("bos://")) return undefined;
   try {
-    const config = await fetchBosConfigFromFastKv(extendsRef);
-    return config !== null;
-  } catch {
-    return false;
+    await fetchBosConfigFromFastKv(extendsRef);
+    return { reachable: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return /^No config found for/.test(message)
+      ? { reachable: false, detail: "parent has no published config" }
+      : { reachable: false, detail: message };
   }
 }
 
@@ -132,7 +137,7 @@ export async function getStatus(projectDir: string): Promise<StatusResult> {
   const snapshot = await readSnapshot(projectDir);
 
   const extendsRef = config.extends as string | undefined;
-  const parentReachable = await checkParentReachable(extendsRef);
+  const parent = await checkParentReachable(extendsRef);
 
   return {
     status: "ok",
@@ -142,6 +147,7 @@ export async function getStatus(projectDir: string): Promise<StatusResult> {
     packages,
     lastSync: snapshot?.timestamp,
     envFile: checkEnvFile(projectDir),
-    parentReachable,
+    parentReachable: parent?.reachable,
+    ...(parent?.reachable === false && parent.detail ? { parentUnreachable: parent.detail } : {}),
   };
 }

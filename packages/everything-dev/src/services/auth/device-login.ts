@@ -131,6 +131,8 @@ export async function startDeviceLogin(
 
   const waitForApproval = (timeoutMs = 10 * 60_000): Promise<DeviceApproval> => {
     const deadline = Date.now() + timeoutMs;
+    const startedAt = Date.now();
+    let reportedElapsedSeconds = 0;
     let intervalSeconds = code.interval ?? DEFAULT_POLL_INTERVAL_SECONDS;
 
     const poll = async (): Promise<DeviceApproval> => {
@@ -152,7 +154,13 @@ export async function startDeviceLogin(
 
       const error = (json as DeviceTokenError).error;
       if (error === "authorization_pending") {
-        // keep polling
+        const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+        if (elapsedSeconds - reportedElapsedSeconds >= 30) {
+          reportedElapsedSeconds = elapsedSeconds;
+          console.log(
+            `  … waiting for approval — ${elapsedSeconds}s elapsed (open ${verificationUrl} if no browser opened)`,
+          );
+        }
       } else if (error === "slow_down") {
         intervalSeconds += SLOW_DOWN_PENALTY_SECONDS;
       } else if (error === "expired_token") {

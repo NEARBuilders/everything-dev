@@ -41,6 +41,19 @@ export function resolveNearRpcUrl(): string | undefined {
   return process.env.NEAR_RPC_URL || undefined;
 }
 
+/** Read-only RPC for the publish preflight checks (key health, gas
+ * prepayment). The signing stack pins NEAR_RPC_URL because FastNEAR's free
+ * RPC silently drops broadcast transactions (2026-11-04) — but view calls
+ * are unaffected, and the free endpoint serves reads from CI runners more
+ * reliably than the rate-limited official RPC, so reads default to it.
+ * NEAR_READ_RPC_URL overrides. */
+export function resolveNearReadRpcUrl(network: NetworkId): string {
+  return (
+    process.env.NEAR_READ_RPC_URL ||
+    (network === "testnet" ? "https://rpc.testnet.near.org" : "https://free.rpc.fastnear.com")
+  );
+}
+
 function assertPrivateKey(key: string): PrivateKey {
   if (!isPrivateKey(key)) {
     throw new NearTransactionError(
@@ -273,7 +286,7 @@ export async function checkPublishKeyHealth(input: {
   const near = new Near({
     network: input.network,
     defaultSignerId: input.account,
-    rpcUrl: resolveNearRpcUrl(),
+    rpcUrl: resolveNearReadRpcUrl(input.network),
   });
   const publicKey = parseKey(input.privateKey).publicKey.toString();
   let view: Awaited<ReturnType<Near["getAccessKey"]>>;
@@ -281,7 +294,10 @@ export async function checkPublishKeyHealth(input: {
     view = await near.getAccessKey(input.account, publicKey);
   } catch (error) {
     if (!(error instanceof Error)) {
-      return { ok: true, warning: "key health check skipped (registry RPC unreachable)" };
+      return {
+        ok: true,
+        warning: `signing key check skipped — NEAR RPC unreachable (${resolveNearReadRpcUrl(input.network)})`,
+      };
     }
     if (error.name === "AccountDoesNotExistError") {
       return {
@@ -295,7 +311,10 @@ export async function checkPublishKeyHealth(input: {
         error: publishKeyRepairHint(input.account, input.contract, publicKey),
       };
     }
-    return { ok: true, warning: "key health check skipped (registry RPC unreachable)" };
+    return {
+      ok: true,
+      warning: `signing key check skipped — NEAR RPC unreachable (${resolveNearReadRpcUrl(input.network)}): ${error.message}`,
+    };
   }
   if (!view) {
     return { ok: false, error: publishKeyRepairHint(input.account, input.contract, publicKey) };
@@ -414,15 +433,16 @@ export interface PublishBalanceHealth {
  * train runs — a balance a hair under the prepayment lock surfaces only as a
  * silent broadcast drop otherwise (the 2026-11-04 outage: 0.30089 NEAR held,
  * 0.30092 NEAR required, every deploy dead for 14 hours). Soft-skips when the
- * registry RPC is unreachable, like the key health check. */
+ * read RPC is unreachable, like the key health check. */
 export async function checkPublishBalance(input: {
   account: string;
   network: NetworkId;
 }): Promise<PublishBalanceHealth> {
+  const rpcUrl = resolveNearReadRpcUrl(input.network);
   const near = new Near({
     network: input.network,
     defaultSignerId: input.account,
-    rpcUrl: resolveNearRpcUrl(),
+    rpcUrl,
   });
   let balance: bigint;
   let minGasPrice: bigint;
@@ -435,8 +455,14 @@ export async function checkPublishBalance(input: {
     ]);
     balance = BigInt(view);
     minGasPrice = BigInt(config.min_gas_price);
-  } catch {
-    return { ok: true, warning: "balance check skipped (registry RPC unreachable)" };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      ok: true,
+      warning:
+        `gas prepayment check skipped — NEAR RPC ${rpcUrl} unreachable (${reason}); ` +
+        `continuing without verifying the account can afford the gas prepayment lock`,
+    };
   }
   const required = PUBLISH_ATTACHED_GAS_UNITS * minGasPrice * PUBLISH_BALANCE_SAFETY;
   const classified = classifyPublishBalance(balance, required);

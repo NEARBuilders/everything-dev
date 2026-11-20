@@ -121,14 +121,14 @@ describe("cliDeployTrainRender (output snapshots)", () => {
     }
   });
 
-  it("cdn banner opens the section with a blank line", () => {
+  it("cdn banner opens the Upload section", () => {
     const { printed, restore } = quietConsole();
     try {
       cliDeployTrainRender.cdnBanner?.("https://storage.test");
       expect(printed).toMatchInlineSnapshot(`
         [
           "",
-          "  CDN deploy — uploading workspace dists to https://storage.test...",
+          "  ▶ Upload — workspace dists → https://storage.test",
         ]
       `);
     } finally {
