@@ -91,7 +91,10 @@ async function pollUntil<T>(
       console.log(`  ✓ ${name} — ${detail} (ready in ${formatElapsed(Date.now() - startedAt)})`);
       return detail;
     } catch (error) {
-      lastFailure = error instanceof Error ? error.message : String(error);
+      const base = error instanceof Error ? error.message : String(error);
+      const cause =
+        error instanceof Error && error.cause instanceof Error ? ` — ${error.cause.message}` : "";
+      lastFailure = base + cause;
     }
     await sleep(POLL_INTERVAL_MS);
   }
@@ -113,6 +116,32 @@ function watchContainerExit(container: string): {
     while (!controller.aborted) {
       const state = docker(["inspect", "-f", "{{.State.Running}}", container]);
       if ((state.stdout ?? "").trim() === "false") return "exited" as const;
+      await sleep(2_000);
+    }
+    return undefined;
+  })();
+  return { done, abort: () => (controller.aborted = true) };
+}
+
+/** Resolves with the session's `Failed to start:` line when a service dies at
+ * boot even though the container keeps running — the start stack swallows a
+ * per-service start failure (the session continues with the remaining
+ * services), so the exit watch never fires and the pollers would burn their
+ * full deadline polling a port nothing will ever listen on (the 2026-11-20
+ * rc.46 train spent 4 minutes there on one transient `fetch failed`). Resolves
+ * undefined when aborted. */
+function watchBootFailure(container: string): {
+  done: Promise<string | undefined>;
+  abort: () => void;
+} {
+  const controller = { aborted: false };
+  const done = (async () => {
+    while (!controller.aborted) {
+      const logs = docker(["logs", container]);
+      const line = `${logs.stdout}${logs.stderr}`
+        .split("\n")
+        .find((candidate) => candidate.includes("Failed to start:"));
+      if (line) return line.trim();
       await sleep(2_000);
     }
     return undefined;
@@ -255,6 +284,7 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
 
   try {
     const exitWatch = watchContainerExit(container);
+    const bootFailureWatch = watchBootFailure(container);
     const bootChecks = Promise.all([
       pollUntil("health", () =>
         fetchStatusOk(`${baseUrl}/health`).then(async (r) => {
@@ -296,9 +326,19 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
       }),
     ]);
     bootChecks.catch(() => {});
-    const outcome = await Promise.race([bootChecks.then(() => "ready"), exitWatch.done]).finally(
-      () => exitWatch.abort(),
-    );
+    const outcome = await Promise.race([
+      bootChecks.then(() => "ready" as const),
+      exitWatch.done,
+      bootFailureWatch.done.then((line) => (line ? ("start-failed" as const) : undefined)),
+    ]).finally(() => {
+      exitWatch.abort();
+      bootFailureWatch.abort();
+    });
+    if (outcome === "start-failed") {
+      throw new Error(
+        "a service failed to start while the container kept running — the cause is in the captured logs below",
+      );
+    }
     if (outcome === "exited") {
       throw new Error(
         "boot container exited — a service failed to start (the cause is in the captured logs below)",

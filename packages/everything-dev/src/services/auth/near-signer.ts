@@ -453,8 +453,19 @@ export async function checkPublishBalance(input: {
         min_gas_price: string;
       }>,
     ]);
-    balance = BigInt(view);
-    minGasPrice = BigInt(config.min_gas_price);
+    const balanceText = typeof view === "string" ? view : String(view);
+    const minGasPriceText = String(config.min_gas_price);
+    if (!/^\d+$/.test(balanceText) || !/^\d+$/.test(minGasPriceText)) {
+      return {
+        ok: true,
+        warning:
+          `gas prepayment check skipped — NEAR RPC ${rpcUrl} returned an unexpected format ` +
+          `(balance ${balanceText}, min gas price ${minGasPriceText}); ` +
+          `continuing without verifying the account can afford the gas prepayment lock`,
+      };
+    }
+    balance = BigInt(balanceText);
+    minGasPrice = BigInt(minGasPriceText);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return {
