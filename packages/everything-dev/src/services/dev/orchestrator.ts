@@ -108,6 +108,16 @@ const LOCAL_PROBE_DEADLINE_MS = 90_000;
  * bounded so a hung connection or a wedged module load fails loud with the
  * URL and stage — long before the smoke's 240s probe deadline turns the
  * silence into a mystery. */
+const BOOT_FETCH_RETRIES = 2;
+const MODULE_LOAD_RETRY_MAX_MS = 5_000;
+
+/** The undici socket failure (`TypeError: fetch failed`) — the one boot error
+ * a second attempt within seconds actually fixes. Skew, 404-shaped, and
+ * malformed-manifest failures won't heal in milliseconds and keep failing
+ * loud on the first attempt. */
+const isTransientBootFailure = (error: OrchestratorError): boolean =>
+  error.cause instanceof TypeError;
+
 const MANIFEST_FETCH_DEADLINE = "10 seconds";
 const LOAD_REMOTE_DEADLINE = "60 seconds";
 const SERVER_READY_DEADLINE = "120 seconds";
@@ -303,6 +313,10 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
               ).pipe(Effect.as(null))
             : Effect.fail(error),
         ),
+        Effect.retry({
+          schedule: Schedule.spaced("1 second").pipe(Schedule.upTo({ times: BOOT_FETCH_RETRIES })),
+          while: isTransientBootFailure,
+        }),
       );
       if (resolvedPin) {
         manifestUrl = pinnedManifestDocumentUrl(slotRootManifestUrl, resolvedPin);
@@ -315,10 +329,12 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
     // A failed manifest fetch must fail loud with the URL and status: the old
     // silent fallback to remoteEntry.js turned any transient hiccup (a CDN
     // 403 challenge, a timeout) into a guaranteed loadRemote failure with no
-    // named cause.
+    // named cause. Transient socket failures retry first — the 2026-11-20
+    // rc.46 train lost its smoke gate to one instant `fetch failed` blip that
+    // a second attempt would have absorbed.
     const entryUrl = yield* fetchWithRetryEff(manifestUrl, {
       timeout: MANIFEST_FETCH_DEADLINE,
-      retries: 0,
+      retries: BOOT_FETCH_RETRIES,
     }).pipe(
       Effect.filterOrFail(
         (res) => res.ok,
@@ -392,6 +408,12 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
               detail: `timed out after ${LOAD_REMOTE_DEADLINE} — the module (or its shared dependencies) did not finish loading from ${entryUrl}`,
             }),
           ),
+      }),
+      Effect.retry({
+        schedule: Schedule.spaced("1 second").pipe(
+          Schedule.upTo({ duration: MODULE_LOAD_RETRY_MAX_MS, times: BOOT_FETCH_RETRIES }),
+        ),
+        while: isTransientBootFailure,
       }),
     );
 
