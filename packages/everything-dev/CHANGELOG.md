@@ -1,5 +1,13 @@
 # everything-dev
 
+## 2.0.0-rc.46
+
+### Patch Changes
+
+- 74a8904: Redesigned deploy output into a phased, scannable structure: `▶` phase headers (Preflight → Build → Release → Publish → Verify → Promote) with a consistent ✓/…/✗ line grammar, nearblocks explorer links for every transaction hash, boot-gate polls reporting elapsed time instead of attempt counts, and deploy failures rendered as structured what-happened / why-it-matters / what-to-do blocks keyed off the failed leg. The gas prepayment and signing-key preflight checks now read from the FastNEAR free RPC (`NEAR_READ_RPC_URL` overrides) instead of the signing stack's pinned RPC, and their skip warnings name the endpoint and the real error.
+- 28b368e: Fix extends-merge union arrays: merging configs where both parent and child declare an empty `secrets`/`connectSrc` array at the same path previously deleted the key entirely (the union helper returned `undefined`, which the merge customizer assigned through). The union now always yields an array, restoring associativity and the self-merge fixpoint property of config resolution. Surfaced by a new property-based law suite (`tests/unit/merge-properties.test.ts`) checking merge associativity, child precedence, parent-null shadowing, idempotence on resolved configs, digest atomicity, and publish-canonicalization invariants (`local:` targets never publish, seed never publishes).
+- 74a8904: `bos status`/`bos dev` no longer report false-clean when a check itself fails: the boot composition audit prints what it skipped and why, the deployed-vs-served version check reports an unreachable published config instead of silently vanishing (and is now actually rendered, including the split-brain verdict), and the parent runtime check distinguishes "no published config" from an unreachable registry with the real cause. Device-flow approvals print elapsed-time progress every 30s under a `Delegate key` phase header instead of dead air mid-deploy.
+
 ## 2.0.0-rc.45
 
 ### Minor Changes
