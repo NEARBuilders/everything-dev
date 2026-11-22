@@ -174,11 +174,10 @@ interface DiscoveryCache {
   expiresAt: number;
 }
 
-let discoveryCache: DiscoveryCache | null = null;
-
-/** Test seam — the discovery cache is module-global. */
-export function resetDiscoveryCache(): void {
-  discoveryCache = null;
+interface RuntimeCache {
+  rawConfigKey: string;
+  runtime: ResolvedPublishedRuntime;
+  expiresAt: number;
 }
 
 export interface KvEntry {
@@ -273,14 +272,32 @@ export function createRegistryMethods(
   client: RegistryClientShape = registryClientShape,
 ) {
   const namespace = config.namespace;
+  let discoveryCache: DiscoveryCache | null = null;
+  let discoveryInFlight: Promise<DiscoveredConfig[]> | null = null;
+  const runtimeCache = new Map<string, RuntimeCache>();
+  const runtimeInFlight = new Map<
+    string,
+    { rawConfigKey: string; promise: Promise<ResolvedPublishedRuntime> }
+  >();
 
   const discoverPublishedConfigs = async (): Promise<DiscoveredConfig[]> => {
     if (discoveryCache && Date.now() < discoveryCache.expiresAt) {
       return discoveryCache.data;
     }
-    // Discovery lists the namespace's own network — the primitive derives
-    // the host from the account, so the old cross-host scan with a
-    // mismatched namespace string has no coherent primitive equivalent.
+    if (discoveryInFlight) return discoveryInFlight;
+    discoveryInFlight = refreshDiscovery()
+      .catch((error) => {
+        if (!discoveryCache) throw error;
+        console.warn(`[Registry] Serving stale discovery for ${namespace}`, error);
+        return discoveryCache.data;
+      })
+      .finally(() => {
+        discoveryInFlight = null;
+      });
+    return discoveryInFlight;
+  };
+
+  const refreshDiscovery = async (): Promise<DiscoveredConfig[]> => {
     const apps: DiscoveredConfig[] = [];
     let pageToken: string | undefined;
 
@@ -323,17 +340,65 @@ export function createRegistryMethods(
 
     const data = apps.sort(compareDiscovered);
     discoveryCache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
+    const keys = new Set(data.map((item) => canonicalConfigKey(item.accountId, item.gatewayId)));
+    for (const key of runtimeCache.keys()) {
+      if (!keys.has(key)) runtimeCache.delete(key);
+    }
     return data;
   };
 
-  const resolveAppSummary = async (item: DiscoveredConfig): Promise<RegistryAppSummary> => {
-    const resolved = await resolvePublishedRuntime(
+  const resolveDiscoveredRuntime = (item: DiscoveredConfig): Promise<ResolvedPublishedRuntime> => {
+    const key = canonicalConfigKey(item.accountId, item.gatewayId);
+    const rawConfigKey = JSON.stringify(item.rawConfig);
+    const cached = runtimeCache.get(key);
+    if (cached?.rawConfigKey === rawConfigKey && Date.now() < cached.expiresAt) {
+      return Promise.resolve(cached.runtime);
+    }
+    const pending = runtimeInFlight.get(key);
+    if (pending?.rawConfigKey === rawConfigKey) return pending.promise;
+    const request = resolvePublishedRuntime(
       item.accountId,
       item.gatewayId,
       item.rawConfig,
       config,
       client,
+    )
+      .then((runtime) => {
+        if (runtimeInFlight.get(key)?.promise === request) {
+          runtimeCache.set(key, { rawConfigKey, runtime, expiresAt: Date.now() + CACHE_TTL_MS });
+        }
+        return runtime;
+      })
+      .catch((error) => {
+        const stale = runtimeCache.get(key);
+        if (!stale) throw error;
+        console.warn(`[Registry] Serving stale runtime for ${key}`, error);
+        return stale.runtime;
+      })
+      .finally(() => {
+        if (runtimeInFlight.get(key)?.promise === request) runtimeInFlight.delete(key);
+      });
+    runtimeInFlight.set(key, { rawConfigKey, promise: request });
+    return request;
+  };
+
+  const resolveDiscovered = async (items: DiscoveredConfig[]) => {
+    const results = await Promise.allSettled(
+      items.map(async (item) => ({
+        item,
+        runtime: await resolveDiscoveredRuntime(item).catch((error) => {
+          console.warn(`[Registry] Skipping ${item.accountId}/${item.gatewayId}`, error);
+          throw error;
+        }),
+      })),
     );
+    return results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+  };
+
+  const resolveAppSummary = async (
+    item: DiscoveredConfig,
+    resolved: ResolvedPublishedRuntime,
+  ): Promise<RegistryAppSummary> => {
     const metadata = await getRegistryMetadata(item.accountId, item.gatewayId);
 
     return {
@@ -388,12 +453,17 @@ export function createRegistryMethods(
     gatewayId: string,
   ): Promise<RegistryMetadata | null> => {
     const metadataKey = getRegistryMetadataKey(accountId, gatewayId);
-    const page = await client.list({
-      ref: runtimeRefOf({ accountId, gatewayId }),
-      keyPrefix: metadataKey,
-      limit: 1,
-    });
-    const value = page.entries[0]?.value ?? null;
+    const page = await client
+      .list({
+        ref: runtimeRefOf({ accountId, gatewayId }),
+        keyPrefix: metadataKey,
+        limit: 1,
+      })
+      .catch((error) => {
+        console.warn(`[Registry] Metadata unavailable for ${accountId}/${gatewayId}`, error);
+        return null;
+      });
+    const value = page?.entries[0]?.value ?? null;
 
     if (!value) {
       return null;
@@ -417,23 +487,14 @@ export function createRegistryMethods(
       const limit = clamp(input.limit ?? 24, 1, 100);
       const offset = clamp(parseCursor(input.cursor), 0, Number.MAX_SAFE_INTEGER);
       const discovered = await discoverPublishedConfigs();
-      const resolved = await Promise.all(
-        discovered.map(async (item) => ({
-          item,
-          runtime: await resolvePublishedRuntime(
-            item.accountId,
-            item.gatewayId,
-            item.rawConfig,
-            config,
-            client,
-          ),
-        })),
-      );
+      const resolved = await resolveDiscovered(discovered);
       const filtered = resolved.filter(({ item, runtime }) =>
         matchesRegistryFilters(item.accountId, item.gatewayId, runtime.lineage, input),
       );
       const page = filtered.slice(offset, offset + limit);
-      const data = await Promise.all(page.map(({ item }) => resolveAppSummary(item)));
+      const data = await Promise.all(
+        page.map(({ item, runtime }) => resolveAppSummary(item, runtime)),
+      );
       const nextOffset = offset + page.length;
 
       return {
@@ -451,7 +512,10 @@ export function createRegistryMethods(
       const matches = discovered
         .filter((item) => item.accountId === accountId)
         .sort(compareDiscovered);
-      const data = await Promise.all(matches.map(resolveAppSummary));
+      const resolved = await resolveDiscovered(matches);
+      const data = await Promise.all(
+        resolved.map(({ item, runtime }) => resolveAppSummary(item, runtime)),
+      );
 
       return {
         data,
@@ -473,13 +537,7 @@ export function createRegistryMethods(
         return null;
       }
 
-      const resolved = await resolvePublishedRuntime(
-        accountId,
-        gatewayId,
-        match.rawConfig,
-        config,
-        client,
-      );
+      const resolved = await resolveDiscoveredRuntime(match);
       const normalized = normalizeResolvedConfig(accountId, gatewayId, resolved);
       const metadataKey = getRegistryMetadataKey(accountId, gatewayId);
       const metadata = await getRegistryMetadata(accountId, gatewayId);
@@ -498,15 +556,9 @@ export function createRegistryMethods(
     getRegistryAppByHost: async (hostUrl: string) => {
       const discovered = await discoverPublishedConfigs();
 
-      for (const item of discovered) {
-        const resolved = await resolvePublishedRuntime(
-          item.accountId,
-          item.gatewayId,
-          item.rawConfig,
-          config,
-          client,
-        );
-        const normalized = normalizeResolvedConfig(item.accountId, item.gatewayId, resolved);
+      const resolvedApps = await resolveDiscovered(discovered);
+      for (const { item, runtime } of resolvedApps) {
+        const normalized = normalizeResolvedConfig(item.accountId, item.gatewayId, runtime);
 
         if (normalized.hostUrl !== hostUrl) {
           continue;
@@ -521,8 +573,8 @@ export function createRegistryMethods(
           metadataKey,
           metadataContractId: namespace,
           metadataFastKvUrl: registryBaseUrlForNetwork(networkIdForAccount(item.accountId)),
-          extendsChain: resolved.lineage.extendsChain,
-          resolvedConfig: resolved.resolvedConfig as JsonObject,
+          extendsChain: runtime.lineage.extendsChain,
+          resolvedConfig: runtime.resolvedConfig as JsonObject,
         };
       }
 

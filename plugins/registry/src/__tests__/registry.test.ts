@@ -6,13 +6,9 @@ import {
   type RegistryListResult,
   registryNamespaceForNetwork,
 } from "everything-dev/registry";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_REGISTRY_NAMESPACE, type RegistryConfig } from "../services/config";
-import {
-  createRegistryMethods,
-  resetDiscoveryCache,
-  resolvePublishedRuntime,
-} from "../services/registry";
+import { createRegistryMethods, resolvePublishedRuntime } from "../services/registry";
 
 function listResult(entries: Array<{ key: string; value: unknown }>): RegistryListResult {
   const mapped: RegistryEntry[] = entries.map((entry) => ({
@@ -45,10 +41,6 @@ function fakeClient(
 const registryConfig: RegistryConfig = { namespace: "dev.everything.near" };
 
 describe("resolvePublishedRuntime", () => {
-  beforeEach(() => {
-    resetDiscoveryCache();
-  });
-
   it("treats a runtime with no extends as its own lineage root", async () => {
     const client = fakeClient();
     const result = await resolvePublishedRuntime(
@@ -164,10 +156,6 @@ describe("resolvePublishedRuntime", () => {
 });
 
 describe("listRegistryApps", () => {
-  beforeEach(() => {
-    resetDiscoveryCache();
-  });
-
   it("lists registry apps with derived parent/root filters and lineage fields", async () => {
     const discovered = listResult([
       {
@@ -288,6 +276,298 @@ describe("listRegistryApps", () => {
       "chicago.pizza.pingpayio.near",
       "pizza.pingpayio.near",
     ]);
+  });
+});
+
+describe("registry listing resilience", () => {
+  const good = {
+    key: "apps/demo.near/good.dev/bos.config.json",
+    value: {
+      account: "demo.near",
+      domain: "good.dev",
+      extends: "bos://parent.near/root.dev",
+    },
+  };
+  const bad = {
+    key: "apps/demo.near/bad.dev/bos.config.json",
+    value: { account: "demo.near", extends: "bos://missing.near/root.dev" },
+  };
+  const parent = { app: { host: { production: "https://good.dev" } } };
+
+  function listingClient(
+    discover: (input: RegistryListInput) => Promise<RegistryListResult>,
+    read: (key: RegistryKey) => Promise<unknown> = async (key) => {
+      if (key.ref === "bos://parent.near/root.dev") return parent;
+      throw new Error("missing parent");
+    },
+  ) {
+    return fakeClient({
+      list: async (input) => (input.keyPrefix === "apps/" ? discover(input) : listResult([])),
+      read,
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    "list",
+    "account",
+    "host",
+  ] as const)("isolates a broken runtime during %s lookup", async (method) => {
+    const service = createRegistryMethods(
+      registryConfig,
+      listingClient(async () => listResult([bad, good])),
+    );
+    if (method === "host") {
+      expect(await service.getRegistryAppByHost("https://good.dev")).toMatchObject({
+        gatewayId: "good.dev",
+      });
+    } else {
+      const result =
+        method === "list"
+          ? await service.listRegistryApps({ limit: 1 })
+          : await service.getRegistryAppsByAccount("demo.near");
+      expect(result.data.map((app) => app.gatewayId)).toEqual(["good.dev"]);
+      expect(result.meta).toEqual({ total: 1, hasMore: false, nextCursor: null });
+    }
+    expect(console.warn).toHaveBeenCalled();
+  });
+
+  it("paginates and filters healthy apps after excluding broken runtimes", async () => {
+    const second = {
+      key: "apps/demo.near/next.dev/bos.config.json",
+      value: { account: "demo.near", extends: good.value.extends },
+    };
+    const service = createRegistryMethods(
+      registryConfig,
+      listingClient(async () => listResult([bad, good, second])),
+    );
+    const first = await service.listRegistryApps({ parent: good.value.extends, limit: 1 });
+    expect(first.data.map((app) => app.gatewayId)).toEqual(["good.dev"]);
+    expect(first.meta).toEqual({ total: 2, hasMore: true, nextCursor: "1" });
+    const next = await service.listRegistryApps({
+      parent: good.value.extends,
+      limit: 1,
+      cursor: "1",
+    });
+    expect(next.data.map((app) => app.gatewayId)).toEqual(["next.dev"]);
+    expect(next.meta).toEqual({ total: 2, hasMore: false, nextCursor: null });
+  });
+
+  it("returns an empty listing when every discovered runtime fails, including a circular extends chain", async () => {
+    const cycle = {
+      key: "apps/cycle.near/cycle.dev/bos.config.json",
+      value: { extends: "bos://cycle.near/cycle.dev" },
+    };
+    const service = createRegistryMethods(
+      registryConfig,
+      listingClient(
+        async () => listResult([bad, cycle]),
+        async (key) => {
+          if (key.ref === "bos://cycle.near/cycle.dev") return cycle.value;
+          throw new Error("missing parent");
+        },
+      ),
+    );
+    expect(await service.listRegistryApps({})).toEqual({
+      data: [],
+      meta: { total: 0, hasMore: false, nextCursor: null },
+    });
+    expect(await service.getRegistryAppByHost("https://absent.dev")).toBeNull();
+    await expect(service.getRegistryApp("demo.near", "bad.dev")).rejects.toThrow("missing parent");
+  });
+
+  it("deduplicates concurrent discovery and runtime resolution across listing paths", async () => {
+    let release: (value: RegistryListResult) => void = () => {};
+    const gate = new Promise<RegistryListResult>((resolve) => {
+      release = resolve;
+    });
+    const discover = vi.fn(async () => gate);
+    const client = listingClient(discover);
+    const service = createRegistryMethods(registryConfig, client);
+    const requests = [
+      service.listRegistryApps({}),
+      service.getRegistryAppsByAccount("demo.near"),
+      service.getRegistryAppByHost("https://good.dev"),
+    ];
+    expect(discover).toHaveBeenCalledTimes(1);
+    release(listResult([good]));
+    await Promise.all(requests);
+    await service.getRegistryApp("demo.near", "good.dev");
+    await service.listRegistryApps({});
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(client.read).toHaveBeenCalledTimes(1);
+    expect(discover).toHaveBeenCalledWith({
+      ref: "bos://dev.everything.near/dev.everything.near",
+      keyPrefix: "apps/",
+      limit: 200,
+    });
+  });
+
+  it.each([
+    registryConfig.namespace,
+    "another.testnet",
+  ])("keeps discovery and runtime caches scoped to each client instance (%s)", async (namespace) => {
+    const first = createRegistryMethods(
+      registryConfig,
+      listingClient(async () => listResult([good])),
+    );
+    const otherEntry = {
+      key: "apps/other.near/other.dev/bos.config.json",
+      value: { account: "other.near", domain: "other.dev" },
+    };
+    const second = createRegistryMethods(
+      { namespace },
+      listingClient(async () => listResult([otherEntry])),
+    );
+    await first.listRegistryApps({});
+    expect((await second.listRegistryApps({})).data.map((app) => app.accountId)).toEqual([
+      "other.near",
+    ]);
+  });
+
+  it("refreshes runtime parents after the TTL and serves last-good runtimes on transient failure", async () => {
+    let fail = false;
+    let host = "https://good.dev";
+    const client = listingClient(
+      async () => listResult([good]),
+      async () => {
+        if (fail) throw new Error("parent unavailable");
+        return { app: { host: { production: host } } };
+      },
+    );
+    const service = createRegistryMethods(registryConfig, client);
+    expect((await service.listRegistryApps({})).data[0]?.hostUrl).toBe(host);
+    await service.getRegistryAppsByAccount("demo.near");
+    expect(client.read).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(60_001);
+    fail = true;
+    expect((await service.listRegistryApps({})).data[0]?.hostUrl).toBe(host);
+    expect(console.warn).toHaveBeenCalled();
+    fail = false;
+    host = "https://updated.dev";
+    expect((await service.listRegistryApps({})).data[0]?.hostUrl).toBe(host);
+    expect(client.read).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not mask republished raw configuration with a still-fresh runtime cache", async () => {
+    let entry = good;
+    const client = listingClient(async () => listResult([entry]));
+    const service = createRegistryMethods(registryConfig, client);
+    await service.getRegistryStatus();
+    vi.advanceTimersByTime(30_000);
+    await service.listRegistryApps({});
+    vi.advanceTimersByTime(30_001);
+    entry = { ...good, value: { ...good.value, domain: "republished.dev" } };
+    expect((await service.listRegistryApps({})).data[0]?.domain).toBe("republished.dev");
+    expect(client.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("serves last-good discovery after refresh failure, without caching a partial page", async () => {
+    let fail = false;
+    const discover = vi.fn(async (input: RegistryListInput) => {
+      if (fail) {
+        if (input.pageToken) throw new Error("namespace unavailable");
+        return { ...listResult([]), pageToken: "next" };
+      }
+      return listResult([good]);
+    });
+    const service = createRegistryMethods(registryConfig, listingClient(discover));
+    await service.listRegistryApps({});
+    vi.advanceTimersByTime(60_001);
+    fail = true;
+    expect((await service.listRegistryApps({})).data.map((app) => app.gatewayId)).toEqual([
+      "good.dev",
+    ]);
+    expect(console.warn).toHaveBeenCalled();
+    fail = false;
+    expect((await service.listRegistryApps({})).data).toHaveLength(1);
+    expect(discover).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not turn a first-load discovery outage into an empty success or a permanently rejected refresh", async () => {
+    let fail = true;
+    const service = createRegistryMethods(
+      registryConfig,
+      listingClient(async () => {
+        if (fail) throw new Error("namespace unavailable");
+        return listResult([good]);
+      }),
+    );
+    await expect(service.listRegistryApps({})).rejects.toThrow("namespace unavailable");
+    fail = false;
+    expect((await service.listRegistryApps({})).data).toHaveLength(1);
+  });
+
+  it("retries uncached broken runtimes without waiting for discovery to expire", async () => {
+    let fail = true;
+    const service = createRegistryMethods(
+      registryConfig,
+      listingClient(
+        async () => listResult([good]),
+        async () => {
+          if (fail) throw new Error("parent unavailable");
+          return parent;
+        },
+      ),
+    );
+    expect((await service.listRegistryApps({})).data).toEqual([]);
+    fail = false;
+    expect((await service.listRegistryApps({})).data).toHaveLength(1);
+  });
+
+  it("honors a successful empty refresh instead of serving removed apps", async () => {
+    let entries = [good];
+    const service = createRegistryMethods(
+      registryConfig,
+      listingClient(async () => listResult(entries)),
+    );
+    await service.listRegistryApps({});
+    vi.advanceTimersByTime(60_001);
+    entries = [];
+    expect(await service.listRegistryApps({})).toEqual({
+      data: [],
+      meta: { total: 0, hasMore: false, nextCursor: null },
+    });
+    expect(await service.getRegistryApp("demo.near", "good.dev")).toBeNull();
+    expect(await service.getRegistryAppByHost("https://good.dev")).toBeNull();
+  });
+
+  it("keeps empty discovery cached without fetching runtimes", async () => {
+    const discover = vi.fn(async () => listResult([]));
+    const client = listingClient(discover);
+    const service = createRegistryMethods(registryConfig, client);
+    expect((await service.listRegistryApps({})).data).toEqual([]);
+    expect((await service.getRegistryAppsByAccount("absent.near")).data).toEqual([]);
+    expect(await service.getRegistryAppByHost("https://absent.dev")).toBeNull();
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(client.read).not.toHaveBeenCalled();
+  });
+
+  it("does not hide a healthy runtime when its optional metadata read fails", async () => {
+    const client = listingClient(async () => listResult([good]));
+    const list = client.list;
+    client.list = vi.fn(async (input) => {
+      if (input.keyPrefix !== "apps/") throw new Error("metadata unavailable");
+      return list(input);
+    });
+    const service = createRegistryMethods(registryConfig, client);
+    expect((await service.listRegistryApps({})).data[0]).toMatchObject({
+      gatewayId: "good.dev",
+      metadata: null,
+    });
+    expect(await service.getRegistryAppByHost("https://good.dev")).toMatchObject({
+      metadata: null,
+    });
   });
 });
 
