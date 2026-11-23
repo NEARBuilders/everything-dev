@@ -124,12 +124,15 @@ function textResponse(message: string, status: number, requestId?: string) {
  * endpoint rejects into the route's error boundary and closes the stream
  * instead of suspending it forever.
  */
+const formatDur = (ms: number) => (Math.round(ms * 10) / 10).toFixed(1);
+
 export function createSsrRender(deps: SsrRenderDeps) {
   const fallbackComposeCache = createUiComposeCacheState();
   const fallbackClientConfigCache = createClientConfigCacheState();
   return async (request: Request, ctx: SsrRenderRequestContext): Promise<Response> => {
     const pathname = new URL(request.url).pathname;
     const requestId = crypto.randomUUID().slice(0, 8);
+    const totalStart = performance.now();
 
     const serving = deps.getServingState ? await deps.getServingState() : undefined;
     const composeCache = serving?.composeState ?? fallbackComposeCache;
@@ -180,12 +183,14 @@ export function createSsrRender(deps: SsrRenderDeps) {
     }
 
     let composed: ComposedUi;
+    const composeStart = performance.now();
     try {
       composed = await Effect.runPromise(composeUi(effectiveConfig, composeCache));
     } catch (error) {
       logger.error(`[SSR] ${requestId} Manifest composition failed for ${pathname}:`, error);
       return textResponse("SSR composition failed", 500, requestId);
     }
+    const composeDur = formatDur(performance.now() - composeStart);
 
     const runtimeConfig = buildClientConfigCached(
       {
@@ -205,6 +210,7 @@ export function createSsrRender(deps: SsrRenderDeps) {
         callTimeoutMs: 15_000,
       });
 
+      const renderStart = performance.now();
       const result = await ssrRouterModule.renderToStream(request, {
         session:
           ctx.session === undefined
@@ -220,12 +226,17 @@ export function createSsrRender(deps: SsrRenderDeps) {
         pluginNav: composed.nav,
         requestId,
       });
+      const renderDur = formatDur(performance.now() - renderStart);
 
       const responseHeaders = new Headers(result?.headers);
       if (ctx.cspHeader) {
         responseHeaders.set("Content-Security-Policy", ctx.cspHeader);
       }
       responseHeaders.set("x-request-id", requestId);
+      responseHeaders.set(
+        "Server-Timing",
+        `compose;dur=${composeDur}, render;dur=${renderDur}, total;dur=${formatDur(performance.now() - totalStart)}`,
+      );
       const stream =
         ctx.cspNonce && result?.stream
           ? (result.stream as ReadableStream<Uint8Array>).pipeThrough(
