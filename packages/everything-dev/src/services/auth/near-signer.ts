@@ -2,6 +2,7 @@ import { isPrivateKey, Near, type PrivateKey, parseKey } from "near-kit";
 import { FileKeyStore } from "near-kit/keys/file";
 import type { TxStatus } from "../registry/confirm";
 import type { NetworkId } from "../registry/fastkv";
+import { parseYocto } from "./near-amounts";
 import { executeKeychainTransaction, isNearCliInstalled, NearTransactionError } from "./near-cli";
 
 export type SigningKeySource = "provided" | "credentials-file";
@@ -348,7 +349,9 @@ export async function checkPublishKeyHealth(input: {
     };
   }
   const capped = scoped.allowance ?? scoped.balance;
-  if (capped && BigInt(capped) < MIN_PUBLISH_ALLOWANCE_YOCTO) {
+  const cappedYocto =
+    capped === undefined || capped === null ? undefined : parseYocto(String(capped));
+  if (cappedYocto !== undefined && cappedYocto < MIN_PUBLISH_ALLOWANCE_YOCTO) {
     return {
       ok: false,
       error:
@@ -453,19 +456,19 @@ export async function checkPublishBalance(input: {
         min_gas_price: string;
       }>,
     ]);
-    const balanceText = String(view);
-    const minGasPriceText = String(config.min_gas_price);
-    if (!/^\d+$/.test(balanceText) || !/^\d+$/.test(minGasPriceText)) {
+    const balanceYocto = parseYocto(String(view));
+    const minGasPriceYocto = parseYocto(String(config.min_gas_price));
+    if (balanceYocto === undefined || minGasPriceYocto === undefined) {
       return {
         ok: true,
         warning:
           `gas prepayment check skipped — NEAR RPC ${rpcUrl} returned an unexpected format ` +
-          `(balance ${balanceText}, min gas price ${minGasPriceText}); ` +
+          `(balance ${String(view)}, min gas price ${String(config.min_gas_price)}); ` +
           `continuing without verifying the account can afford the gas prepayment lock`,
       };
     }
-    balance = BigInt(balanceText);
-    minGasPrice = BigInt(minGasPriceText);
+    balance = balanceYocto;
+    minGasPrice = minGasPriceYocto;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return {
