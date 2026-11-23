@@ -1,4 +1,4 @@
-import { Clock, DateTime, Deferred, Effect, Exit, Fiber, Layer } from "effect";
+import { Clock, Data, DateTime, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { getProcessEnv } from "../../env/process-env";
 import { ShellEnvLive } from "../../env/project-env";
 import { ownerOfPort } from "../../infra/port-ownership";
@@ -39,10 +39,6 @@ import {
   ServiceDescriptorMap,
   ServiceDescriptorMapLive,
 } from "./service-descriptor";
-
-// KEEP: consumed verbatim by the deploy smoke's boot-failure watcher — drift
-// this string and the fast-fail silently stops firing.
-export const SERVICE_START_FAILURE = "Failed to start:";
 
 const adoptOrphanedChildren = (configDir: string): void => {
   try {
@@ -95,6 +91,18 @@ const sortByOrder = (packages: string[]): string[] => {
 
 export interface DevSessionHandle {
   shutdown: (mode: "graceful" | "force") => void;
+}
+
+/** A service failed to start in a production-like boot. The session fails
+ * with this (non-zero exit) so the boot container dies and the deploy smoke's
+ * exit watch resolves within seconds instead of the deadline. Development
+ * sessions deliberately tolerate a partial start and keep running. */
+export class DevStartFailure extends Data.TaggedError("DevStartFailure")<{
+  readonly services: readonly string[];
+}> {
+  override get message() {
+    return `boot failed — services did not start: ${this.services.join(", ")}`;
+  }
 }
 
 export interface DevSessionDeps {
@@ -184,6 +192,7 @@ export const runDevSession = (
     const logLevel = resolveLogLevel();
     const allLogs: LogEvent[] = [];
     const spawned: ProcessHandle[] = [];
+    const startFailures: string[] = [];
     const pipeline = createLogPipeline({
       level: logLevel,
       sinks: {
@@ -380,7 +389,8 @@ export const runDevSession = (
         ),
         Effect.tapError((err) =>
           Effect.sync(() => {
-            callbacks.onLog(pkg, `${SERVICE_START_FAILURE} ${String(err)}`, true);
+            startFailures.push(pkg);
+            callbacks.onLog(pkg, `Failed to start: ${String(err)}`, true);
             callbacks.onStatus(pkg, "error");
           }),
         ),
@@ -405,6 +415,7 @@ export const runDevSession = (
         Effect.timeout("120 seconds"),
         Effect.catch((err) =>
           Effect.sync(() => {
+            startFailures.push(pkg);
             callbacks.onLog(
               pkg,
               `Timed out or failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -451,6 +462,23 @@ export const runDevSession = (
     if (startup === null) return;
 
     const allHandles = [...startup.nonHostHandles, ...startup.hostHandles];
+
+    // KEEP: production-like boots (start command — the runtime image's PID 1)
+    // fail non-zero when any service failed to start or never became ready,
+    // so the container itself is the boot verdict: the deploy smoke's exit
+    // watch resolves in seconds and a wedged stack can never idle past its
+    // probe deadline. Development sessions tolerate a partial start — the
+    // orElseSucceed dummy handle above keeps the session alive there on
+    // purpose. A failed session runs the normal finalizer chain (kills the
+    // remaining services, flushes the log pipeline), and runApp maps the
+    // failure to exit 1. Before this, the 2026-11-20 rc.46 train sat its
+    // full 240s smoke deadline on a boot that had died in the first second.
+    const strictBoot = runtimeConfig.env !== "development";
+    if (strictBoot && startFailures.length > 0) {
+      const failure = new DevStartFailure({ services: [...startFailures] });
+      yield* Effect.logError(`[Dev] ${failure.message}`);
+      return yield* failure;
+    }
 
     const childPids = allHandles
       .map((handle) => Number(handle.pid))
