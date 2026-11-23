@@ -450,20 +450,26 @@ export async function checkPublishBalance(input: {
   let balance: bigint;
   let minGasPrice: bigint;
   try {
-    const [view, config] = await Promise.all([
-      near.getBalance(input.account),
+    // KEEP: the raw wire read, not near-kit's getBalance — that returns a
+    // lossy human-NEAR string ("1.28", 2 decimals), so parsing it as yocto
+    // soft-skipped every check and the prepayment-lock protection (the
+    // 2026-11-04 outage guard) has been dead since the near-kit migration.
+    // Found via the 2026-11-20 rc.46 preflight warning; the raw AccountView
+    // `amount` is the yoctoNEAR wire format the gas math needs.
+    const [account, config] = await Promise.all([
+      near.rpc.getAccount(input.account),
       near.rpc.call("EXPERIMENTAL_protocol_config", { finality: "final" }) as Promise<{
         min_gas_price: string;
       }>,
     ]);
-    const balanceYocto = parseYocto(String(view));
+    const balanceYocto = parseYocto(String(account.amount));
     const minGasPriceYocto = parseYocto(String(config.min_gas_price));
     if (balanceYocto === undefined || minGasPriceYocto === undefined) {
       return {
         ok: true,
         warning:
           `gas prepayment check skipped — NEAR RPC ${rpcUrl} returned an unexpected format ` +
-          `(balance ${String(view)}, min gas price ${String(config.min_gas_price)}); ` +
+          `(balance ${String(account.amount)}, min gas price ${String(config.min_gas_price)}); ` +
           `continuing without verifying the account can afford the gas prepayment lock`,
       };
     }
