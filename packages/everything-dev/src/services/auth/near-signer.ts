@@ -453,7 +453,7 @@ export async function checkPublishBalance(input: {
         min_gas_price: string;
       }>,
     ]);
-    const balanceText = typeof view === "string" ? view : String(view);
+    const balanceText = String(view);
     const minGasPriceText = String(config.min_gas_price);
     if (!/^\d+$/.test(balanceText) || !/^\d+$/.test(minGasPriceText)) {
       return {

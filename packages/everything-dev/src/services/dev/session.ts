@@ -40,6 +40,10 @@ import {
   ServiceDescriptorMapLive,
 } from "./service-descriptor";
 
+// KEEP: consumed verbatim by the deploy smoke's boot-failure watcher — drift
+// this string and the fast-fail silently stops firing.
+export const SERVICE_START_FAILURE = "Failed to start:";
+
 const adoptOrphanedChildren = (configDir: string): void => {
   try {
     const entries = readRegistry().filter(
@@ -376,7 +380,7 @@ export const runDevSession = (
         ),
         Effect.tapError((err) =>
           Effect.sync(() => {
-            callbacks.onLog(pkg, `Failed to start: ${String(err)}`, true);
+            callbacks.onLog(pkg, `${SERVICE_START_FAILURE} ${String(err)}`, true);
             callbacks.onStatus(pkg, "error");
           }),
         ),

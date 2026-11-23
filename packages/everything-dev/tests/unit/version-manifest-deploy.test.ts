@@ -4,6 +4,7 @@ import {
   composeWorkspaceVersionManifest,
   resolveRemoteVersion,
 } from "../../src/services/deploy/version-manifest";
+import { isTransientBootFailure, OrchestratorError } from "../../src/services/dev/orchestrator";
 
 const webReport = {
   entry: "remoteEntry.cf712c39e56dc37f.js",
@@ -202,5 +203,28 @@ describe("resolveRemoteVersion — version directory resolution (#826)", () => {
     const resolved = await resolveRemoteVersion({ base, digest: legacyDigest, fetchImpl });
     expect(resolved.dir).toBeUndefined();
     expect(resolved.entryUrl).toBe(`${base}remoteEntry.83ba437f70018e7d.js`);
+  });
+
+  it("a transient fetch failure survives the SRI boundary — the orchestrator's boot-retry predicate fires on it", async () => {
+    const fetchImpl = async (): Promise<Response> => {
+      throw new TypeError("fetch failed");
+    };
+    const unstagedDigest = {
+      manifest: "versions/caus0000caus0000.json",
+      integrity: `sha384-${createHash("sha384").update("unused — the fetch rejects").digest("base64")}`,
+    };
+    let rejection: unknown;
+    try {
+      await resolveRemoteVersion({ base, digest: unstagedDigest, fetchImpl });
+    } catch (error) {
+      rejection = error;
+    }
+    expect(rejection).toBeInstanceOf(Error);
+    const wrapped = new OrchestratorError({
+      operation: "resolve host pin",
+      detail: String(rejection),
+      cause: rejection,
+    });
+    expect(isTransientBootFailure(wrapped)).toBe(true);
   });
 });
