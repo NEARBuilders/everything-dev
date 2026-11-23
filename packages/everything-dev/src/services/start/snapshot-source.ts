@@ -84,7 +84,9 @@ export function createRegistryConfigSource(deps: RegistryConfigSourceDeps) {
   };
 
   /** Absent snapshot → null (the original transport error is rethrown by the
-   * caller). Corrupt or unverifiable → a combined error naming both causes. */
+   * caller). Corrupt or unverifiable → a combined error naming both causes;
+   * the snapshot failure rides along as `cause` (the transport one is named
+   * in the message and rethrown live by the caller's fallback path). */
   async function usableSnapshot(
     input: { account: string; gateway: string; dir?: string },
     fetchError: unknown,
@@ -93,13 +95,13 @@ export function createRegistryConfigSource(deps: RegistryConfigSourceDeps) {
     try {
       loaded = await deps.loadSnapshot(input.account, input.gateway, input.dir);
     } catch (snapshotError) {
-      throw new Error(bothBroken(fetchError, snapshotError));
+      throw new Error(bothBroken(fetchError, snapshotError), { cause: snapshotError });
     }
     if (!loaded) return null;
     try {
       return verifiedBootSnapshot(loaded);
     } catch (snapshotError) {
-      throw new Error(bothBroken(fetchError, snapshotError));
+      throw new Error(bothBroken(fetchError, snapshotError), { cause: snapshotError });
     }
   }
 

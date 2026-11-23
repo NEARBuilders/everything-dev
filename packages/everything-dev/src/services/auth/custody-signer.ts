@@ -169,21 +169,23 @@ function custodyPublishError(error: unknown, custodyWallet: CustodyWalletRecord)
     ? ` Manage the wallet at ${custodyWallet.handoffUrl}.`
     : "";
   if (error instanceof PolicyDeniedError) {
-    return new Error(`The custody wallet policy refused the publish.${context}`);
+    return new Error(`The custody wallet policy refused the publish.${context}`, { cause: error });
   }
   if (error instanceof WalletFrozenError) {
-    return new Error(`The custody wallet is frozen.${context}`);
+    return new Error(`The custody wallet is frozen.${context}`, { cause: error });
   }
   if (code === "insufficient_balance" || code === "wallet_underfunded") {
     const detail = error.message ? ` (${error.message})` : "";
     return new Error(
       `The custody wallet ran out of gas for the publish${detail}. Fund it at ${custodyFundUrl(custodyWallet)}`,
+      { cause: error },
     );
   }
   if (code === "invalid_api_key" || code === "missing_auth") {
     return new Error(
       `The stored custody wallet key was rejected. Re-run \`bos login --custody\` to re-register.`,
+      { cause: error },
     );
   }
-  return new Error(`Custody publish failed (${code}): ${error.message}`);
+  return new Error(`Custody publish failed (${code}): ${error.message}`, { cause: error });
 }
