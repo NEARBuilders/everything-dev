@@ -13,7 +13,7 @@ import {
   ServiceDescriptorMapLive,
 } from "../../src/services/dev/service-descriptor";
 import type { DevSessionDeps, DevSessionHandle } from "../../src/services/dev/session";
-import { runDevSession } from "../../src/services/dev/session";
+import { DevStartFailure, runDevSession } from "../../src/services/dev/session";
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => {
     kills: [] as string[],
     sequence: [] as string[],
     callbacks: {} as Record<string, ProcessCallbacks>,
+    failStarts: [] as string[],
     view: {
       updateProcess: vi.fn(),
       addLog: vi.fn(),
@@ -45,6 +46,11 @@ vi.mock("../../src/services/dev/orchestrator", async (importOriginal) => {
     ...actual,
     makeDevProcess: (pkg: string, callbacks: ProcessCallbacks) => {
       mocks.callbacks[pkg] = callbacks;
+      if (mocks.failStarts.includes(pkg)) {
+        return Effect.fail(
+          new actual.OrchestratorError({ operation: "start service", detail: "poisoned boot" }),
+        );
+      }
       const deferred = Deferred.makeUnsafe<void>();
       const handle = {
         name: pkg,
@@ -181,6 +187,7 @@ describe("runDevSession quit correctness", () => {
     mocks.kills = [];
     mocks.sequence = [];
     mocks.callbacks = {};
+    mocks.failStarts = [];
     mocks.view.addLog.mockClear();
     mocks.view.updateProcess.mockClear();
   });
@@ -314,5 +321,32 @@ describe("runDevSession quit correctness", () => {
     await exitPromise;
     expect(mocks.view.addLog).toHaveBeenCalledWith("api", "Error: pending multi-line tail", true);
     expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("a production boot fails with DevStartFailure when a service fails to start, killing the healthy siblings", async () => {
+    mocks.failStarts = ["host"];
+    const { program } = runSession({}, { ...fakeRuntimeConfig, env: "production" });
+    const resultPromise = Effect.runPromise(
+      program.pipe(Effect.catchTag("DevStartFailure", (error) => Effect.succeed(error))),
+    );
+    await makeAllReady(1);
+    const result = await resultPromise;
+    expect(result).toBeInstanceOf(DevStartFailure);
+    expect((result as DevStartFailure).services).toEqual(["host"]);
+    expect(mocks.kills).toContain("api");
+    expect(mocks.view.unmount).toHaveBeenCalled();
+  });
+
+  it("a development session tolerates a failed start and keeps running until shutdown", async () => {
+    mocks.failStarts = ["host"];
+    const { program, getHandle } = runSession({}, { ...fakeRuntimeConfig, env: "development" });
+    const exitPromise = Effect.runPromiseExit(program);
+
+    await waitForSpawns(1);
+    getHandle().shutdown("graceful");
+
+    const exit = await exitPromise;
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(mocks.kills).toContain("api");
   });
 });

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type DockerAdapter, type DockerResult, runSmoke } from "../../src/services/deploy/smoke";
-import { SERVICE_START_FAILURE } from "../../src/services/dev/session";
 
 const ok = (stdout = "", stderr = ""): DockerResult => ({ status: 0, stdout, stderr });
 const fail = (stderr = "", status = 1): DockerResult => ({ status, stdout: "", stderr });
@@ -46,7 +45,7 @@ describe("runSmoke — boot gate decisions through the docker seam", () => {
     expect(result.error).toContain("port already allocated");
   });
 
-  it(`a ${SERVICE_START_FAILURE} line fails the gate in seconds, with the in-container diagnosis`, async () => {
+  it("an exited boot fails the gate in seconds and classifies an app-class diagnosis", async () => {
     vi.stubGlobal("fetch", refusedFetch);
     const probeLines = [
       "probe https://cdn.test/bundles/a/g/host/mf-manifest.json -> 200 3614B",
@@ -55,14 +54,12 @@ describe("runSmoke — boot gate decisions through the docker seam", () => {
     const result = await runSmoke({
       image: "test-image",
       docker: fakeDocker({
-        logs: ok(
-          `[host] [ERR] ${SERVICE_START_FAILURE} OrchestratorError: load host module: fetch failed`,
-        ),
+        inspect: ok("false\n"),
         exec: ok(probeLines),
       }),
     });
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("failed to start");
+    expect(result.error).toContain("boot container exited");
     expect(result.diagnosis).toContain("CDN reachable from inside the container");
     expect(result.diagnosis).toContain("app-class");
   });
