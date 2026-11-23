@@ -272,6 +272,7 @@ export async function resolveRemoteVersion(input: {
   } catch (error) {
     throw new Error(
       `[SRI] version manifest verification failed for ${manifestUrl}: ${reasonOf(error)}`,
+      { cause: error },
     );
   }
 }

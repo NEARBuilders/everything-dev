@@ -1,10 +1,11 @@
 import { OutlayerClient, OutlayerError, PolicyDeniedError, WalletFrozenError } from "@outlayer/sdk";
 import type { NetworkId } from "../registry/fastkv";
 import type { RelayResult } from "./delegate-signer";
+import { parseYocto } from "./near-amounts";
 import type { CustodyWalletRecord } from "./session";
 
 const PUBLISH_GAS = "30000000000000";
-const MIN_GAS_BALANCE = "50000000000000000000000";
+const MIN_GAS_BALANCE = 50_000_000_000_000_000_000_000n;
 
 const OUTLAYER_HOSTS: Record<NetworkId, string> = {
   mainnet: "https://api.outlayer.ai",
@@ -49,7 +50,17 @@ export async function checkCustodyBalance(
   const client = custodyClient(custodyWallet);
   try {
     const { balance } = await client.getBalance({ chain: "near" });
-    if (BigInt(balance) < BigInt(MIN_GAS_BALANCE)) {
+    const balanceYocto = parseYocto(String(balance));
+    if (balanceYocto === undefined) {
+      return {
+        ok: true,
+        unreachable: false,
+        message:
+          `custody balance unreadable (${balance}) — treating as funded; ` +
+          `the submit-time check remains the authoritative gate`,
+      };
+    }
+    if (balanceYocto < MIN_GAS_BALANCE) {
       return {
         ok: false,
         unreachable: false,
@@ -72,7 +83,14 @@ export async function ensureCustodyBalance(custodyWallet: CustodyWalletRecord): 
   const client = custodyClient(custodyWallet);
   try {
     const { balance } = await client.getBalance({ chain: "near" });
-    if (BigInt(balance) < BigInt(MIN_GAS_BALANCE)) {
+    const balanceYocto = parseYocto(String(balance));
+    if (balanceYocto === undefined) {
+      throw new Error(
+        `The custody wallet balance is unreadable (${balance}) — cannot verify the gas minimum; ` +
+          `check the OutLayer response or fund ${custodyWallet.nearAccountId} at ${custodyFundUrl(custodyWallet)}`,
+      );
+    }
+    if (balanceYocto < MIN_GAS_BALANCE) {
       throw new Error(
         `The custody wallet ${custodyWallet.nearAccountId} holds ${balance} yoctoNEAR on ` +
           `${custodyWallet.network}, below the gas minimum. Fund it at ${custodyFundUrl(custodyWallet)}`,

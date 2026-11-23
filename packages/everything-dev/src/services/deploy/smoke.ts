@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { pgliteDefaultUrlForSlug } from "../../db/binding";
+import { SERVICE_START_FAILURE } from "../dev/session";
 import { formatElapsed, stepFail, stepOk } from "./output";
 
 /**
@@ -36,6 +37,9 @@ export interface SmokeOptions {
   readonly apiDatabaseUrl?: string;
   readonly authDatabaseUrl?: string;
   readonly authSecret?: string;
+  /** The docker CLI seam — defaults to the real CLI; tests inject an
+   * in-memory adapter. */
+  readonly docker?: DockerAdapter;
 }
 
 export interface SmokeResult {
@@ -53,19 +57,31 @@ const POLL_INTERVAL_MS = 1_000;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-interface RunResult {
-  status: number | null;
-  stdout: string;
-  stderr: string;
+export interface DockerResult {
+  readonly status: number;
+  readonly stdout: string;
+  readonly stderr: string;
 }
 
-function run(cmd: string, args: readonly string[]): RunResult {
-  const result = spawnSync(cmd, args, { encoding: "utf8" });
-  if (result.error) throw result.error;
-  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
-}
+/** The docker CLI seam: every call resolves to a result, never throws — a
+ * spawn failure (ENOENT, permissions, EAGAIN) reads as `status: -1` with the
+ * reason on stderr, so call sites treat it exactly like a failed command. A
+ * throw mid-watch would masquerade as a boot verdict, and a rejection after
+ * the gate's race has settled would crash the deploy as an unhandled
+ * rejection. Tests inject an in-memory adapter through `SmokeOptions.docker`. */
+export type DockerAdapter = (args: readonly string[]) => DockerResult;
 
-const docker = (args: readonly string[]): RunResult => run("docker", args);
+const dockerCli: DockerAdapter = (args) => {
+  const result = spawnSync("docker", args, { encoding: "utf8" });
+  if (result.error) {
+    return {
+      status: -1,
+      stdout: "",
+      stderr: `docker ${args[0]} failed to spawn: ${result.error.message}`,
+    };
+  }
+  return { status: result.status ?? -1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+};
 
 async function fetchStatusOk(url: string): Promise<Response> {
   const response = await fetch(url);
@@ -91,7 +107,10 @@ async function pollUntil<T>(
       console.log(`  ✓ ${name} — ${detail} (ready in ${formatElapsed(Date.now() - startedAt)})`);
       return detail;
     } catch (error) {
-      lastFailure = error instanceof Error ? error.message : String(error);
+      const base = error instanceof Error ? error.message : String(error);
+      const cause =
+        error instanceof Error && error.cause instanceof Error ? ` — ${error.cause.message}` : "";
+      lastFailure = base + cause;
     }
     await sleep(POLL_INTERVAL_MS);
   }
@@ -104,7 +123,10 @@ async function pollUntil<T>(
  * exits non-zero when a service fails to boot, so a dead container means the
  * remaining pollUntil time would be wasted polling nothing. Resolves
  * undefined when aborted. */
-function watchContainerExit(container: string): {
+function watchContainerExit(
+  container: string,
+  docker: DockerAdapter,
+): {
   done: Promise<"exited" | undefined>;
   abort: () => void;
 } {
@@ -113,6 +135,39 @@ function watchContainerExit(container: string): {
     while (!controller.aborted) {
       const state = docker(["inspect", "-f", "{{.State.Running}}", container]);
       if ((state.stdout ?? "").trim() === "false") return "exited" as const;
+      await sleep(2_000);
+    }
+    return undefined;
+  })();
+  return { done, abort: () => (controller.aborted = true) };
+}
+
+// KEEP: resolves with the session's start-failure line when a service dies at
+// boot even though the container keeps running — the start stack swallows a
+// per-service start failure (the session continues with the remaining
+// services), so the exit watch never fires and the pollers would burn their
+// full deadline polling a port nothing will ever listen on (the 2026-11-20
+// rc.46 train spent 4 minutes there on one transient `fetch failed`). The
+// marker is SERVICE_START_FAILURE from dev/session, the line's owner. Docker
+// hiccups cannot reject this watch — the adapter degrades a failed spawn to
+// a result and the loop retries next tick; the raced promise additionally
+// carries a .catch guard so nothing here can crash the deploy as an
+// unhandled rejection after the race has settled.
+function watchBootFailure(
+  container: string,
+  docker: DockerAdapter,
+): {
+  done: Promise<string | undefined>;
+  abort: () => void;
+} {
+  const controller = { aborted: false };
+  const done = (async () => {
+    while (!controller.aborted) {
+      const logs = docker(["logs", container]);
+      const line = `${logs.stdout}${logs.stderr}`
+        .split("\n")
+        .find((candidate) => candidate.includes(SERVICE_START_FAILURE));
+      if (line) return line.trim();
       await sleep(2_000);
     }
     return undefined;
@@ -131,6 +186,7 @@ function probeCdnFromContainer(
   image: string,
   account: string,
   gateway: string,
+  docker: DockerAdapter,
 ): string {
   const cdnBase = process.env.SMOKE_CDN_BASE ?? "https://cdn.everything.dev";
   const base = `${cdnBase}/bundles/${account}/${gateway}/host`;
@@ -186,7 +242,11 @@ const base = ${JSON.stringify(base)};
  * path) and capture the full container stdout — the failure reason for a
  * failed service only exists inside the container, which otherwise gets
  * deleted, and a tail window can cut the error behind spinner output. */
-function captureContainerLogs(container: string, dockerLogs: string[]): void {
+function captureContainerLogs(
+  container: string,
+  dockerLogs: string[],
+  docker: DockerAdapter,
+): void {
   const target = join(".bos", "logs", "smoke");
   mkdirSync(target, { recursive: true });
   const cp = docker(["cp", `${container}:/app/.bos/logs/.`, target]);
@@ -217,6 +277,7 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
   const baseUrl = `http://localhost:${port}`;
   const container = `everything-dev-smoke-${process.pid}`;
   const image = options.image;
+  const docker = options.docker ?? dockerCli;
 
   const envPairs: Record<string, string> = {
     BOS_ACCOUNT: options.account ?? process.env.SMOKE_BOS_ACCOUNT ?? "dev.everything.near",
@@ -254,7 +315,8 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
   }
 
   try {
-    const exitWatch = watchContainerExit(container);
+    const exitWatch = watchContainerExit(container, docker);
+    const bootFailureWatch = watchBootFailure(container, docker);
     const bootChecks = Promise.all([
       pollUntil("health", () =>
         fetchStatusOk(`${baseUrl}/health`).then(async (r) => {
@@ -296,9 +358,21 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
       }),
     ]);
     bootChecks.catch(() => {});
-    const outcome = await Promise.race([bootChecks.then(() => "ready"), exitWatch.done]).finally(
-      () => exitWatch.abort(),
-    );
+    exitWatch.done.catch(() => {});
+    bootFailureWatch.done.catch(() => {});
+    const outcome = await Promise.race([
+      bootChecks.then(() => "ready" as const),
+      exitWatch.done,
+      bootFailureWatch.done.then((line) => (line ? ("start-failed" as const) : undefined)),
+    ]).finally(() => {
+      exitWatch.abort();
+      bootFailureWatch.abort();
+    });
+    if (outcome === "start-failed") {
+      throw new Error(
+        "a service failed to start while the container kept running — the cause is in the captured logs below",
+      );
+    }
     if (outcome === "exited") {
       throw new Error(
         "boot container exited — a service failed to start (the cause is in the captured logs below)",
@@ -391,6 +465,7 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
       image,
       envPairs.BOS_ACCOUNT,
       envPairs.BOS_GATEWAY,
+      docker,
     );
     console.error(`smoke diagnosis: ${diagnosis}`);
     const stop = docker(["stop", "-t", "15", container]);
@@ -398,7 +473,7 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
       console.error(`smoke: graceful stop failed — ${stop.stderr.trim()}`);
     }
     const logs = docker(["logs", container]);
-    captureContainerLogs(container, `${logs.stdout}${logs.stderr}`.split("\n"));
+    captureContainerLogs(container, `${logs.stdout}${logs.stderr}`.split("\n"), docker);
     if (/pins no version manifest|redeploy required/i.test(`${logs.stdout}${logs.stderr}`)) {
       console.error(
         "smoke: the published config predates version-manifest pins — run `bos deploy` to republish with pins; the smoke gate goes green after that",

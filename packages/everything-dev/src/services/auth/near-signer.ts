@@ -2,6 +2,7 @@ import { isPrivateKey, Near, type PrivateKey, parseKey } from "near-kit";
 import { FileKeyStore } from "near-kit/keys/file";
 import type { TxStatus } from "../registry/confirm";
 import type { NetworkId } from "../registry/fastkv";
+import { parseYocto } from "./near-amounts";
 import { executeKeychainTransaction, isNearCliInstalled, NearTransactionError } from "./near-cli";
 
 export type SigningKeySource = "provided" | "credentials-file";
@@ -348,7 +349,9 @@ export async function checkPublishKeyHealth(input: {
     };
   }
   const capped = scoped.allowance ?? scoped.balance;
-  if (capped && BigInt(capped) < MIN_PUBLISH_ALLOWANCE_YOCTO) {
+  const cappedYocto =
+    capped === undefined || capped === null ? undefined : parseYocto(String(capped));
+  if (cappedYocto !== undefined && cappedYocto < MIN_PUBLISH_ALLOWANCE_YOCTO) {
     return {
       ok: false,
       error:
@@ -447,14 +450,31 @@ export async function checkPublishBalance(input: {
   let balance: bigint;
   let minGasPrice: bigint;
   try {
-    const [view, config] = await Promise.all([
-      near.getBalance(input.account),
+    // KEEP: the raw wire read, not near-kit's getBalance — that returns a
+    // lossy human-NEAR string ("1.28", 2 decimals), so parsing it as yocto
+    // soft-skipped every check and the prepayment-lock protection (the
+    // 2026-11-04 outage guard) has been dead since the near-kit migration.
+    // Found via the 2026-11-20 rc.46 preflight warning; the raw AccountView
+    // `amount` is the yoctoNEAR wire format the gas math needs.
+    const [account, config] = await Promise.all([
+      near.rpc.getAccount(input.account),
       near.rpc.call("EXPERIMENTAL_protocol_config", { finality: "final" }) as Promise<{
         min_gas_price: string;
       }>,
     ]);
-    balance = BigInt(view);
-    minGasPrice = BigInt(config.min_gas_price);
+    const balanceYocto = parseYocto(String(account.amount));
+    const minGasPriceYocto = parseYocto(String(config.min_gas_price));
+    if (balanceYocto === undefined || minGasPriceYocto === undefined) {
+      return {
+        ok: true,
+        warning:
+          `gas prepayment check skipped — NEAR RPC ${rpcUrl} returned an unexpected format ` +
+          `(balance ${String(account.amount)}, min gas price ${String(config.min_gas_price)}); ` +
+          `continuing without verifying the account can afford the gas prepayment lock`,
+      };
+    }
+    balance = balanceYocto;
+    minGasPrice = minGasPriceYocto;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return {

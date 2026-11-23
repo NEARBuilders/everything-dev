@@ -108,6 +108,32 @@ const LOCAL_PROBE_DEADLINE_MS = 90_000;
  * bounded so a hung connection or a wedged module load fails loud with the
  * URL and stage — long before the smoke's 240s probe deadline turns the
  * silence into a mystery. */
+const BOOT_FETCH_RETRIES = 2;
+const BOOT_RETRY_WINDOW_MS = 5_000;
+
+// KEEP: one policy shared by all three remote boot fetches — the schedule and
+// the transient predicate must move together or the policy forks.
+const BOOT_RETRY_SCHEDULE = Schedule.spaced("1 second").pipe(
+  Schedule.upTo({ duration: BOOT_RETRY_WINDOW_MS, times: BOOT_FETCH_RETRIES }),
+);
+
+// KEEP: walks the whole cause chain, not one level — the fetch boundaries
+// rewrap failures (resolveRemoteVersion rethrows as a plain `[SRI]` Error),
+// and a one-level check silently never fires, which is exactly what this
+// repo shipped first on the 2026-11-20 rc.46 train. The undici socket
+// failure (`TypeError: fetch failed`) is the one boot error a second attempt
+// within seconds actually fixes; skew, 404-shaped, and malformed-manifest
+// failures won't heal in milliseconds and keep failing loud on the first
+// attempt.
+export const isTransientBootFailure = (error: OrchestratorError): boolean => {
+  let cause: unknown = error.cause;
+  for (let depth = 0; cause instanceof Error && depth < 5; depth += 1) {
+    if (cause instanceof TypeError) return true;
+    cause = cause.cause;
+  }
+  return false;
+};
+
 const MANIFEST_FETCH_DEADLINE = "10 seconds";
 const LOAD_REMOTE_DEADLINE = "60 seconds";
 const SERVER_READY_DEADLINE = "120 seconds";
@@ -293,9 +319,12 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
             cause,
           }),
       }).pipe(
+        Effect.retry({ schedule: BOOT_RETRY_SCHEDULE, while: isTransientBootFailure }),
         // Development keeps the unpinned fallback: an unresolved pin degrades
         // to the fixed name exactly as deriveVersionManifestFields tolerates
         // there; published configs fail loud (the pin is the boot contract).
+        // The retry runs first, so dev retries a transient blip before it
+        // degrades to the unpinned fallback.
         Effect.catchTag("OrchestratorError", (error) =>
           runtimeConfig.env === "development"
             ? Effect.logWarning(
@@ -310,15 +339,17 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
       }
     }
 
-    // The manifest IS the entry contract (ADR 0020 amendment: hashed
+    // KEEP: the manifest IS the entry contract (ADR 0020 amendment: hashed
     // entrypoints, fixed-name `remoteEntry.js` retired — it 404s on the CDN).
     // A failed manifest fetch must fail loud with the URL and status: the old
     // silent fallback to remoteEntry.js turned any transient hiccup (a CDN
     // 403 challenge, a timeout) into a guaranteed loadRemote failure with no
-    // named cause.
+    // named cause. Transient socket failures retry first — the 2026-11-20
+    // rc.46 train lost its smoke gate to one instant `fetch failed` blip that
+    // a second attempt would have absorbed.
     const entryUrl = yield* fetchWithRetryEff(manifestUrl, {
       timeout: MANIFEST_FETCH_DEADLINE,
-      retries: 0,
+      retries: BOOT_FETCH_RETRIES,
     }).pipe(
       Effect.filterOrFail(
         (res) => res.ok,
@@ -393,6 +424,7 @@ export const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: Proces
             }),
           ),
       }),
+      Effect.retry({ schedule: BOOT_RETRY_SCHEDULE, while: isTransientBootFailure }),
     );
 
     if (!hostModule?.runServer) {
