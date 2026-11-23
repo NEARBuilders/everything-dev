@@ -606,7 +606,7 @@ Parent-owned workspace tsconfigs (`host/`, `packages/*`) extend the root `tsconf
 - **`extends` does not merge arrays** — a child that declares its own `plugins` or `types` array replaces the base's entirely. Parent-owned tsconfigs must not redefine `plugins`; `types` is intentionally per-workspace (TS 7 no longer auto-includes `@types/*`, so every workspace that touches Node globals declares `"types": ["node"]` explicitly).
 - **`baseUrl` is removed in TS 7** — never use it; `paths` entries resolve relative to the tsconfig file.
 - **Emitting configs** (`outDir`/`emitDeclarationOnly`) must set an explicit `rootDir` — TS 7 no longer infers the common source directory — and an explicit `types`. Emitting configs must not use `paths` that point at sibling workspaces' **sources** (pulls files outside `rootDir`); resolve sibling packages through their `exports` map / built declarations instead. Source-mapped `paths` are only allowed in `noEmit` typecheck configs.
-- **Known local nuisance** — building `packages/every-plugin` regenerates stray `src/**/*.d.ts`(+`.map`) files beside the sources (tsdown outDir quirk). They are untracked build artifacts: never commit them; delete them (`git clean`-style) if `pnpm run lint` starts failing on them. Root fix tracked as a follow-up to the tsdown config.
+- **Stray build artifacts are guarded** — `scripts/stray-artifacts-guard.mjs` (CI, after the lint-and-typecheck builds) fails on untracked declaration/JS files appearing in any `src/` tree. The historical tsdown nuisance (pre-0.22.14) no longer reproduces; if the guard trips, fix the emitting build step, then `git clean` the files (#923).
 - `docs/plans/prototypes/*` pin their own TypeScript 5 and are exempt.
 
 ## Common Patterns
