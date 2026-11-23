@@ -6,11 +6,11 @@ import { RPCHandler } from "@orpc/server/node";
 import { createPluginRuntime } from "every-plugin";
 import type { contract } from "@/contract";
 import Plugin from "@/index";
+import bosDevConfig from "../bos.dev";
 import packageJson from "../package.json" with { type: "json" };
-import pluginDevConfig from "../plugin.dev";
 
 const TEST_PLUGIN_ID = packageJson.name;
-const TEST_CONFIG = pluginDevConfig.config;
+const TEST_CONFIG = bosDevConfig.config;
 
 const TEST_REGISTRY = {
   [TEST_PLUGIN_ID]: {

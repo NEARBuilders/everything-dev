@@ -97,7 +97,7 @@ Each app should also cross-list its siblings' origins in `trustedOrigins`. The e
 
 ### Environment Variables
 
-The plugin itself does **not** read `process.env`. The host passes all configuration via `variables` and `secrets`. In development, `plugin.dev.ts` can map environment variables into the same nested shape:
+The plugin itself does **not** read `process.env`. The host passes all configuration via `variables` and `secrets`. In development, `bos.dev.ts` can map environment variables into the same nested shape:
 
 | Variable | Description |
 |----------|-------------|
@@ -211,7 +211,7 @@ This gives you end-to-end type safety when calling endpoints from a client.
 Mount in your `everything-plugin` workspace:
 
 ```typescript
-// plugin.dev.ts
+// bos.dev.ts
 import type { PluginConfigInput } from "every-plugin";
 import Plugin from "@everything-dev/auth-plugin";
 

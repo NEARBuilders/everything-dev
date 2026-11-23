@@ -101,10 +101,18 @@ const CORE_UI_MARKERS = {
  * generation pass.
  */
 export function hasCoreUiWorkspace(cwd: string = process.cwd()): boolean {
+  if (
+    fs.existsSync(path.join(cwd, "plugin.dev.ts")) &&
+    !fs.existsSync(path.join(cwd, "bos.dev.ts"))
+  ) {
+    throw new Error(
+      "plugin.dev.ts is retired — rename it to bos.dev.ts (or run `bos upgrade`, which renames it with a backup under .bos/sync-backup/)",
+    );
+  }
   return (
     fs.existsSync(path.join(cwd, CORE_UI_MARKERS.routes)) &&
     !fs.existsSync(path.join(cwd, CORE_UI_MARKERS.contract)) &&
-    !fs.existsSync(path.join(cwd, "plugin.dev.ts"))
+    !fs.existsSync(path.join(cwd, "bos.dev.ts"))
   );
 }
 

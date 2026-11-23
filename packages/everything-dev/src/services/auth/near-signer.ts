@@ -36,7 +36,7 @@ export interface NearTransactionResult {
  * endpoint served fresh nonce views, from CI runners and local machines
  * alike). NEAR_RPC_URL pins the signing stack to an endpoint with a real
  * transaction pool — set it to https://rpc.mainnet.near.org. Mirrors the
- * auth plugin's dev-wiring convention (plugins/auth/plugin.dev.ts). */
+ * auth plugin's dev-wiring convention (plugins/auth/bos.dev.ts). */
 export function resolveNearRpcUrl(): string | undefined {
   return process.env.NEAR_RPC_URL || undefined;
 }
