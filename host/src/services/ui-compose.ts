@@ -28,6 +28,7 @@ import {
   parsePluginManifest,
   type RemoteEntry,
   type RouteConfigModule,
+  UI_REMOTE_SERVER_ENTRY_FILENAME,
 } from "everything-dev/ui/manifest";
 import { asDigest, fetchVerified } from "everything-dev/verify";
 import type { RouterModule } from "../types";
@@ -35,14 +36,19 @@ import { logger } from "../utils/logger";
 import type { RuntimeConfig } from "./config";
 import { UiComposeError } from "./errors";
 import {
+  FederationContainers,
+  resolveLocalRoot,
+  waitForLocalContainer,
+} from "./federation/containers";
+import type { CompositionSession } from "./federation/instance";
+import {
+  FederationLoader,
   loadCoreUiRouteConfig,
   loadRouterModule,
   loadUiComposeModule,
   loadUiRouteConfig,
-  localUiRemoteEntry,
-  resolveLocalRoot,
-  waitForLocalContainer,
-} from "./federation.server";
+  requireSsrEntryUrl,
+} from "./federation/loader";
 import { enforceCacheLimit } from "./ttl-cache";
 
 const MAX_COMPOSE_VARIANTS = 64;
@@ -440,17 +446,28 @@ function rememberVariant(
   cache.variants.set(variantKey, { variant, staleAfter });
 }
 
-/** Variant cache key: the structural digest plus a per-source freshness
- * coordinate (SSR integrity in prod, local manifest mtime in dev) so a
- * code-only redeploy or dev rebuild invalidates the composed tree even
- * though the hydration digest deliberately stays deployment-free. */
-function variantCacheKey(sources: UiSource[]): string {
+/** Variant cache identity: the structural digest plus a deployment
+ * fingerprint (SSR integrity in prod; src manifest mtime AND built container
+ * mtime in dev) so a code-only redeploy or dev rebuild invalidates the
+ * composed tree even though the hydration digest deliberately stays
+ * deployment-free. The built container's mtime is the hot-reload signal: a
+ * content-only route edit rewrites `dist/ssr/remoteEntry.server.js` (or is
+ * restamped by a rebuild), and the stale tree holding the old route modules
+ * must not outlive it. */
+function variantFingerprint(sources: UiSource[]): string {
   return sources
     .map((source) => {
       if (source.localRoot) {
         try {
-          const mtime = statSync(`${source.localRoot}/src/${MANIFEST_FILENAME}`).mtimeMs;
-          return `${source.key}:${mtime}`;
+          const manifestMtime = statSync(`${source.localRoot}/src/${MANIFEST_FILENAME}`).mtimeMs;
+          try {
+            const containerMtime = statSync(
+              `${source.localRoot}/dist/ssr/${UI_REMOTE_SERVER_ENTRY_FILENAME}`,
+            ).mtimeMs;
+            return `${source.key}:${manifestMtime}:${containerMtime}`;
+          } catch {
+            return `${source.key}:${manifestMtime}`;
+          }
         } catch {
           return `${source.key}:missing`;
         }
@@ -464,6 +481,7 @@ export const composeUi = Effect.fn("composeUi")(function* (
   config: RuntimeConfig,
   cache: UiComposeCacheState,
 ) {
+  const containers = yield* FederationContainers;
   const sources = uiSources(config);
   const composable = yield* resolveComposableSources(sources, cache);
   const skew = sharedSingletonSkew(composable);
@@ -472,55 +490,76 @@ export const composeUi = Effect.fn("composeUi")(function* (
   const core = corePair.source;
 
   const coreEntry = core.localRoot
-    ? yield* Effect.tryPromise(() =>
-        localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! }),
-      )
+    ? yield* containers.localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! })
     : core.remote!;
   if (core.localRoot) {
     yield* waitForLocalContainer(coreEntry, config.env);
   }
+
+  // Every source's entry resolves BEFORE the compose session opens: the
+  // session pins one generation for the whole compose, so a rebuild landing
+  // mid-compose can only change the entries the NEXT compose sees — never
+  // this one's bytes (mixed generations mix React copies; ADR 0048
+  // invariant 4).
+  const loader = yield* FederationLoader;
+  const nonCore = composable.filter(({ source }) => source.key !== CORE_UI_KEY);
+  const pluginEntries = yield* Effect.forEach(
+    nonCore,
+    ({ source }) =>
+      source.localRoot
+        ? Effect.gen(function* () {
+            const entry = yield* containers.localUiRemoteEntry({
+              name: source.mfName,
+              localRoot: source.localRoot!,
+            });
+            yield* waitForLocalContainer(entry, config.env);
+            return entry;
+          })
+        : Effect.succeed(source.remote!),
+    { concurrency: "unbounded" },
+  );
+  const session: CompositionSession = loader.ensureSession([
+    { name: core.mfName, entry: requireSsrEntryUrl(coreEntry, config.env) },
+    ...nonCore.map(({ source }, i) => ({
+      name: source.mfName,
+      entry: requireSsrEntryUrl(pluginEntries[i]!, config.env),
+    })),
+  ]);
+
   const [composeModule, routeConfig, routerModule] = yield* Effect.all([
-    loadUiComposeModule(coreEntry, config.env),
-    loadCoreUiRouteConfig(coreEntry, config.env),
-    loadRouterModule(config, core.localRoot ? coreEntry : undefined),
+    loadUiComposeModule(coreEntry, config.env, session),
+    loadCoreUiRouteConfig(coreEntry, config.env, session),
+    loadRouterModule(config, core.localRoot ? coreEntry : undefined, session),
   ]);
   const coreRouteConfig: RouteConfigModule = routeConfig;
 
   // Per-source route-config isolation: a plugin whose container/config
   // cannot load drops itself (warn); the core stays loud. The digest is
   // computed over the final healthy set — after drops — so the engine's
-  // parity check and the client payload agree by construction.
+  // parity check and the client payload agree by construction. Plugin
+  // route-configs load in parallel through the pinned session.
   const healthy: ComposableSource[] = [{ source: core, manifest: corePair.manifest }];
   const routeConfigByName = new Map<string, RouteConfigModule>([
     [corePair.manifest.name, coreRouteConfig],
   ]);
-  for (const entry of composable) {
-    if (entry.source.key === CORE_UI_KEY) continue;
-    const loaded = yield* (
-      entry.source.localRoot
-        ? Effect.gen(function* () {
-            const localEntry = yield* Effect.tryPromise(() =>
-              localUiRemoteEntry({
-                name: entry.source.mfName,
-                localRoot: entry.source.localRoot!,
-              }),
-            );
-            yield* waitForLocalContainer(localEntry, config.env);
-            return yield* loadUiRouteConfig(localEntry, config.env);
-          })
-        : loadUiRouteConfig(entry.source.remote!, config.env)
-    ).pipe(
-      Effect.catch((error) =>
-        entry.source.localRoot
-          ? Effect.fail(error)
-          : Effect.logWarning(
-              `[Compose] dropping ui source "${entry.source.key}" — route config unavailable (${error.message})`,
-            ).pipe(Effect.as(null)),
+  const loaded = yield* Effect.forEach(
+    pluginEntries,
+    (entry, i) =>
+      loadUiRouteConfig(entry, config.env, session).pipe(
+        Effect.catch((error) =>
+          nonCore[i]!.source.localRoot
+            ? Effect.fail(error)
+            : Effect.logWarning(
+                `[Compose] dropping ui source "${nonCore[i]!.source.key}" — route config unavailable (${error.message})`,
+              ).pipe(Effect.as(null)),
+        ),
       ),
-    );
-    if (loaded) {
-      healthy.push(entry);
-      routeConfigByName.set(entry.manifest.name, loaded);
+    { concurrency: "unbounded" },
+  );
+  for (let i = 0; i < loaded.length; i++) {
+    if (loaded[i]) {
+      healthy.push(nonCore[i]!);
+      routeConfigByName.set(nonCore[i]!.manifest.name, loaded[i]!);
     }
   }
   const healthySources = healthy.map(({ source }) => source);
@@ -532,7 +571,7 @@ export const composeUi = Effect.fn("composeUi")(function* (
 
   const digest = yield* digestOfSources(healthy);
 
-  const variantKey = `${digest}::${variantCacheKey(healthySources)}`;
+  const variantKey = `${digest}::${variantFingerprint(healthySources)}`;
   const isDev = healthySources.some((source) => source.localRoot);
   const now = yield* Clock.currentTimeMillis;
   const cached = cache.variants.get(variantKey);

@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Layer } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAvailablePort } from "../helpers/ports";
 
@@ -9,10 +9,15 @@ const loadUiRouteConfigMock = vi.fn();
 const loadRouterModuleMock = vi.fn();
 const resolveRequestRuntimeMock = vi.fn();
 
-vi.mock("../../src/services/federation.server", async () => {
-  const actual = await vi.importActual<typeof import("../../src/services/federation.server")>(
-    "../../src/services/federation.server",
-  );
+vi.mock("../../src/services/federation/loader", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/federation/loader")>();
+  const mutable = actual.FederationLoader as unknown as { layer: Layer.Layer<never, never> };
+  mutable.layer = Layer.succeed(actual.FederationLoader, {
+    ensureSession: () => ({ mf: {} as never, generation: 1 }),
+    verifyIntegrity: () => Effect.void,
+    loadExpose: () => Effect.die("unused"),
+    loadRouterModule: () => Effect.die("unused"),
+  } as never);
   return {
     ...actual,
     loadUiComposeModule: loadUiComposeModuleMock,
@@ -20,6 +25,15 @@ vi.mock("../../src/services/federation.server", async () => {
     loadUiRouteConfig: loadUiRouteConfigMock,
     loadRouterModule: loadRouterModuleMock,
   };
+});
+
+vi.mock("../../src/services/federation/containers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/federation/containers")>();
+  const mutable = actual.FederationContainers as unknown as { layer: Layer.Layer<never, never> };
+  mutable.layer = Layer.succeed(actual.FederationContainers, {
+    localUiRemoteEntry: () => Effect.die("unused"),
+  } as never);
+  return actual;
 });
 
 vi.mock("../../src/services/tenant-runtime", async () => {

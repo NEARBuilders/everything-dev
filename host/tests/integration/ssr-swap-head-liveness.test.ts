@@ -6,6 +6,7 @@ import { patchManifestFetchForSsrPublicPath } from "everything-dev/federation";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
+import { FederationLifecycle } from "../../src/services/federation/lifecycle";
 import { RuntimeSnapshot } from "../../src/services/runtime-snapshot";
 import { adoptPublishedPointer } from "../../src/services/snapshot-coordinator";
 import { createSsrRender } from "../../src/services/ssr-render";
@@ -113,16 +114,32 @@ const { loadUiComposeModuleMock, loadCoreUiRouteConfigMock, loadRouterModuleMock
   }),
 );
 
-vi.mock("../../src/services/federation.server", async () => {
-  const actual = await vi.importActual<typeof import("../../src/services/federation.server")>(
-    "../../src/services/federation.server",
+vi.mock("../../src/services/federation/loader", async () => {
+  const actual = await vi.importActual<typeof import("../../src/services/federation/loader")>(
+    "../../src/services/federation/loader",
   );
+  const mutable = actual.FederationLoader as unknown as { layer: Layer.Layer<never, never> };
+  mutable.layer = Layer.succeed(actual.FederationLoader, {
+    ensureSession: () => ({ mf: {} as never, generation: 1 }),
+    verifyIntegrity: () => Effect.void,
+    loadExpose: () => Effect.die("unused"),
+    loadRouterModule: () => Effect.die("unused"),
+  } as never);
   return {
     ...actual,
     loadUiComposeModule: loadUiComposeModuleMock,
     loadCoreUiRouteConfig: loadCoreUiRouteConfigMock,
     loadRouterModule: loadRouterModuleMock,
   };
+});
+
+vi.mock("../../src/services/federation/containers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/federation/containers")>();
+  const mutable = actual.FederationContainers as unknown as { layer: Layer.Layer<never, never> };
+  mutable.layer = Layer.succeed(actual.FederationContainers, {
+    localUiRemoteEntry: () => Effect.die("unused"),
+  } as never);
+  return actual;
 });
 
 const buildRuntimeConfigMock = vi.mocked(buildRuntimeConfigEffect);
@@ -227,6 +244,7 @@ describe("SSR head liveness across a serving swap (full host pipeline)", () => {
 
     const snapshotLayer = RuntimeSnapshot.layer().pipe(
       Layer.provide(Layer.succeed(ConfigService, genConfig(serverA.baseUrl))),
+      Layer.provideMerge(FederationLifecycle.layer),
     );
 
     const program = Effect.gen(function* () {
