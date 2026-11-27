@@ -127,7 +127,7 @@ export class CompositionRuntime extends Context.Service<
           createGeneration(new Map(remotes.map((remote) => [remote.name, remote.entry])));
           return { mf: instance!, generation };
         }
-        let changed = false;
+        const changedNames: string[] = [];
         for (const { name, entry } of remotes) {
           const registered = registeredEntries.get(name);
           if (registered === entry) continue;
@@ -136,9 +136,17 @@ export class CompositionRuntime extends Context.Service<
             registeredEntries.set(name, entry);
             continue;
           }
-          changed = true;
+          changedNames.push(name);
         }
-        if (changed) {
+        if (changedNames.length > 0) {
+          // Retire through the runtime's own removal for the changed remotes:
+          // the initialized container lives in the GLOBAL federation registry
+          // (CurrentGlobal[entryGlobalName] + globalLoading[entry]) that
+          // outlives any instance — only removeRemote clears those slots
+          // (runtime-core remote/index.js). Leaving the old instance live
+          // pinned the global slot and every new-generation load executed the
+          // retired container's bytes.
+          for (const name of changedNames) removeInstanceRemotes(instance, name);
           const desired = new Map(registeredEntries);
           for (const { name, entry } of remotes) desired.set(name, entry);
           createGeneration(desired);
