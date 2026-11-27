@@ -43,10 +43,19 @@ func DevShapeRebuildUi(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("dev-shape ui rebuild failed: %v\n%s", err, tailString(out.String(), 4000))
 	}
-	if elapsed := time.Since(rebuildStartedAt); elapsed < 5*time.Second {
-		t.Fatalf("dev-shape ui rebuild completed in %s — a real rsbuild build takes ~10-30s; "+
-			"the invocation must have been a silent no-op (build log tail below)\n%s",
-			elapsed.Round(time.Millisecond), tailString(out.String(), 4000))
+	// A silent no-op build (the old src/cli.ts invocation) exits 0 without
+	// writing artifacts; a real rsbuild rewrites the container during this
+	// window. Mtime-advanced-past-start is the no-op verdict — timing is not
+	// (warm incremental builds run 3-10s on fast machines).
+	containerAfter := filepath.Join(cmd.Dir, serverEntry)
+	st, err := os.Stat(containerAfter)
+	if err != nil {
+		t.Fatalf("dev-shape ui rebuild produced no container at %s\n%s", containerAfter,
+			tailString(out.String(), 4000))
+	}
+	if !st.ModTime().After(rebuildStartedAt) {
+		t.Fatalf("dev-shape ui rebuild did not rewrite the container — a silent no-op "+
+			"(mtime %s predates build start)\n%s", st.ModTime(), tailString(out.String(), 4000))
 	}
 	t.Logf("dev-shape ui rebuild took %s", time.Since(rebuildStartedAt).Round(time.Millisecond))
 

@@ -229,7 +229,7 @@ beforeEach(async () => {
             : "pending";
           return { name, localPath: localRoot, ssrUrl: "http://127.0.0.1:1/ssr", containerVersion };
         },
-        orElse: (cause) => new Error(`localUiRemoteEntry stub failed: ${String(cause)}`),
+        catch: (cause) => new Error(`localUiRemoteEntry stub failed: ${String(cause)}`),
       }),
   );
 });
