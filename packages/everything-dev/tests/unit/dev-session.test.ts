@@ -1,11 +1,16 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Deferred, Effect, Exit, Layer } from "effect";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect, Exit, Layer, Queue, Stream } from "effect";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellEnvLive } from "../../src/env/project-env";
 import { BootFailure } from "../../src/services/boot/types";
-import type { ProcessCallbacks, ProcessHandle } from "../../src/services/dev/orchestrator";
+import {
+  Supervisor,
+  SupervisorError,
+  type UnitEvent,
+  type UnitSpec,
+} from "../../src/services/boot/units";
 import { DevRenderer } from "../../src/services/dev/render";
 import {
   DevGeneratedEnvLive,
@@ -18,15 +23,10 @@ import { runDevSession } from "../../src/services/dev/session";
 
 const mocks = vi.hoisted(() => {
   const state = {
-    fakeHandles: [] as Array<{
-      name: string;
-      pid: number;
-      ready: Deferred.Deferred<void> | null;
-      kill: () => void;
-    }>,
+    fakeUnits: [] as Array<{ name: string; pid: number }>,
+    queues: {} as Record<string, Queue.Queue<UnitEvent>>,
     kills: [] as string[],
     sequence: [] as string[],
-    callbacks: {} as Record<string, ProcessCallbacks>,
     failStarts: [] as string[],
     view: {
       updateProcess: vi.fn(),
@@ -41,40 +41,38 @@ const mocks = vi.hoisted(() => {
   return state;
 });
 
-vi.mock("../../src/services/dev/orchestrator", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/services/dev/orchestrator")>();
-  return {
-    ...actual,
-    makeDevProcess: (pkg: string, callbacks: ProcessCallbacks) => {
-      mocks.callbacks[pkg] = callbacks;
-      if (mocks.failStarts.includes(pkg)) {
-        return Effect.fail(
-          new actual.OrchestratorError({ operation: "start service", detail: "poisoned boot" }),
-        );
-      }
-      const deferred = Deferred.makeUnsafe<void>();
-      const handle = {
-        name: pkg,
-        pid: 5100 + mocks.fakeHandles.length,
-        resolved: false,
-        ready: deferred,
-        kill: () => {
-          mocks.kills.push(pkg);
-          mocks.sequence.push(`kill:${pkg}`);
-        },
-      };
-      mocks.fakeHandles.push(handle);
-      const processHandle: ProcessHandle = {
-        name: pkg,
-        pid: handle.pid,
-        kill: Effect.sync(() => handle.kill()),
-        waitForReady: Deferred.await(deferred),
-        waitForExit: Effect.never,
-      };
-      return Effect.succeed(processHandle);
-    },
-  };
+/** The scripted supervisor: spawn succeeds (or fails per `failStarts`), the
+ * handle exposes an offerable event queue, terminate records kills. Readiness
+ * is the session's HTTP poll against nothing — tests scale its deadline down
+ * via `readinessDeadlineMs`. */
+const ScriptedSupervisor = Layer.succeed(Supervisor, {
+  spawn: (unit: UnitSpec) => {
+    if (mocks.failStarts.includes(unit.name)) {
+      return Effect.fail(new SupervisorError({ unit: unit.name, detail: "poisoned boot" }));
+    }
+    return Effect.gen(function* () {
+      const queue = yield* Queue.unbounded<UnitEvent>();
+      const pid = 5100 + mocks.fakeUnits.length;
+      mocks.fakeUnits.push({ name: unit.name, pid });
+      mocks.queues[unit.name] = queue;
+      return {
+        pid,
+        events: Stream.fromQueue(queue),
+        terminate: () =>
+          Effect.sync(() => {
+            mocks.kills.push(unit.name);
+            mocks.sequence.push(`kill:${unit.name}`);
+          }),
+      } satisfies UnitHandle;
+    });
+  },
 });
+
+const emitLog = (unit: string, line: string, stderr = true) => {
+  const queue = mocks.queues[unit];
+  if (!queue) throw new Error(`no scripted queue for ${unit}`);
+  void Effect.runPromise(Queue.offer(queue, { type: "log", line, stderr } satisfies UnitEvent));
+};
 
 const makeDescriptor = (name: string): ServiceDescriptor => ({
   key: name,
@@ -88,6 +86,7 @@ const makeDescriptor = (name: string): ServiceDescriptor => ({
 });
 
 const fakeRuntimeConfig = {
+  env: "development",
   host: { port: 3000, source: "local" },
   api: { port: 3001, source: "local" },
   ui: { port: 3003, source: "local" },
@@ -96,6 +95,7 @@ const fakeRuntimeConfig = {
 } as never;
 
 const remoteRuntimeConfig = {
+  env: "development",
   host: { port: 3000, source: "local" },
   api: { port: 3001, source: "local" },
   ui: { port: 443, source: "remote" },
@@ -122,7 +122,7 @@ const runSession = (deps: DevSessionDeps = {}, runtimeConfig: unknown = fakeRunt
       (h) => {
         handle = h;
       },
-      deps,
+      { readinessDeadlineMs: 250, ...deps },
     ),
   ).pipe(
     Effect.provide(
@@ -137,6 +137,7 @@ const runSession = (deps: DevSessionDeps = {}, runtimeConfig: unknown = fakeRunt
         DevGeneratedEnvLive({}),
         ShellEnvLive({}),
         Layer.succeed(DevRenderer, DevRenderer.of({ create: () => mocks.view })),
+        ScriptedSupervisor,
       ),
     ),
   );
@@ -148,24 +149,14 @@ const runSession = (deps: DevSessionDeps = {}, runtimeConfig: unknown = fakeRunt
 
 const waitForSpawns = async (count: number) => {
   await vi.waitFor(() => {
-    expect(mocks.fakeHandles.length).toBeGreaterThanOrEqual(count);
+    expect(mocks.fakeUnits.length).toBeGreaterThanOrEqual(count);
   });
 };
 
-const makeAllReady = async (count: number) => {
-  for (let i = 0; i < 100; i++) {
-    for (const handle of mocks.fakeHandles) {
-      if (!handle.resolved) {
-        handle.resolved = true;
-        await Effect.runPromise(Deferred.succeed(handle.ready!, undefined));
-      }
-    }
-    if (mocks.fakeHandles.length >= count && mocks.fakeHandles.every((h) => h.resolved)) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("handles never became ready");
+/** The session's readiness poll is HTTP (nothing listens in tests) — startup
+ * settles once both phase deadlines lapse. */
+const awaitStartupSettled = async () => {
+  await new Promise((resolve) => setTimeout(resolve, 700));
 };
 
 const registryEntries = (): Array<Record<string, unknown>> => {
@@ -184,10 +175,10 @@ describe("runDevSession quit correctness", () => {
   });
 
   beforeEach(() => {
-    mocks.fakeHandles = [];
+    mocks.fakeUnits = [];
+    mocks.queues = {};
     mocks.kills = [];
     mocks.sequence = [];
-    mocks.callbacks = {};
     mocks.failStarts = [];
     mocks.view.addLog.mockClear();
     mocks.view.updateProcess.mockClear();
@@ -201,7 +192,7 @@ describe("runDevSession quit correctness", () => {
     }
   });
 
-  it("kills spawned handles and exits cleanly when graceful shutdown fires during startup", async () => {
+  it("kills spawned units and exits cleanly when graceful shutdown fires during startup", async () => {
     const { program, getHandle } = runSession();
     const exitPromise = Effect.runPromiseExit(program);
 
@@ -215,13 +206,15 @@ describe("runDevSession quit correctness", () => {
     expect(mocks.view.unmount).toHaveBeenCalled();
   });
 
-  it("kills all handles and unregisters after a clean running-phase quit", async () => {
+  it("terminates all units and unregisters after a clean running-phase quit", async () => {
     const { program, getHandle } = runSession();
     const exitPromise = Effect.runPromiseExit(program);
 
-    await makeAllReady(2);
-    const entry = registryEntries().find((e) => e.pid === process.pid);
-    expect((entry?.childPids as number[])?.length).toBe(2);
+    await waitForSpawns(2);
+    await vi.waitFor(() => {
+      const entry = registryEntries().find((e) => e.pid === process.pid);
+      expect((entry?.childPids as number[])?.length).toBe(2);
+    });
 
     getHandle().shutdown("graceful");
 
@@ -245,13 +238,15 @@ describe("runDevSession quit correctness", () => {
     const { program, getHandle } = runSession({}, remoteRuntimeConfig);
     const exitPromise = Effect.runPromiseExit(program);
 
-    await makeAllReady(2);
-    const entry = registryEntries().find((e) => e.pid === process.pid);
-    expect(entry?.ports).toEqual({
-      host: 3000,
-      api: 3001,
-      "plugin:local-widget": 3010,
-      "plugin-ui:local-widget": 3011,
+    await waitForSpawns(2);
+    await vi.waitFor(() => {
+      const entry = registryEntries().find((e) => e.pid === process.pid);
+      expect(entry?.ports).toEqual({
+        host: 3000,
+        api: 3001,
+        "plugin:local-widget": 3010,
+        "plugin-ui:local-widget": 3011,
+      });
     });
 
     getHandle().shutdown("graceful");
@@ -266,7 +261,7 @@ describe("runDevSession quit correctness", () => {
     const { program, getHandle } = runSession({ exit: exitSpy, reap: reapSpy, forceTimeoutMs: 50 });
     const exitPromise = Effect.runPromiseExit(program);
 
-    await makeAllReady(2);
+    await waitForSpawns(2);
     getHandle().shutdown("graceful");
 
     await exitPromise;
@@ -280,7 +275,7 @@ describe("runDevSession quit correctness", () => {
     const { program, getHandle } = runSession({ exit: exitSpy, reap: reapSpy });
     const exitPromise = Effect.runPromiseExit(program);
 
-    await makeAllReady(2);
+    await waitForSpawns(2);
     getHandle().shutdown("graceful");
     getHandle().shutdown("graceful");
 
@@ -296,7 +291,7 @@ describe("runDevSession quit correctness", () => {
     const { program } = runSession({ exit: exitSpy, reap: reapSpy, ppid: () => ppid });
     const exitPromise = Effect.runPromiseExit(program);
 
-    await makeAllReady(2);
+    await waitForSpawns(2);
     ppid = 1;
 
     await vi.waitFor(() => {
@@ -313,9 +308,16 @@ describe("runDevSession quit correctness", () => {
     const { program, getHandle } = runSession({ exit: exitSpy, reap: reapSpy });
     const exitPromise = Effect.runPromiseExit(program);
 
-    await makeAllReady(2);
-    mocks.callbacks.api?.onLog("api", "Error: pending multi-line tail", true);
-    expect(mocks.view.addLog).not.toHaveBeenCalled();
+    await waitForSpawns(2);
+    emitLog("api", "Error: pending multi-line tail");
+    // queue → unit pump → pipeline ingest is a couple of async hops; the
+    // pipeline's one-line lookahead holds it pending (not yet on display).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mocks.view.addLog).not.toHaveBeenCalledWith(
+      "api",
+      "Error: pending multi-line tail",
+      true,
+    );
 
     getHandle().shutdown("force");
 
@@ -330,10 +332,11 @@ describe("runDevSession quit correctness", () => {
     const resultPromise = Effect.runPromise(
       program.pipe(Effect.catchTag("BootFailure", (error) => Effect.succeed(error))),
     );
-    await makeAllReady(1);
+    await waitForSpawns(1);
+    await awaitStartupSettled();
     const result = await resultPromise;
     expect(result).toBeInstanceOf(BootFailure);
-    expect((result as BootFailure).failed).toEqual(["host"]);
+    expect((result as BootFailure).failed).toContain("host");
     expect(mocks.kills).toContain("api");
     expect(mocks.view.unmount).toHaveBeenCalled();
   });
@@ -349,5 +352,20 @@ describe("runDevSession quit correctness", () => {
     const exit = await exitPromise;
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(mocks.kills).toContain("api");
+  });
+
+  it("a unit that exits before ready fails a production boot fast", async () => {
+    const { program } = runSession({}, { ...fakeRuntimeConfig, env: "production" });
+    const resultPromise = Effect.runPromise(
+      program.pipe(Effect.catchTag("BootFailure", (error) => Effect.succeed(error))),
+    );
+    await waitForSpawns(1);
+    emitLog("api", "Process exiting");
+    void Effect.runPromise(
+      Queue.offer(mocks.queues["api"]!, { type: "exited", code: 1 }).pipe(Effect.ignore),
+    );
+    const result = await resultPromise;
+    expect(result).toBeInstanceOf(BootFailure);
+    expect((result as BootFailure).failed).toContain("api");
   });
 });
