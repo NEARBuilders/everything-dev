@@ -28,6 +28,7 @@ docs/plans/
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
+| 067 | `bos init` starter quality — born-healthy matrix driving the real init flow (state tokens, no new runtime code) | P1 | M | 016 (helper convention), 056 (matrix doctrine) | IN PROGRESS (Phases 1–2 landed; 3–5 open) |
 | 049 | Workflow hardening + consumer reusable workflows | P1 | M | — | DONE (PR #316 — post-merge consumer-repo smoke + versioned-ref upgrade tracked in the plan) |
 | 016 | Shared Effect test helpers + port 0 | P2 | S-M | [done/001](./done/001-buildscoped-helper.md) | TODO |
 | 004 | oRPC boundary typing (as-any chain, config generics, api inline type) | P1 | M | [done/001](./done/001-buildscoped-helper.md) | TODO |
