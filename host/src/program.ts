@@ -10,6 +10,7 @@ import {
   Layer,
   ManagedRuntime,
   Option,
+  References,
 } from "effect";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
 import { pointerDigest, remoteDigests } from "everything-dev/digest";
@@ -32,6 +33,7 @@ import { deploymentDigest, RuntimeSnapshot } from "./services/runtime-snapshot";
 import { SnapshotCoordinator } from "./services/snapshot-coordinator";
 import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
 import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
+import { minimumLogLevel } from "./utils/effect-run";
 import { extractErrorDetails } from "./utils/errors";
 import { logger } from "./utils/logger";
 
@@ -401,6 +403,7 @@ export const runServer = (input: ServerInput): ServerHandle => {
     FederationLifecycle.layer,
     Layer.provideMerge(CoordinatorLive, SnapshotLive),
     WatchLive,
+    Layer.succeed(References.MinimumLogLevel, minimumLogLevel()),
   );
 
   const runtime = ManagedRuntime.make(ServerLive);
