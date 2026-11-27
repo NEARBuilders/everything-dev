@@ -30,6 +30,7 @@ import (
 func DevShapeRebuildUi(t *testing.T) {
 	t.Helper()
 	rebuildStartedAt := time.Now()
+	serverEntry := filepath.Join("dist", "ssr", "remoteEntry.server.js")
 	cmd := exec.Command("pnpm", "run", "build")
 	// every-plugin resolves from the ui workspace so its build targets ui.
 	cmd.Dir = filepath.Join(RepoRoot(), "ui")
@@ -44,18 +45,18 @@ func DevShapeRebuildUi(t *testing.T) {
 		t.Fatalf("dev-shape ui rebuild failed: %v\n%s", err, tailString(out.String(), 4000))
 	}
 	// A silent no-op build (the old src/cli.ts invocation) exits 0 without
-	// writing artifacts; a real rsbuild rewrites the container during this
-	// window. Mtime-advanced-past-start is the no-op verdict — timing is not
-	// (warm incremental builds run 3-10s on fast machines).
-	containerAfter := filepath.Join(cmd.Dir, serverEntry)
-	st, err := os.Stat(containerAfter)
+	// writing artifacts; a real rsbuild rewrites at least the changed chunks
+	// (a content-only churn can leave the container bootstrap byte-identical
+	// and skipped, so the container's own mtime is NOT the signal). The
+	// newest mtime anywhere under dist must advance past build start.
+	newest, err := newestModTimeUnder(filepath.Join(cmd.Dir, "dist"))
 	if err != nil {
-		t.Fatalf("dev-shape ui rebuild produced no container at %s\n%s", containerAfter,
+		t.Fatalf("dev-shape ui rebuild produced no dist to inspect: %v\n%s", err,
 			tailString(out.String(), 4000))
 	}
-	if !st.ModTime().After(rebuildStartedAt) {
-		t.Fatalf("dev-shape ui rebuild did not rewrite the container — a silent no-op "+
-			"(mtime %s predates build start)\n%s", st.ModTime(), tailString(out.String(), 4000))
+	if !newest.After(rebuildStartedAt) {
+		t.Fatalf("dev-shape ui rebuild wrote nothing under dist — a silent no-op "+
+			"(newest mtime %s predates build start)\n%s", newest, tailString(out.String(), 4000))
 	}
 	t.Logf("dev-shape ui rebuild took %s", time.Since(rebuildStartedAt).Round(time.Millisecond))
 
@@ -64,11 +65,35 @@ func DevShapeRebuildUi(t *testing.T) {
 	// skips rewriting it — its mtime, and with it the host's container
 	// version (?v=<mtime>), never advances. A real container-changing
 	// rebuild rewrites the artifact, so restamp the mtime to represent one.
-	serverEntry := filepath.Join("dist", "ssr", "remoteEntry.server.js")
 	now := time.Now()
 	if err := os.Chtimes(filepath.Join(cmd.Dir, serverEntry), now, now); err != nil {
 		t.Fatalf("restamping ui SSR container mtime: %v", err)
 	}
+}
+
+// newestModTimeUnder walks root and returns the newest file mtime under it.
+func newestModTimeUnder(root string) (time.Time, error) {
+	var newest time.Time
+	err := filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	})
+	if newest.IsZero() && err == nil {
+		err = os.ErrNotExist
+	}
+	return newest, err
 }
 
 // EditUiSourceWithMarker appends a unique marker to the /about description
