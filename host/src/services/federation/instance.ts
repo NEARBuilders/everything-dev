@@ -104,15 +104,19 @@ export class CompositionRuntime extends Context.Service<
 
       const createGeneration = (entries: Map<string, string>) => {
         if (instance) retired.push(instance);
+        generation++;
+        // The runtime core caches initialized containers keyed by the
+        // INSTANCE name — a reused name collides a fresh generation into the
+        // retired generation's containers (the Router load served boot-era
+        // bytes through a brand-new instance). Unique per generation.
         instance = createInstance({
-          name: "host-ssr-compose",
+          name: `host-ssr-compose-g${generation}`,
           remotes: [...entries.entries()].map(([name, entry]) => ({
             name,
             entry,
             alias: name,
           })),
         });
-        generation++;
         registeredEntries.clear();
         for (const [name, entry] of entries) registeredEntries.set(name, entry);
         return instance;
