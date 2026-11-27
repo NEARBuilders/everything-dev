@@ -25,24 +25,13 @@ func TestUiChurnSwap(t *testing.T) {
 	}
 
 	client := regtest.NewCookieClient()
-	logs := regtest.RegressionLogsWithMarks(t)
-	if len(logs) == 0 {
-		t.Fatalf("no regression host logs found to observe container marks")
-	}
 
 	// Baseline: the SSR surface must be healthy before churning.
 	assertSSRHealthy(t, client, "baseline")
-
-	// Snapshot the cumulative logs' offsets, warm one compose (its marks
-	// establish the pre-churn container-version set), then churn: only a
-	// version not in that set counts as post-churn evidence.
-	offsets := regtest.LogOffsets(t, logs)
-	assertSSRHealthy(t, client, "baseline")
 	time.Sleep(time.Second)
-	before := regtest.ContainerVersionsSince(t, logs, offsets)
-	if len(before) == 0 {
-		t.Fatalf("no container-version marks after baseline compose — BOS_LOG_LEVEL=debug required (wrapper: test:regression:http:churn:dev)")
-	}
+	// KEEP: container-version log marks are #477 loader instrumentation
+	// (entry URLs with ?v=) — main has no such marks, so the marker-in-HTML
+	// assertion below is the sole hot-swap evidence; that is the experiment.
 	marker := regtest.EditUiSourceWithMarker(t)
 	regtest.DevShapeRebuildUi(t)
 
@@ -60,7 +49,7 @@ func TestUiChurnSwap(t *testing.T) {
 		time.Sleep(3 * time.Second)
 	}
 	if !swapped {
-		t.Fatalf("churn marker %q never rendered — the hot swap did not propagate to the served tree (marks in %s)", marker, strings.Join(logs, ", "))
+		t.Fatalf("churn marker %q never rendered — the hot swap did not propagate to the served tree", marker)
 	}
 }
 

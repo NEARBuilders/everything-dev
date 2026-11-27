@@ -19,13 +19,18 @@ import (
 // dist/ssr/remoteEntry.server.js — a running dev stack then loses its SSR
 // container (the poll URL 404s until the dev-shape build runs again).
 //
-// This is the churn primitive for module-swap tests: the rebuild rewrites
-// dist bytes in place (new hashed chunk names, new container mtime) while the
-// stack keeps running.
+// The invocation goes through the ui workspace's own build script the way
+// the dev stack's prerequisite train does (`pnpm run build` in ui/ —
+// workspace.ts) — the every-plugin bin resolves through pnpm's PATH, which
+// is what puts the root-hoisted rsbuild on it. A bare `node
+// bin/every-plugin.mjs build` once shipped here and silently built nothing
+// twice: src/cli.ts has no argv handling (exits 0), and rsbuild resolves
+// only from the root node_modules/.bin. The elapsed guard below keeps both
+// failure modes loud.
 func DevShapeRebuildUi(t *testing.T) {
 	t.Helper()
-	cmd := exec.Command("node", "--import", "tsx", "--conditions=development",
-		filepath.Join(RepoRoot(), "packages", "every-plugin", "src", "cli.ts"), "build")
+	rebuildStartedAt := time.Now()
+	cmd := exec.Command("pnpm", "run", "build")
 	// every-plugin resolves from the ui workspace so its build targets ui.
 	cmd.Dir = filepath.Join(RepoRoot(), "ui")
 	cmd.Env = append(os.Environ(),
@@ -38,6 +43,12 @@ func DevShapeRebuildUi(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("dev-shape ui rebuild failed: %v\n%s", err, tailString(out.String(), 4000))
 	}
+	if elapsed := time.Since(rebuildStartedAt); elapsed < 5*time.Second {
+		t.Fatalf("dev-shape ui rebuild completed in %s — a real rsbuild build takes ~10-30s; "+
+			"the invocation must have been a silent no-op (build log tail below)\n%s",
+			elapsed.Round(time.Millisecond), tailString(out.String(), 4000))
+	}
+	t.Logf("dev-shape ui rebuild took %s", time.Since(rebuildStartedAt).Round(time.Millisecond))
 
 	// A content-only churn of a lazy route chunk leaves the container
 	// bootstrap (remoteEntry.server.js) byte-identical, and rsbuild then
