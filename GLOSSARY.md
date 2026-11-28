@@ -72,6 +72,20 @@ _Avoid_: trust layer, security layer (nothing is layered — the planes are peer
 The version-scoped composition surface a release-authored runtime composes from (ADR 0034 consumer boot): every inherited remote — `app.*` and `plugins.*` — stamps at resolution with the authored release's recorded `{ production, digest }` (`ResolutionSession.releaseManifest` → `release-composition.ts`), so production, local dev, and type generation all share one co-versioned byte set. Child-authored remotes stay untouched; remotes provisioned by later parent releases are omitted from an older release's composition and surfaced at dev boot ("present upstream from rc.N — run `bos upgrade` to inherit") rather than silently live-followed. `bos upgrade` is the release mover.
 _Avoid_: version plane, release plane (retired), plane stamping (the mechanism; the release composition is the outcome), pointer-live (what it replaces: extends inheritance that drifted with the parent's latest deploy), remotes override (it is not a config source — it stamps the inherited entries)
 
+## Documentation
+
+**Book**:
+The manual — `docs/book/` (ADR 0055). Short chapters organized by concept, stating the platform as it is, each naming the commands that check its claims and citing the ADRs it rests on. The book synthesizes the ledger; it never replaces a record. When a chapter and an ADR disagree, the ADR wins.
+_Avoid_: guide (the task-shaped skills are guides), tutorial, wiki
+
+**ADR ledger**:
+The set of Architecture Decision Records under `docs/adr/` taken as one body (ADR 0055) — dated, append-only except for dated amendments, one record per decision. Cite a record by number; never rewrite one into prose. A new or amended record obligates a check of the book chapters that cite it.
+_Avoid_: documentation (the ledger is one layer of it), archive (superseded records are history, not storage)
+
+**Documentation map**:
+`docs/README.md` (ADR 0055) — what the repository is, what each documentation tree is for, and where new writing goes. The entry point that `llms.txt` and `skill.md` point at.
+_Avoid_: index (the ADR and plans indexes are indexes; the map orients), README (ambiguous — the repository has several)
+
 ## Organization access
 
 **Team**:

@@ -69,9 +69,13 @@ Secrets go in `.env` (see [.env.example](./.env.example) for required variables)
 
 ### Project Documentation
 
-- **[AGENTS.md](./AGENTS.md)** - Operational guide for AI agents (and the deepest technical doc in the repo — start here for architecture, workflows, and conventions)
+Start at the [documentation map](./docs/README.md) — what the repository is and where every document lives.
+
+- **[docs/book/](./docs/book/)** - The book: the manual, by concept. Start here for the mental model
+- **[docs/adr/](./docs/adr/)** - Architecture Decision Records: the reasoning behind the platform (the decision ledger)
+- **[AGENTS.md](./AGENTS.md)** - Operational guide for AI agents (and the deepest technical doc in the repo — architecture, workflows, and conventions)
 - **[GLOSSARY.md](./GLOSSARY.md)** - Domain vocabulary
-- **[README.md](./README.md)** - Architecture, tech stack, and quick start
+- **[README.md](./README.md)** - What everything.dev is, and quick start
 - **[ui/README.md](./ui/README.md)** - Frontend documentation
 - **[host/README.md](./host/README.md)** - Server host documentation
 

@@ -6,7 +6,8 @@ How the engineering skills should consume this repo's domain documentation when 
 
 - **`GLOSSARY.md`** at the repo root, or
 - **`GLOSSARY-MAP.md`** at the repo root if it exists: it points at one `GLOSSARY.md` per context. Read each one relevant to the topic.
-- **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
+- **`docs/book/`**: the chapter covering the area you're about to work in — the platform as it is, by concept, each citing the decisions it rests on (ADR 0055). Start here for the mental model.
+- **`docs/adr/`**: read ADRs that touch the area you're about to work in — the reasoning behind it. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
@@ -18,9 +19,11 @@ This repo is a single-context monorepo with multiple workspaces (host, ui, api, 
 /
 ├── GLOSSARY.md
 ├── docs/
-│   ├── adr/                           ← system-wide decisions
-│   ├── agents/                        ← this file and siblings
-│   └── plans/                         ← implementation plans, prototypes
+│   ├── README.md                    ← the documentation map
+│   ├── book/                        ← the manual: the platform by concept
+│   ├── adr/                         ← system-wide decisions (the ledger)
+│   ├── agents/                      ← this file and siblings
+│   └── plans/                       ← implementation plans, prototypes
 ├── host/
 ├── ui/
 ├── api/

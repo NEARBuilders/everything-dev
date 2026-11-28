@@ -38,6 +38,16 @@ bos init your-app.everything.dev \
   --no-interactive
 ```
 
+## Documentation
+
+Start at the [documentation map](./docs/README.md) — what this repository is and where every document lives.
+
+- [The book](./docs/book/) — the manual: the model, authoring, running, publishing, and trusting a runtime
+- [Architecture Decision Records](./docs/adr/) — the decision ledger: why the platform is the way it is
+- [AGENTS.md](./AGENTS.md) — the operating guide for agents
+
+The docs plugin publishes all of it at `/docs` on every runtime that composes it — the same markdown, compiled when the plugin builds.
+
 ## Deploy
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/everything-dev-template?referralCode=MuB_vg&utm_medium=integration&utm_source=template&utm_campaign=generic)

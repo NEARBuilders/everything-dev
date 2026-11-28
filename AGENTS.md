@@ -437,6 +437,7 @@ Run your own host instance on your own NEAR account while inheriting the base pl
 - **UI Changes**: Edit `ui/src/` files → hot reload automatically
 - **Plugin Changes**: Edit `plugins/<id>/src/` files → the dev adopt picks the rebuilt generation up without a restart (ADR 0051): the host reloads the in-process plugin and swaps the serving router, the dev session replaces the plugin child. The `api` and `auth` app slots keep their boot-frozen serving on the host — restart `bos dev` for those
 - **API Changes**: Edit `api/src/` files → the api child replaces on rebuild; host-mediated `/api/*` serving still needs a restart (ADR 0051)
+- **Documentation Changes**: Edit `docs/book/` for concepts and `docs/adr/` for decisions; link by repository path (the docs reader resolves it); run `pnpm run docs:check`
 - **CLI/Scaffolding Changes**: Edit `packages/everything-dev/` when changing init/dev/publish flows or child-project scaffolding
 - **New Components**: Create in `ui/src/components/ui/`, export from `ui/src/components/index.ts`
 - **New Routes**: Create file in `ui/src/routes/`, TanStack Router auto-generates tree
@@ -804,6 +805,8 @@ The MCP server (`host/src/services/mcp.ts`) generates tools from the API's OpenA
 - `/skill.md` — full agent skill prompt (two modes: talk via MCP, clone & modify)
 - `/skill` — HTML rendering of skill.md
 - `/.well-known/mcp.json` — MCP discovery descriptor
+- `/docs` — the documentation map: what the repository is and where every document lives (`docs/README.md`)
+- `/docs/book` — the manual, by concept (ADR 0055); `/docs/adr` — the decision ledger. The docs read API (`/api/docs`, `/api/docs/{slug}`) serves both as raw markdown
 - `/api` — Scalar OpenAPI docs
 - `/api/spec.json` — OpenAPI JSON spec
 
@@ -820,6 +823,8 @@ Five canonical triage roles map to labels of the same name (`needs-triage`, `nee
 ### Domain docs
 
 Single-context: root `GLOSSARY.md` (domain vocabulary) plus `docs/adr/` for system-wide decisions. Implementation plans and prototypes live in `docs/plans/`. See `docs/agents/domain.md`.
+
+**The book** (`docs/book/`, ADR 0055) is the manual — short chapters by concept, each citing the decisions it rests on; `docs/README.md` maps the repository and its documentation. Read the chapter for the mental model, the ADR for the reasoning. ADRs stay the ledger and are never rewritten; a new or amended ADR obligates a check of the chapters that cite it (`rg "<number>" docs/book`).
 
 ### Workflow skills
 

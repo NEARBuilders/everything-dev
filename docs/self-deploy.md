@@ -1,3 +1,9 @@
+---
+title: Self-deployed production
+description: Run your own host instance on your own NEAR account while inheriting the base platform — update the config, log in, deploy, and run the universal image.
+order: 12
+---
+
 # Self-Deployed Production
 
 Run your own host instance on your own NEAR account while inheriting the base platform via `extends`. The architecture supports independent self-deployment: publish your own config on-chain and point your own host at it, without waiting on this repo's CI/CD. See AGENTS.md → "Self-Deployed Development" for the tier model and the local-dev path.
@@ -12,7 +18,7 @@ Run your own host instance on your own NEAR account while inheriting the base pl
      "domain": "citynode.app"
    }
    ```
-   Keep `domain` as `citynode.app` (the gateway). The `cdn` block (`cdn.origin` / `cdn.upload`) is inherited from the base runtime via `extends` — set it only if you run your own CDN/upload stack. Optionally pin the framework release your repo tracks — `"platform": "2.0.0-rc.14"` (ADR 0034); absent means latest via `extends`, and `bos upgrade --check` is the manual drift alarm.
+   Keep `domain` as `citynode.app` (the gateway). The `cdn` block (`cdn.origin` / `cdn.upload`) is inherited from the base runtime via `extends` — set it only if you run your own CDN/upload stack. Optionally pin the framework release your repo tracks — `"release": "2.0.0-rc.14"` (ADR 0034; the older `platform` key still parses and `bos upgrade` rewrites it); absent means latest via `extends`, and `bos upgrade --check` is the manual drift alarm.
 
 2. **Deploy** — no env vars, no near-cli-rs:
    ```bash
