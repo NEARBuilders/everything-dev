@@ -121,10 +121,9 @@ describe("host rate limiting", () => {
     }
   });
 
-  it("keys forwarded clients by the LAST proxy hop and still limits page requests", async () => {
-    // Only the last x-forwarded-for hop is trusted (our proxy appends the
-    // real client); two clients sharing a first hop but differing in the
-    // last hop must land in separate buckets.
+  it("does not trust x-forwarded-for — spoofed hops share the socket bucket", async () => {
+    // Without BOS_CLIENT_IP_HEADER the identity is the socket address; the
+    // forwarded header is client-controlled and must not split buckets.
     const headers = { "x-forwarded-for": "192.0.2.1, 10.0.0.1" };
     for (let i = 0; i < RATE_LIMIT_MAX; i++) {
       expect((await get("/api/ping", "127.0.0.1", headers)).status).toBe(200);
@@ -132,7 +131,7 @@ describe("host rate limiting", () => {
     expect((await get("/", "127.0.0.1", headers)).status).toBe(429);
     expect(
       (await get("/api/ping", "127.0.0.1", { "x-forwarded-for": "192.0.2.1, 10.0.0.2" })).status,
-    ).toBe(200);
+    ).toBe(429);
   });
 
   it("answers document navigations with an HTML retry page instead of JSON", async () => {

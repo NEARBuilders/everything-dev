@@ -45,21 +45,71 @@ export const STATIC_ASSET_PATTERN =
  */
 const SENSITIVE_MUTATION_EXEMPT_PREFIXES = ["/api/rpc/", "/api/auth/", "/api/mcp"];
 
-export function clientKeyOf(c: HonoContext): string {
-  // The trusted proxy appends the real client address as the LAST hop;
-  // earlier entries are client-controlled and must not be trusted as an
-  // identity (rotating a spoofed first hop would mint unlimited keys).
-  const forwarded = c.req.header("x-forwarded-for");
-  if (forwarded) {
-    const hops = forwarded.split(",");
-    return hops[hops.length - 1]!.trim();
+let warnedSocketFallback = false;
+
+/**
+ * The trusted-IP header for rate-limit identity, by precedence: the
+ * `BOS_CLIENT_IP_HEADER` env override, then the authored config's
+ * `auth.variables.ipAddress.ipAddressHeaders[0]` — the same source Better
+ * Auth reads, so a runtime that declares its edge header gets correct
+ * host-side behavior with zero operator action — else "" (the socket
+ * fallback). Pure so the factory wiring and the decision stay separately
+ * testable.
+ */
+export function resolveTrustedIpHeader(
+  envValue: string | undefined,
+  authVariables: unknown,
+): string {
+  const fromEnv = envValue?.trim();
+  if (fromEnv) return fromEnv;
+  const headers = (authVariables as { ipAddress?: { ipAddressHeaders?: unknown } } | undefined)
+    ?.ipAddress?.ipAddressHeaders;
+  const first = Array.isArray(headers) ? headers[0] : undefined;
+  return typeof first === "string" ? first.trim() : "";
+}
+
+/**
+ * Rate-limit identity resolution. The trusted header must be set by the edge,
+ * which replaces any client-sent value — requests key on what the proxy wrote
+ * (Better Auth's documented "a proxy puts the client address in its own
+ * header" row). Without configuration the socket address is the identity:
+ * spoof-proof on a directly exposed host, and a shared per-socket bucket
+ * behind a proxy (Better Auth's documented "clients connect directly"
+ * trade-off) — warn once in production so the misconfiguration surfaces
+ * instead of silently collapsing all clients into one bucket.
+ */
+export function clientIpOf(
+  headers: Record<string, string | undefined>,
+  socketAddress: string,
+  trustedHeader: string,
+): string {
+  if (trustedHeader) {
+    const value = headers[trustedHeader.toLowerCase()]?.trim();
+    if (value) return value;
   }
+  return socketAddress;
+}
+
+export function clientKeyOf(c: HonoContext, trustedHeader: string): string {
+  let socketAddress = "unknown";
   try {
-    const info = getConnInfo(c);
-    return info.remote.address ?? "unknown";
+    socketAddress = getConnInfo(c).remote.address ?? "unknown";
   } catch {
-    return "unknown";
+    socketAddress = "unknown";
   }
+  const identity = clientIpOf(c.req.header(), socketAddress, trustedHeader);
+  if (
+    identity === socketAddress &&
+    !trustedHeader &&
+    !warnedSocketFallback &&
+    process.env.NODE_ENV === "production"
+  ) {
+    warnedSocketFallback = true;
+    logger.warn(
+      "[Security] No trusted client-IP header is configured: rate limits key on the socket address. Behind a proxy this collapses all clients into one shared bucket — set BOS_CLIENT_IP_HEADER or author auth.variables.ipAddress.ipAddressHeaders in bos.app.ts to the header your edge overwrites (e.g. cf-connecting-ip).",
+    );
+  }
+  return identity;
 }
 
 export class CappedStore implements Store {
@@ -278,6 +328,10 @@ export class SecurityMiddleware extends Context.Service<
     SecurityMiddleware,
     Effect.gen(function* () {
       const config = yield* ConfigService;
+      const trustedIpHeader = resolveTrustedIpHeader(
+        process.env.BOS_CLIENT_IP_HEADER,
+        config.auth?.variables,
+      );
       const nodeEnv = yield* Config.String("NODE_ENV").pipe(Config.withDefault("development"));
       const isDev = nodeEnv !== "production";
       const corsOrigins = yield* readCorsOrigins;
@@ -338,7 +392,7 @@ export class SecurityMiddleware extends Context.Service<
       const rateLimit: MiddlewareHandler = rateLimiter({
         windowMs: RATE_LIMIT_WINDOW_MS,
         limit: RATE_LIMIT_MAX,
-        keyGenerator: (c) => clientKeyOf(c),
+        keyGenerator: (c) => clientKeyOf(c, trustedIpHeader),
         skip: (c) => isProbeOrStatic(c) || isSensitiveMutation(c) || isSessionRead(c),
         handler: (c) => rateLimitExceededResponse(c),
         message: { error: "Too many requests, please try again later." },
@@ -348,7 +402,7 @@ export class SecurityMiddleware extends Context.Service<
       const rateLimitMutation: MiddlewareHandler = rateLimiter({
         windowMs: RATE_LIMIT_WINDOW_MS,
         limit: RATE_LIMIT_MUTATION_MAX,
-        keyGenerator: (c) => clientKeyOf(c),
+        keyGenerator: (c) => clientKeyOf(c, trustedIpHeader),
         skip: (c) => isProbeOrStatic(c) || !isSensitiveMutation(c),
         handler: (c) => rateLimitExceededResponse(c),
         message: { error: "Too many requests, please try again later." },
