@@ -42,6 +42,16 @@ The plugin owns the two lessons the docs plugin paid for:
 wire `extraPlugins` by hand. Velite is the blessed default compiler; it is
 not a framework dependency.
 
+The factory loads the compiler through a bare `createRequire`, never a static
+import: the build factories resolve from source, the core ui's bundle graph
+reaches them, and a static edge would drag the node-only compiler (velite,
+chokidar) into ui builds as critical-dependency warnings. The require
+candidates are `./content`, `./content.cjs`, `./content.ts` — dist resolves
+the CJS sibling explicitly (require does not try `.cjs` extensionlessly) and
+source runs under a TS loader. A workspace that declares `velite.config.ts`
+while the compiler cannot be loaded fails the build loudly rather than
+compiling nothing.
+
 ### 2. The manifest describes non-code resources
 
 `plugin.manifest.json` self-describes what a workspace publishes beyond its
@@ -67,9 +77,11 @@ publishes with its plugin; a changed corpus re-uploads on the next deploy.
 A content-serving plugin may declare a `sources` variable —
 `[{ name, url }]` of published content artifacts. At boot it fetches each
 (bounded, fail-loud) and serves the fetched corpus instead of its baked
-bundle; empty/absent keeps the baked corpus. This is the composing-app
-story: a runtime can point a reader plugin at its own published content
-without forking the plugin.
+bundle; empty/absent keeps the baked corpus. Fetched artifacts are validated
+field-by-field before they enter the service — the JSON is untrusted at the
+type level, whether it came from disk at build time or over the wire. This is
+the composing-app story: a runtime can point a reader plugin at its own
+published content without forking the plugin.
 
 ### 5. The runtime map inventories content sources
 

@@ -1,12 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { collectErrors, expectNoHydrationFailure, waitForApp } from "../helpers/page-ready";
 
-/**
- * Docs plugin — public read path (gate-free). The docs list and reader are
- * served by the docs plugin's composed routes; content is the repository's
- * own markdown compiled at build time (velite), so the fixture set is
- * deterministic: every doc compiled from docs/** plus the glossary.
- */
 test.use({ trace: "on" });
 
 test.describe("Docs", () => {

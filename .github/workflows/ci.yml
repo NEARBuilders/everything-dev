@@ -180,6 +180,9 @@ jobs:
       - name: Run Effect lint (oxlint, type-aware)
         run: pnpm run lint:effect
 
+      - name: Enforce the comment budget
+        run: pnpm run lint:comments
+
       - name: Check agent skills lock
         run: pnpm run skills:check
 

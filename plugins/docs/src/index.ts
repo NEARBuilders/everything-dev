@@ -10,10 +10,6 @@ class DocsServiceTag extends Context.Service<DocsServiceTag, DocsService>()("doc
 
 export { DocsServiceTag };
 
-/**
- * The compiled record's runtime shape (the velite collection output, local
- * or fetched): the parsed JSON's fields are untrusted at the type level.
- */
 const compiledRecordSchema = z.object({
   slug: z.string(),
   source: z.string().optional(),
@@ -43,27 +39,8 @@ const toRecord = (doc: CompiledRecord): DocRecord => {
   };
 };
 
-/**
- * Docs Plugin — docs-as-code over the repository's own markdown.
- *
- * Content truth is the repository: velite compiles the app's `docs` tree,
- * the root `GLOSSARY.md`, and every plugin's per-plugin docs tree at build
- * time (rspack beforeCompile hook via `build.config.ts`), and this plugin
- * serves the compiled result read-only. Slugs are mount-qualified — app docs
- * at the root, plugin docs under `plugins/<name>/…` — so a plugin ships its
- * docs lane by dropping a `docs/` folder in its workspace. No database, no
- * secrets — content changes land on the next build/deploy.
- *
- * Context fields available from the host are described in lib/context.ts;
- * the read surface is gate-free and needs none of them.
- */
 export default createPlugin({
   variables: z.object({
-    /**
-     * Content sources served instead of the baked bundle (ADR 0054) —
-     * compiled collection JSONs published as content artifacts, one per
-     * source. Absent/empty: the baked corpus the plugin was built with.
-     */
     sources: z
       .array(
         z.object({

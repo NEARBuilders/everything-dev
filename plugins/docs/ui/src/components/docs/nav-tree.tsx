@@ -12,12 +12,6 @@ const isAncestor = (dirPath: string, currentSlug?: string): boolean =>
     dirPath && currentSlug && (currentSlug === dirPath || currentSlug.startsWith(`${dirPath}/`)),
   );
 
-/**
- * The docs navigation tree — one collapsible directory per slug path
- * segment, page links at the leaves, mirroring the content's filesystem
- * structure. Depth-0 directories start open; ancestors of the current page
- * are always open so the current page is visible in the tree on first load.
- */
 export function NavTree({ nodes, currentSlug, depth = 0 }: NavTreeProps) {
   return (
     <ul

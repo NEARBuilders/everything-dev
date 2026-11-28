@@ -14,12 +14,7 @@ export const Route = createFileRoute("/_public/docs")({
     },
   },
   loader: async ({ context }) => {
-    try {
-      await context.queryClient.ensureQueryData(docsNavQueryOptions(resolveDocsClient(context)));
-    } catch {
-      // The sidebar is a progressive enhancement — the reader still renders
-      // when the nav tree can't be fetched.
-    }
+    await context.queryClient.prefetchQuery(docsNavQueryOptions(resolveDocsClient(context)));
   },
   head: () => ({
     meta: [{ title: "Docs" }],

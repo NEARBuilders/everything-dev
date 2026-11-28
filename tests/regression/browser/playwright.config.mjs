@@ -22,9 +22,6 @@ const webServerEnv = Object.fromEntries(
   Object.entries(derivedEnv).filter(([key]) => process.env[key] === undefined),
 );
 
-// The stack's first cold boot (8 rspack compiles + host SSR compose) can
-// outlive the 5-minute default on loaded machines; the env override is a
-// local-run convenience — CI stays on the default.
 const webServerTimeoutMs = Number(process.env.BOS_WEBSERVER_TIMEOUT_MS ?? 300_000);
 
 export default defineConfig({
@@ -50,11 +47,6 @@ export default defineConfig({
   webServer: {
     command,
     url: `${regressionEnv.baseUrl}/health`,
-    // The ensure command is reconcile-first: a same-stamp healthy stack is
-    // reused, anything else is reaped and rebuilt. Probing this URL before
-    // the command runs cannot see a stale stack — the
-    // test:regression:browser:start:* scripts run `cleanup` before Playwright
-    // starts, so the only thing the probe can ever find is this run's stack.
     reuseExistingServer: true,
     // The pnpm-based image build + container boot outgrew the bun-era 2m
     // budget; 5m keeps headroom (an early exit still fails the webServer).
@@ -64,8 +56,6 @@ export default defineConfig({
     env: webServerEnv,
     gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
   },
-  // start:* runs leave the stack down: the fixture container is removed
-  // after every suite (dev modes no-op — they own no containers).
   globalTeardown: "./helpers/stack-teardown.mjs",
   projects: [
     {

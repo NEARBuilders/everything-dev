@@ -4,9 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createPluginBaseConfig } from "../../src/build/rspack/compose";
 import { ContentCompilerPlugin } from "../../src/build/rspack/content";
 
-// The scratch workspace must live under the repo: the fixture's velite
-// config imports "velite" (the workspace's own devDependency, hoisted to the
-// root node_modules) and resolution climbs through the directory ancestors.
 const scratchRoot = join(import.meta.dirname, ".scratch");
 
 afterEach(() => {
@@ -180,9 +177,6 @@ describe("content artifact surface", () => {
       },
     });
 
-    // The velite output exists before the emit but the emitted bytes are
-    // read from disk at emit time — an edit between build and emit is
-    // picked up (the contract the watch loop relies on).
     await hooks.beforeCompile!();
     const fresh = readFileSync(join(cwd, ".velite", "docs.json"), "utf8");
     writeFileSync(join(cwd, ".velite", "docs.json"), fresh.replace("Hello world", "Hello edited"));

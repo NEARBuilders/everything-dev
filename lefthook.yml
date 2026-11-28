@@ -18,3 +18,5 @@ pre-push:
       run: node scripts/ensure-effect-toolchain.mjs && pnpm run typecheck
     effect-lint:
       run: node scripts/ensure-effect-toolchain.mjs && pnpm run lint:effect
+    comment-budget:
+      run: pnpm run lint:comments

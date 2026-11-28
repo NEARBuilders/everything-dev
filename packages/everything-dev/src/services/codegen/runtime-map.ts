@@ -471,8 +471,6 @@ export interface PluginManifestAsset {
   kind: string;
   plugin?: { name?: string; version?: string };
   contract?: { types?: { sha256?: string } };
-  /** Non-code resource declarations (ADR 0052): a docs lane the composing
-   * runtime can mount. */
   docs?: { dir?: string };
 }
 
@@ -530,8 +528,6 @@ export const RUNTIME_SOURCES = ${json(map.sources)} as const;
 export const RUNTIME_BACKENDS = ${json(map.backends)} as const;
 export type RuntimeBackend = (typeof RUNTIME_BACKENDS)[number];
 
-/** Non-code content sources (ADR 0052) — the composing app's docs tree plus
- * every plugin's declared docs lane, with their mount prefixes. */
 export const RUNTIME_CONTENT_SOURCES = ${json(map.content)} as const;
 export type RuntimeContentSource = (typeof RUNTIME_CONTENT_SOURCES)[number];
 
@@ -563,13 +559,6 @@ interface GeneratedRuntimeMap {
     note: string | null;
   }>;
   backends: BackendRecord[];
-  /**
-   * Non-code resources the composing runtime publishes content from (ADR
-   * 0052) — declared by directory convention (a workspace `docs/` dir, or a
-   * remote plugin's `docs.dir` manifest field) and mounted into the docs
-   * surface under `mount`. The composing app's own tree is the `app`
-   * source; each plugin mounts at `plugins/<id>`.
-   */
   content: ContentSourceRecord[];
   unresolved: UnresolvedSource[];
   mounts: ComposedRuntimeMap["mounts"];
@@ -586,14 +575,10 @@ interface GeneratedRuntimeMap {
 }
 
 export interface ContentSourceRecord {
-  /** Content source name — `app`, or the publishing plugin's id. */
   name: string;
-  /** Mount prefix in the docs surface: `/` for app, `plugins/<id>` for plugins. */
   mount: string;
   source: "local" | "remote";
-  /** Workspace-relative docs dir (local) or the plugin's URL (remote). */
   location: string;
-  /** Remote plugins only: declared in the composed bundle's manifest. */
   declaredByManifest?: true;
 }
 
@@ -746,10 +731,6 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
     catch: (cause) => new RuntimeMapError({ message: String(cause) }),
   });
 
-  // Content source inventory (ADR 0052): declared by directory convention —
-  // the composing app's docs tree is the `app` source; a local plugin
-  // workspace's docs/ dir publishes under `plugins/<id>`, and a remote
-  // plugin's manifest `docs.dir` field declares the same remotely.
   const content: ContentSourceRecord[] = [];
   if (existsSync(join(configDir, "docs"))) {
     content.push({ name: "app", mount: "/", source: "local", location: "docs" });

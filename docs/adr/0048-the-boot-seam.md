@@ -88,3 +88,6 @@ it serves.
   MF-loaded module stays routed through the in-process adapter's console
   patch (locality fix, same behavior); mode knobs (`interactive`, `noLogs`)
   stay env-tier, never `BootSpec` fields.
+- Readiness windows assume warm builds; `BOS_READINESS_DEADLINE_MS` stretches
+  every unit's window for a cold first boot on a loaded machine without
+  moving the defaults.

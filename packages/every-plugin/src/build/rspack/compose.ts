@@ -20,33 +20,15 @@ class EveryPluginComposedBuild implements RspackPluginInstance {
 export interface PluginBaseConfigOptions {
   drizzle?: boolean;
   externals?: string[];
-  /** Rspack plugin instances appended after the composed defaults — the escape
-   * hatch for build-time integrations (content pipelines, codegen, ...). */
   extraPlugins?: unknown[];
-  /** Explicit opt-out for the framework-owned content compiler: a workspace
-   * with a velite.config.ts compiles content automatically; `content: false`
-   * hands the integration over to hand-written extraPlugins instead. */
   content?: false;
-  /** The workspace being composed. Defaults to the process cwd — the rspack
-   * CLI runs from the declaring workspace. */
   cwd?: string;
-  /** Concrete rspack fields to merge over the defaults (devtool, infrastructureLogging, ...). */
   rspack?: Partial<PluginBaseConfig>;
 }
 
 const pluginRequire = createRequire(import.meta.url);
 
-/**
- * The content compiler loads through a bare require, never a static import:
- * the build factories resolve from source (ADR 0018) and the core ui's
- * bundle graph reaches this file — a static edge would drag the node-only
- * compiler (velite, chokidar, expression imports) into ui builds as
- * "critical dependency" warnings.
- */
 function loadContentCompiler(): (new (options?: { cwd?: string }) => unknown) | null {
-  // dist resolves the CJS sibling explicitly (require does not try `.cjs`
-  // extensionlessly); source runs under a TS loader need the explicit
-  // `.ts` (Node 26 strips it natively, tsx handles it).
   for (const request of ["./content", "./content.cjs", "./content.ts"]) {
     try {
       const mod = pluginRequire(request) as {
@@ -58,9 +40,6 @@ function loadContentCompiler(): (new (options?: { cwd?: string }) => unknown) | 
   return null;
 }
 
-/** Config filenames that mark a project root, nearest-first. Authored
- * descriptor projects (the platform) carry bos.app.ts; generated child
- * projects carry bos.config.json. */
 const CONFIG_FILENAMES = ["bos.config.json", "bos.app.ts"] as const;
 
 export function findBosConfigPath(from: string = process.cwd()): string | null {

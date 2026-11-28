@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { resolveDocsClient } from "@/lib/api";
 import { docsNavQueryOptions } from "@/lib/queries";
 import type { DocOutput, NavNodeShape } from "../../../../src/contract";
+import { prettifySegment } from "../../../../src/lib/labels";
 
 interface DocLoaderData {
   doc: DocOutput | null;
@@ -26,19 +27,20 @@ interface FlatEntry {
   title: string;
 }
 
+const isNotFound = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && (error as { code?: unknown }).code === "NOT_FOUND";
+
 export const Route = createFileRoute("/_public/docs/$")({
   loader: async ({ context, params }) => {
     const client = resolveDocsClient(context);
+    await context.queryClient.prefetchQuery(docsNavQueryOptions(client));
+    const slug = params._splat ?? "";
     try {
-      await context.queryClient.ensureQueryData(docsNavQueryOptions(client));
-    } catch {
-      // Sidebar is a progressive enhancement — the doc still renders.
-    }
-    try {
-      const { doc } = await client.getBySlug({ slug: params._splat ?? "" });
-      return { doc, notFound: false, slug: params._splat ?? "" };
-    } catch {
-      return { doc: null, notFound: true, slug: params._splat ?? "" };
+      const { doc } = await client.getBySlug({ slug });
+      return { doc, notFound: false, slug };
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      return { doc: null, notFound: true, slug };
     }
   },
   head: ({ loaderData }) => {
@@ -60,23 +62,6 @@ export const Route = createFileRoute("/_public/docs/$")({
   ),
   component: DocPage,
 });
-
-interface Breadcrumb {
-  label: string;
-  slug: string | null;
-}
-
-interface FlatEntry {
-  slug: string;
-  title: string;
-}
-
-const prettifySegment = (segment: string): string =>
-  segment
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
 
 function DocPage() {
   const data = Route.useLoaderData() as DocLoaderData | undefined;

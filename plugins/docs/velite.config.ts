@@ -16,20 +16,6 @@ const firstHeading = (raw: string): string | undefined => {
   return match?.[1]?.trim();
 };
 
-/**
- * Content root is the repository root, so one collection aggregates every
- * content source: the app's `docs` tree, the root `GLOSSARY.md`, and each
- * plugin's per-plugin docs tree (`plugins/<name>/docs`). Each compiled record
- * carries the source it came from (`app`, or the plugin's workspace name) and
- * a mount-qualified slug — app docs keep their path (`adr/0012-…`), plugin
- * docs live under `plugins/<name>/…`, which is also the public URL shape
- * under /docs.
- *
- * Body text is flattened into a `search` field (code fences and markdown
- * syntax stripped) so list queries can match content, not just metadata.
- * Only raw markdown is emitted — rendering happens client-side through the
- * shared MarkdownRenderer.
- */
 export default defineConfig({
   root: "../..",
   output: {
