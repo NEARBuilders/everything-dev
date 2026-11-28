@@ -99,6 +99,7 @@ import {
   sourceLegDirs,
   uploadWorkspaceBundle,
 } from "./upload-leg";
+import { createSlotLimiter } from "./upload-slots";
 
 /** Best-effort repo HEAD for the version manifest (`gitSha`): non-git
  * contexts (child bundles built outside a repo) omit the field silently —
@@ -513,31 +514,12 @@ export async function runPublishTrain(
     uploaded.set(key, pending);
     pending.catch(() => {});
   };
-  let inFlight = 0;
-  const waiters: Array<() => void> = [];
-  const acquireUploadSlot = () => {
-    if (inFlight < uploadConcurrency) {
-      inFlight++;
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => waiters.push(resolve));
-  };
-  const releaseUploadSlot = () => {
-    inFlight--;
-    waiters.shift()?.();
-  };
+  const runInUploadSlot = createSlotLimiter(uploadConcurrency);
   const startUpload = (key: string) => {
     if (uploaded.has(key)) return;
     trackUpload(
       key,
-      (async () => {
-        await acquireUploadSlot();
-        try {
-          return await uploadOneWorkspace(key, authoredRawConfig);
-        } finally {
-          releaseUploadSlot();
-        }
-      })(),
+      runInUploadSlot(() => uploadOneWorkspace(key, authoredRawConfig)),
     );
   };
 
