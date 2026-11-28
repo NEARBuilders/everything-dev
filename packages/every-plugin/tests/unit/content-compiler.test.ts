@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createPluginBaseConfig } from "../../src/build/rspack/compose";
@@ -143,8 +143,10 @@ describe("ContentCompilerPlugin", () => {
     expect(existsSync(join(cwd, ".velite", "index.js"))).toBe(true);
 
     await hooks.processAssets!();
-    expect(emitted["content/docs.json"]).toContain("Hello world");
-    expect(JSON.parse(emitted["content/docs.json"])).toHaveLength(1);
+    const emittedJson = emitted["content/docs.json"];
+    expect(emittedJson).toBeDefined();
+    expect(emittedJson).toContain("Hello world");
+    expect(JSON.parse(emittedJson!)).toHaveLength(1);
   }, 30_000);
 
   it("does nothing for a workspace without a velite.config.ts", async () => {
