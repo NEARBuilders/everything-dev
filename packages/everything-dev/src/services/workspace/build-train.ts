@@ -157,6 +157,42 @@ export interface BuildTargetsResult {
   deployResults?: WorkspaceDeployResult[];
 }
 
+/**
+ * The train's build-mode env contract (ADR 0018): NODE_ENV and DEPLOY carry
+ * the build shape, MF_BUILD_VERSION stamps deploy bundles with the installed
+ * platform version, and BOS_SSR never rides — it is the dev session's
+ * SSR-container flag, and a build-shape train build that half-included the
+ * node env would emit hashed server entries over a live dev container
+ * (#940). A web-only train build leaves `dist/ssr` alone instead (the
+ * rsbuild factory's clean-keep); BOS_DEV_SERVER passes through as the
+ * deliberate dev-shape rebuild escape hatch.
+ */
+export function trainBuildEnv(
+  input: { configDir: string; deploy: boolean },
+  ambient: Record<string, string | undefined>,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    ...ambient,
+    NODE_ENV: input.deploy ? "production" : "development",
+  };
+  // Dist-first deploy builds (ADR 0018): a deploy build must never inherit a
+  // DEPLOY value from the operator's shell, and a dev build must never see one.
+  if (input.deploy) env.DEPLOY = "true";
+  else delete env.DEPLOY;
+  delete env.BOS_SSR;
+  // MF_BUILD_VERSION (#546): the toolchain's buildInfo.buildVersion otherwise
+  // stamps the building workspace's own package.json version — an unrelated
+  // number that made deployed bundles advertise a stale platform identity.
+  // Deploy builds stamp the installed everything-dev version instead, so a
+  // bundle's manifest names the platform release it was built against.
+  if (input.deploy) {
+    const frameworkVersion = readInstalledFrameworkVersion(input.configDir, "everything-dev");
+    if (frameworkVersion) env.MF_BUILD_VERSION = frameworkVersion;
+    else delete env.MF_BUILD_VERSION;
+  }
+  return env;
+}
+
 /** Pulls warning segments out of a build's stderr: a WARNING/⚠ line opens a
  * segment that runs to the next blank line; `$ ` command echoes never count. */
 export function extractBuildWarnings(stderr: string): string[] {
@@ -273,24 +309,7 @@ export async function buildWorkspaceTargets(
   // stale). Fresh members no-op; failures are loud. Deploy prerequisite
   // builds run in the same build mode as the target builds below — one env
   // contract for every deploy build child.
-  const env: Record<string, string> = {
-    ...process.env,
-    NODE_ENV: input.deploy ? "production" : "development",
-  };
-  // Dist-first deploy builds (ADR 0018): a deploy build must never inherit a
-  // DEPLOY value from the operator's shell, and a dev build must never see one.
-  if (input.deploy) env.DEPLOY = "true";
-  else delete env.DEPLOY;
-  // MF_BUILD_VERSION (#546): the toolchain's buildInfo.buildVersion otherwise
-  // stamps the building workspace's own package.json version — an unrelated
-  // number that made deployed bundles advertise a stale platform identity.
-  // Deploy builds stamp the installed everything-dev version instead, so a
-  // bundle's manifest names the platform release it was built against.
-  if (input.deploy) {
-    const frameworkVersion = readInstalledFrameworkVersion(input.configDir, "everything-dev");
-    if (frameworkVersion) env.MF_BUILD_VERSION = frameworkVersion;
-    else delete env.MF_BUILD_VERSION;
-  }
+  const env = trainBuildEnv({ configDir: input.configDir, deploy: input.deploy }, process.env);
 
   const root = findWorkspaceRoot(input.configDir);
   // Deploy prerequisite freshness (#430): the content-hash oracle replaces the
