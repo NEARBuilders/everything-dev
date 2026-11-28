@@ -3,7 +3,13 @@ import { FileKeyStore } from "near-kit/keys/file";
 import type { TxStatus } from "../registry/confirm";
 import type { NetworkId } from "../registry/fastkv";
 import { parseYocto } from "./near-amounts";
-import { executeKeychainTransaction, isNearCliInstalled, NearTransactionError } from "./near-cli";
+import {
+  executeKeychainTransaction,
+  functionCallAccessKeyArgs,
+  isNearCliInstalled,
+  NearTransactionError,
+} from "./near-cli";
+import { PUBLISH_FUNCTION_NAMES, PUBLISH_KEY_DEFAULT_ALLOWANCE } from "./publish-key";
 
 type SigningKeySource = "provided" | "credentials-file";
 
@@ -309,7 +315,7 @@ export async function checkPublishKeyHealth(input: {
     if (error.name === "AccessKeyDoesNotExistError") {
       return {
         ok: false,
-        error: publishKeyRepairHint(input.account, input.contract, publicKey),
+        error: publishKeyRepairHint(input.account, input.contract, publicKey, input.network),
       };
     }
     return {
@@ -318,7 +324,10 @@ export async function checkPublishKeyHealth(input: {
     };
   }
   if (!view) {
-    return { ok: false, error: publishKeyRepairHint(input.account, input.contract, publicKey) };
+    return {
+      ok: false,
+      error: publishKeyRepairHint(input.account, input.contract, publicKey, input.network),
+    };
   }
   const permission = view.permission as
     | "FullAccess"
@@ -337,7 +346,7 @@ export async function checkPublishKeyHealth(input: {
       ok: false,
       error:
         `the signing ${kind} is scoped to receiver ${scoped.receiver_id}, but publishes call ` +
-        `${input.contract} — ${publishKeyRepairHint(input.account, input.contract, publicKey)}`,
+        `${input.contract} — ${publishKeyRepairHint(input.account, input.contract, publicKey, input.network)}`,
     };
   }
   if (scoped.method_names.length > 0 && !scoped.method_names.includes("__fastdata_kv")) {
@@ -345,7 +354,7 @@ export async function checkPublishKeyHealth(input: {
       ok: false,
       error:
         `the signing ${kind} is scoped to methods [${scoped.method_names.join(", ")}], but ` +
-        `publishes call \`__fastdata_kv\` — ${publishKeyRepairHint(input.account, input.contract, publicKey)}`,
+        `publishes call \`__fastdata_kv\` — ${publishKeyRepairHint(input.account, input.contract, publicKey, input.network)}`,
     };
   }
   const capped = scoped.allowance ?? scoped.balance;
@@ -506,11 +515,26 @@ export async function checkPublishBalance(input: {
   return { ok: true };
 }
 
-function publishKeyRepairHint(account: string, contract: string, publicKey: string): string {
+function publishKeyRepairHint(
+  account: string,
+  contract: string,
+  publicKey: string,
+  network: NetworkId,
+): string {
+  const command = [
+    "near",
+    ...functionCallAccessKeyArgs({
+      account,
+      contract,
+      allowance: PUBLISH_KEY_DEFAULT_ALLOWANCE,
+      functionNames: PUBLISH_FUNCTION_NAMES,
+      publicKey,
+      network,
+    }),
+  ].join(" ");
   return (
     `the signing key ${publicKey} is not a publish key on ${account}. Fix on-chain, then re-run: ` +
-    `\`near account add-key ${account} ${publicKey} --receiver-id ${contract} ` +
-    '--method-names __fastdata_kv network-config mainnet" ' +
+    `\`${command}\` ` +
     "signed by any existing full-access signer, or re-mint with `bos login --key` and update NEAR_PRIVATE_KEY"
   );
 }
