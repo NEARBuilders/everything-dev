@@ -11,6 +11,12 @@ export interface DocRecord {
    * "plugins/<name>/…".
    */
   readonly slug: string;
+  /**
+   * The doc's file relative to the repository root ("docs/adr/0012-x.md",
+   * "plugins/auth/docs/install.md") — the base its relative links resolve
+   * against, exactly as a repository host resolves them.
+   */
+  readonly file: string;
   readonly title: string;
   readonly description?: string;
   readonly tags: string[];
@@ -19,6 +25,19 @@ export interface DocRecord {
   /** Flattened body text (syntax and code fences stripped) for list search. */
   readonly search?: string;
 }
+
+/**
+ * The repository file a record's links resolve against, derived from its
+ * slug — for corpora compiled before the `file` field existed.
+ */
+export const fileOfSlug = (slug: string, source: string): string => {
+  if (slug === "glossary") return "GLOSSARY.md";
+  const pluginMatch = /^plugins\/([^/]+)\/(.+)$/.exec(slug);
+  if (source !== "app" && pluginMatch?.[1] && pluginMatch[2]) {
+    return `plugins/${pluginMatch[1]}/docs/${pluginMatch[2]}.md`;
+  }
+  return `docs/${slug}.md`;
+};
 
 export interface NavNode {
   /** Directory name, or the prettified page title for leaf nodes. */

@@ -280,6 +280,13 @@ export default createPlugin.withPlugins<PluginsClient>()({
       (router as Record<string, unknown>).things = templateRouter;
     }
 
+    // KEEP: merging the docs router here is what puts the read API on REST,
+    // OpenAPI, and MCP — the per-plugin RPC mount alone leaves it RPC-only.
+    const docsRouter = plugins.docs?.router;
+    if (docsRouter) {
+      (router as Record<string, unknown>).docs = docsRouter;
+    }
+
     return router;
   },
 });

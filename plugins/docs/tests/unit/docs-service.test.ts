@@ -1,10 +1,11 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { DocNotFoundError, type DocRecord, DocsService } from "../../src/service";
+import { DocNotFoundError, type DocRecord, DocsService, fileOfSlug } from "../../src/service";
 
 const doc = (over: Partial<DocRecord> & { slug: string }): DocRecord => ({
   source: "app",
   path: over.slug,
+  file: `docs/${over.slug}.md`,
   title: over.slug,
   tags: [],
   order: 100,
@@ -26,6 +27,7 @@ const fixtures: DocRecord[] = [
   doc({
     source: "auth",
     path: "install",
+    file: "plugins/auth/docs/install.md",
     slug: "plugins/auth/install",
     title: "Auth install",
     order: 5,
@@ -125,6 +127,7 @@ describe("DocsService.getBySlug", () => {
     const found = await Effect.runPromise(service().getBySlug("self-deploy"));
     expect(found.raw).toBe("# self-deploy");
     expect(found.source).toBe("app");
+    expect(found.file).toBe("docs/self-deploy.md");
   });
 
   it("resolves mount-qualified plugin slugs", async () => {
@@ -201,5 +204,22 @@ describe("DocsService mount shadowing", () => {
     const nav = await Effect.runPromise(service().getNav());
     const plugins = nav.find((node) => node.label === "Plugins");
     expect(plugins?.children.map((child) => child.label)).toEqual(["Auth"]);
+  });
+});
+
+describe("fileOfSlug", () => {
+  it("derives an app document's file from its slug", () => {
+    expect(fileOfSlug("adr/0012-session-gas-keys", "app")).toBe(
+      "docs/adr/0012-session-gas-keys.md",
+    );
+    expect(fileOfSlug("plugins/docs-plugin", "app")).toBe("docs/plugins/docs-plugin.md");
+  });
+
+  it("maps the glossary to the repository root", () => {
+    expect(fileOfSlug("glossary", "app")).toBe("GLOSSARY.md");
+  });
+
+  it("derives a mounted plugin document's file from its source", () => {
+    expect(fileOfSlug("plugins/auth/install", "auth")).toBe("plugins/auth/docs/install.md");
   });
 });

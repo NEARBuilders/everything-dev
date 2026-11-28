@@ -21,8 +21,10 @@ test.describe("Docs", () => {
     await waitForApp(page);
 
     await expect(page.getByTestId("docs.heading")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId("docs.tree")).toBeVisible({ timeout: 15000 });
-    const items = page.getByTestId("docs.item");
+    // Scoped to the list: the sidebar's tree carries the same testids.
+    const list = page.getByTestId("docs.list");
+    await expect(list.getByTestId("docs.tree")).toBeVisible({ timeout: 15000 });
+    const items = list.getByTestId("docs.item");
     await expect(items.first()).toBeVisible({ timeout: 15000 });
     const count = await items.count();
     expect(count, "the compiled docs tree must surface at least ten docs").toBeGreaterThanOrEqual(
@@ -42,11 +44,106 @@ test.describe("Docs", () => {
     expect(await sidebarItems.count()).toBeGreaterThanOrEqual(10);
   });
 
+  test("the index renders the documentation map above the tree", async ({ page }) => {
+    await page.goto("/docs", { waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    await expect(page.getByTestId("docs.heading")).toHaveText("Documentation map", {
+      timeout: 15000,
+    });
+    await expect(page.getByTestId("docs.map")).toBeVisible();
+    await expect(page.getByTestId("docs.all-documents")).toBeVisible();
+    await expect(page.getByTestId("docs.list").getByTestId("docs.tree")).toBeVisible();
+
+    expectNoHydrationFailure(pageErrors);
+  });
+
+  test("the first section starts open and the rest wait until entered", async ({ page }) => {
+    await page.goto("/docs", { waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    // Top-level sections only — the tree nests directories.
+    const sections = page
+      .getByTestId("docs.list")
+      .locator(':scope > ul > li > details[data-testid="docs.tree-dir"]');
+    await expect(sections.first()).toBeVisible({ timeout: 15000 });
+    await expect(sections.first().locator(":scope > summary")).toHaveText("Book");
+    await expect(sections.first()).toHaveAttribute("open", "");
+
+    const ledger = sections.filter({
+      has: page.locator(":scope > summary", { hasText: /^Adr$/ }),
+    });
+    await expect(ledger).toHaveCount(1);
+    await expect(ledger).not.toHaveAttribute("open", /.*/);
+  });
+
+  test("the reader lays out a sidebar and an on-this-page TOC on a desktop viewport", async ({
+    page,
+  }) => {
+    await page.goto("/docs/book/01-the-model", { waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    await expect(page.getByTestId("docs.reader-title")).toBeVisible({ timeout: 15000 });
+    // A plugin's utilities must outrank the host's: `hidden lg:block` shows the
+    // sidebar only if the docs stylesheet's `lg:block` beats the host's `hidden`.
+    await expect(page.getByTestId("docs.sidebar")).toBeVisible();
+    await expect(page.getByTestId("docs.mobile-tree")).toBeHidden();
+    await expect(page.getByTestId("docs.toc")).toBeVisible();
+  });
+
+  test("the read API serves the corpus over REST", async ({ page }) => {
+    const list = await page.request.get("/api/docs?limit=2");
+    expect(list.ok()).toBe(true);
+    expect((await list.json()).data).toHaveLength(2);
+
+    const response = await page.request.get("/api/docs/book/01-the-model");
+    expect(response.ok()).toBe(true);
+    const body = await response.json();
+    expect(body.doc.file).toBe("docs/book/01-the-model.md");
+    expect(body.doc.raw).toContain("One authored file is the whole argument");
+
+    const nav = await page.request.get("/api/docs/nav");
+    expect(nav.ok()).toBe(true);
+    expect((await nav.json()).nav.length).toBeGreaterThan(0);
+  });
+
+  test("a chapter links into the ledger, the skill family, and the repository", async ({
+    page,
+  }) => {
+    await page.goto("/docs/book/01-the-model", { waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    await expect(page.getByTestId("docs.reader-title")).toHaveText("01 · The model", {
+      timeout: 15000,
+    });
+    const markdown = page.getByTestId("docs.markdown");
+
+    await expect(
+      markdown.locator('a[href="/skills/everything-dev/init-upgrade/SKILL.md"]'),
+    ).toBeVisible();
+    await expect(
+      markdown.locator(
+        'a[href="https://github.com/nearbuilders/everything-dev/blob/HEAD/bos.app.ts"]',
+      ),
+    ).toBeVisible();
+
+    await markdown.locator('a[href="/docs/adr/0005-app-ts-authored-descriptor"]').first().click();
+    await expect(page).toHaveURL(/\/docs\/adr\/0005-app-ts-authored-descriptor$/, {
+      timeout: 10000,
+      waitUntil: "commit",
+    });
+    await expect(page.getByTestId("docs.reader-title")).toContainText("ADR 0005", {
+      timeout: 15000,
+    });
+
+    expectNoHydrationFailure(pageErrors);
+  });
+
   test("clicking a doc opens the reader with rendered markdown", async ({ page }) => {
     await page.goto("/docs", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
-    const firstItem = page.getByTestId("docs.item").first();
+    const firstItem = page.getByTestId("docs.list").getByTestId("docs.item").first();
     await expect(firstItem).toBeVisible({ timeout: 15000 });
     await firstItem.click();
 
@@ -74,13 +171,16 @@ test.describe("Docs", () => {
     await expect(count).toHaveText(/\d+ \/ \d+ docs/, { timeout: 15000 });
     const total = await count.innerText();
 
+    // Scoped to the list: the sidebar's tree carries the same item testid.
+    const results = page.getByTestId("docs.list").getByTestId("docs.item");
     await page.getByTestId("docs.search").fill("0017-session-gas-keys");
-    await expect(page.getByTestId("docs.item")).toHaveCount(1, { timeout: 15000 });
+    await expect(results).toHaveCount(1, { timeout: 15000 });
     await expect(count).not.toHaveText(total);
 
+    // The list keeps the previous results until the new query settles.
     await page.getByTestId("docs.search").fill("ADR 0001");
-    await expect(page.getByTestId("docs.item").first()).toBeVisible({ timeout: 15000 });
-    const bodyMatches = await page.getByTestId("docs.item").count();
+    await expect(results.nth(1)).toBeVisible({ timeout: 15000 });
+    const bodyMatches = await results.count();
     expect(
       bodyMatches,
       "body search must surface more docs than the title-only match",
@@ -106,7 +206,7 @@ test.describe("Docs", () => {
     await page.goto("/docs", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
-    await page.getByTestId("docs.item").first().click();
+    await page.getByTestId("docs.list").getByTestId("docs.item").first().click();
     await expect(page.getByTestId("docs.reader-title")).toBeVisible({ timeout: 15000 });
 
     const readerNav = page.getByTestId("docs.reader-nav");

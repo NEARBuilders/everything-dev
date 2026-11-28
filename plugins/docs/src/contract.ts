@@ -22,6 +22,11 @@ export const DocSummarySchema = z.object({
 });
 
 export const DocSchema = DocSummarySchema.extend({
+  file: z
+    .string()
+    .describe(
+      "The doc's file relative to the repository root — the base its relative links resolve against",
+    ),
   raw: z.string().describe("Raw markdown body, frontmatter stripped"),
 });
 
@@ -75,7 +80,13 @@ export const contract = oc.router({
           .string()
           .optional()
           .describe("Filter by content source: app, or a plugin's workspace name"),
-        limit: z.number().min(1).max(100).default(20).describe("Maximum number of docs to return"),
+        // KEEP: query strings arrive as strings on the REST surface.
+        limit: z.coerce
+          .number()
+          .min(1)
+          .max(100)
+          .default(20)
+          .describe("Maximum number of docs to return"),
         cursor: z.string().optional().describe("Opaque cursor for the next page"),
       }),
     )
@@ -84,7 +95,9 @@ export const contract = oc.router({
   getBySlug: oc
     .route({
       method: "GET",
-      path: "/docs/{slug}",
+      // KEEP: slugs are path-shaped (book/01-the-model) — only the reserved
+      // expansion keeps the slash inside one parameter on the REST surface.
+      path: "/docs/{+slug}",
       summary: "Get a doc by slug",
       description: "Returns a single doc's metadata and raw markdown body.",
       tags: ["Docs"],

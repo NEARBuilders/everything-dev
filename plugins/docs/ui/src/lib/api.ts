@@ -29,10 +29,14 @@ export function resolveClientConfig(runtimeConfig?: { hostUrl?: string; rpcBase?
   };
 }
 
-type DocsClientContext = {
+export type DocsClientContext = {
   apiClient?: unknown;
-  runtimeConfig?: { hostUrl?: string; rpcBase?: string };
+  runtimeConfig?: { hostUrl?: string; rpcBase?: string; repository?: string };
 };
+
+/** The runtime's repository URL — where links outside the docs corpus open. */
+export const repositoryOf = (context: DocsClientContext): string | undefined =>
+  context.runtimeConfig?.repository;
 
 export function resolveDocsClient(context: DocsClientContext): DocsApiClient {
   const shared = (context.apiClient as { docs?: DocsApiClient } | undefined)?.docs;

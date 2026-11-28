@@ -1,10 +1,16 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import GithubSlugger from "github-slugger";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
-import { resolveDocHref } from "./doc-links";
+import {
+  DOCS_ROUTE_PREFIX,
+  type DocLinkContext,
+  EXTERNAL_SCHEME,
+  resolveDocHref,
+} from "./doc-links";
 
 /**
  * Markdown renderer shared by the public read route and (in a later epic)
@@ -170,7 +176,54 @@ function Heading({
   );
 }
 
-export function MarkdownRenderer({ content, slug = "" }: { content: string; slug?: string }) {
+/**
+ * A link authored as a repository path, routed to where it opens in the app
+ * (resolveDocHref). Links into the corpus navigate in the reader without a
+ * document reload; links that leave the app open in a new tab.
+ */
+function DocLink({
+  href,
+  file,
+  links,
+  children,
+}: {
+  href?: string;
+  file: string;
+  links?: DocLinkContext;
+  children?: ReactNode;
+}) {
+  if (!href) return <>{children}</>;
+  const target = resolveDocHref(href, file, links);
+  if (target.startsWith(DOCS_ROUTE_PREFIX)) {
+    const hashIndex = target.indexOf("#");
+    const splat = target.slice(DOCS_ROUTE_PREFIX.length, hashIndex === -1 ? undefined : hashIndex);
+    const hash = hashIndex === -1 ? undefined : target.slice(hashIndex + 1);
+    return (
+      <Link to="/docs/$" params={{ _splat: splat }} hash={hash}>
+        {children}
+      </Link>
+    );
+  }
+  if (EXTERNAL_SCHEME.test(target)) {
+    return (
+      <a href={target} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  }
+  return <a href={target}>{children}</a>;
+}
+
+export function MarkdownRenderer({
+  content,
+  file = "",
+  links,
+}: {
+  content: string;
+  /** The doc's repository file — the base its relative links resolve against. */
+  file?: string;
+  links?: DocLinkContext;
+}) {
   return (
     <div
       className="max-w-none text-foreground [&_a]:text-primary [&_a]:underline [&_blockquote]:rounded-r-lg [&_blockquote]:border-l-[3px] [&_blockquote]:border-muted-foreground [&_blockquote]:bg-muted/60 [&_blockquote]:px-4 [&_blockquote]:py-2.5 [&_blockquote]:text-[0.93em] [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.86em] [&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-xs [&_h3]:font-bold [&_h3]:tracking-wider [&_h3]:text-muted-foreground [&_h3]:uppercase [&_h4]:mt-5 [&_h4]:mb-2 [&_h4]:text-sm [&_h4]:font-semibold [&_h5]:mt-4 [&_h5]:mb-1 [&_h5]:text-sm [&_h5]:font-medium [&_h6]:mt-4 [&_h6]:mb-1 [&_h6]:text-sm [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:my-3 [&_pre]:not-italic [&_pre]:border-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_table]:w-full [&_table]:text-sm [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:bg-muted/60 [&_th]:p-2 [&_ul]:list-disc [&_ul]:pl-6"
@@ -181,7 +234,9 @@ export function MarkdownRenderer({ content, slug = "" }: { content: string; slug
         rehypePlugins={[rehypeSlug]}
         components={{
           a: ({ href, children }) => (
-            <a href={href ? resolveDocHref(href, slug) : href}>{children}</a>
+            <DocLink href={href} file={file} links={links}>
+              {children}
+            </DocLink>
           ),
           table: ({ node: _node, children, ...props }) => (
             <div className="overflow-x-auto">

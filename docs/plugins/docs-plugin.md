@@ -71,18 +71,41 @@ Every doc honors an optional frontmatter block:
 
 Public, gate-free routes under the `public` mount:
 
-- `/docs` — the index: the navigation tree (collapsible by directory) plus full-text
+- `/docs` — the index: when the repository has a documentation map (its root
+  `docs/README.md`), it is rendered first; below it, the navigation tree and full-text
   search over title, slug, description, and **body text**
 - `/docs/<slug>` — the reader: breadcrumbs, the rendered doc with heading anchors, an
   on-this-page TOC, and prev/next in tree order
+- `/docs/<directory>` — a directory resolves to its `README.md`
 
-A persistent sidebar shows the same nav tree on every docs page.
+A persistent sidebar shows the same nav tree on every docs page. Only the first
+top-level section starts open (the one frontmatter `order` puts first — the manual,
+where there is one); every other directory opens when it holds the current page.
+
+### Links are repository paths
+
+Authors link the way a repository host resolves: relative to the document's own file
+(`./other.md`, `../adr/0005-….md`, `../../GLOSSARY.md`, `../adr/`). The reader resolves
+each link against the compiled corpus and routes it:
+
+| The link names | It opens |
+| --- | --- |
+| A document in the corpus, or a directory holding one | The reader, under `/docs` — client-side, no reload |
+| A package skill (`packages/<pkg>/skills/…`) | `/skills/<pkg>/…` |
+| A public asset (`ui/public/<file>`) | `/<file>` |
+| The root `README.md` | `/about` |
+| Anything else in the repository | The runtime's `repository`, on its default branch |
+
+Because every path is real, `pnpm run docs:check` can verify them before publish
+(ADR 0055). A runtime without a GitHub-shaped `repository` leaves non-corpus paths as
+written.
 
 Programmatically, the same content is available to agents and tools:
 
 - `listPublished({ q?, tag?, source?, limit, cursor })` — cursor-paginated; `q` matches
   body text, `source` filters by content source
-- `getBySlug({ slug })` — a single doc's metadata and raw markdown body
+- `getBySlug({ slug })` — a single doc's metadata, its repository `file`, and raw
+  markdown body
 - `getNav()` — the full navigation tree (directories by slug segment, ordered pages)
 
 All three are exposed via oRPC (`/api/rpc/docs/…`), REST (`GET /api/docs/…`,
@@ -109,6 +132,13 @@ order: 50
 
 Then merge to `main`; the doc goes live on the next deploy. To preview locally, run the
 dev stack and open `/docs`.
+
+Two conventions keep the published corpus a manual rather than a dump (ADR 0055):
+
+- **Documents only.** Runnable prototype trees are repository examples — they stay in
+  git and are left out of the compiled set (`velite.config.ts` excludes them).
+- **Sections are ordered by frontmatter.** A directory sorts by its lowest page
+  `order`, so one `order` on a section's `README.md` lifts the whole section.
 
 ## Adding the plugin to another runtime
 

@@ -6,7 +6,8 @@ import { extractToc, MarkdownRenderer } from "@/components/docs/markdown-rendere
 import { NavTree } from "@/components/docs/nav-tree";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { resolveDocsClient } from "@/lib/api";
+import { repositoryOf, resolveDocsClient } from "@/lib/api";
+import { useDocLinks } from "@/lib/doc-links";
 import { docsNavQueryOptions } from "@/lib/queries";
 import type { DocOutput, NavNodeShape } from "../../../../src/contract";
 
@@ -14,16 +15,6 @@ interface DocLoaderData {
   doc: DocOutput | null;
   notFound: boolean;
   slug: string;
-}
-
-interface Breadcrumb {
-  label: string;
-  slug: string | null;
-}
-
-interface FlatEntry {
-  slug: string;
-  title: string;
 }
 
 export const Route = createFileRoute("/_public/docs/$")({
@@ -85,6 +76,7 @@ function DocPage() {
   const slug = data?.slug ?? "";
   const routerContext = useRouter().options.context;
   const { data: nav } = useQuery(docsNavQueryOptions(resolveDocsClient(routerContext)));
+  const links = useDocLinks(nav, repositoryOf(routerContext));
 
   const flat = useMemo(() => {
     const out: FlatEntry[] = [];
@@ -178,7 +170,11 @@ function DocPage() {
             )}
           </header>
           <div className="max-w-[48rem]">
-            <MarkdownRenderer content={dedupeLeadingTitle(doc.raw, doc.title)} slug={doc.slug} />
+            <MarkdownRenderer
+              content={dedupeLeadingTitle(doc.raw, doc.title)}
+              file={doc.file}
+              links={links}
+            />
           </div>
           {(prev || next) && (
             <nav

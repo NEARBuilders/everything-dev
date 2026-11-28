@@ -2,17 +2,47 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { dedupeLeadingTitle } from "@/components/docs/doc-links";
+import { MarkdownRenderer } from "@/components/docs/markdown-renderer";
 import { NavTree } from "@/components/docs/nav-tree";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { resolveDocsClient } from "@/lib/api";
+import { repositoryOf, resolveDocsClient } from "@/lib/api";
+import { useDocLinks } from "@/lib/doc-links";
 import { docsNavQueryOptions } from "@/lib/queries";
+import type { DocOutput } from "../../../../../src/contract";
+
+/**
+ * The documentation map — the corpus's root `README.md` (docs/README.md).
+ * When a repository writes one, the index renders it above the tree: what
+ * the repository is, what each section is for, and where to start. A corpus
+ * without one gets the plain index.
+ */
+const DOCUMENTATION_MAP_SLUG = "README";
+
+interface DocsIndexLoaderData {
+  map: DocOutput | null;
+}
 
 export const Route = createFileRoute("/_public/docs/")({
   head: () => ({
     meta: [{ title: "Docs" }],
   }),
+  loader: async ({ context }) => {
+    const client = resolveDocsClient(context);
+    try {
+      await context.queryClient.ensureQueryData(docsNavQueryOptions(client));
+    } catch {
+      // The tree is a progressive enhancement — the index still renders.
+    }
+    try {
+      const { doc } = await client.getBySlug({ slug: DOCUMENTATION_MAP_SLUG });
+      return { map: doc } satisfies DocsIndexLoaderData;
+    } catch {
+      return { map: null } satisfies DocsIndexLoaderData;
+    }
+  },
   component: DocsIndexPage,
 });
 
@@ -24,9 +54,12 @@ interface DocSummary {
 }
 
 function DocsIndexPage() {
+  const data = Route.useLoaderData() as DocsIndexLoaderData | undefined;
+  const map = data?.map ?? null;
   const routerContext = useRouter().options.context;
   const client = resolveDocsClient(routerContext);
   const { data: nav } = useQuery(docsNavQueryOptions(client));
+  const links = useDocLinks(nav, repositoryOf(routerContext));
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DocSummary[] | null>(null);
@@ -73,17 +106,33 @@ function DocsIndexPage() {
     };
   }, [debounced, client]);
 
+  const showingResults = !searching && results !== null;
+
   return (
     <div>
       <header className="mb-6">
         <h1 className="text-2xl font-semibold" data-testid="docs.heading">
-          Docs
+          {map?.title ?? "Docs"}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Guides, ADRs, and reference for this runtime — the repository's own markdown, served
-          read-only.
-        </p>
+        {!map && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            Guides, ADRs, and reference for this runtime — the repository's own markdown, served
+            read-only.
+          </p>
+        )}
       </header>
+
+      {map && (
+        <section className="mb-8 border-b border-border/40 pb-8" data-testid="docs.map">
+          <div className="max-w-[48rem]">
+            <MarkdownRenderer
+              content={dedupeLeadingTitle(map.raw, map.title)}
+              file={map.file}
+              links={links}
+            />
+          </div>
+        </section>
+      )}
 
       <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
         <div className="relative w-full sm:max-w-xs">
@@ -106,10 +155,15 @@ function DocsIndexPage() {
         <div className="py-16 text-sm text-muted-foreground" data-testid="docs.loading">
           Searching…
         </div>
-      ) : results ? (
-        <SearchResults results={results} />
+      ) : showingResults ? (
+        <SearchResults results={results ?? []} />
       ) : nav ? (
         <div data-testid="docs.list">
+          {map && (
+            <h2 className="mb-3 text-lg font-semibold" data-testid="docs.all-documents">
+              All documents
+            </h2>
+          )}
           <NavTree nodes={nav} />
         </div>
       ) : (
