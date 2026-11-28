@@ -53,7 +53,7 @@ describe("PluginRuntime.reloadPlugin (issue #942)", () => {
     expect(await firstClient.ping()).toEqual({ ok: true, token: "gen-1" });
 
     const second = await runtime.reloadPlugin("reload-test", { variables: {}, secrets: {} });
-    expect(events).toEqual(["acquire:gen-1", "release:gen-1", "acquire:gen-2"]);
+    expect(events).toEqual(["acquire:gen-1", "acquire:gen-2", "release:gen-1"]);
 
     const secondClient = second.createClient() as {
       ping: () => Promise<{ ok: boolean; token: string }>;

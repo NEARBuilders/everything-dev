@@ -10,9 +10,10 @@ import {
   runDevAdoptTick,
 } from "../../src/services/dev-plugin-adopt";
 
-const fingerprint = (container: string) => ({
-  container: { mtimeMs: 100, content: container },
-  manifest: { mtimeMs: 100, content: "m-1" },
+const fingerprint = (digest: string) => ({
+  digest,
+  newestMtimeMs: 100,
+  files: new Map(),
 });
 
 const sample = (key: string, container: string | null, label = key): DevAdoptSample => ({

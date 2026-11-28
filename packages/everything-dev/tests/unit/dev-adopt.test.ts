@@ -9,9 +9,10 @@ import {
   initialAdoptState,
 } from "../../src/services/dev/adopt";
 
-const fingerprint = (container: string, manifest = "m-1"): BackendDistFingerprint => ({
-  container: { mtimeMs: 100, content: container },
-  manifest: { mtimeMs: 100, content: manifest },
+const fingerprint = (digest: string, mtimeMs = 100): BackendDistFingerprint => ({
+  digest,
+  newestMtimeMs: mtimeMs,
+  files: new Map(),
 });
 
 const observation = (
@@ -38,7 +39,7 @@ describe("advanceAdopt (the file-watcher state machine)", () => {
   it("the first observation records the boot generation — no move", () => {
     const { state, moves } = step(initialAdoptState, "plugin:votes", "gen-a", 0);
     expect(moves).toEqual([]);
-    expect(state.served.get("plugin:votes")?.content).toBe("gen-a:m-1");
+    expect(state.served.get("plugin:votes")?.content).toBe("gen-a");
     expect(state.served.get("plugin:votes")?.generation).toBe(0);
   });
 
@@ -56,7 +57,7 @@ describe("advanceAdopt (the file-watcher state machine)", () => {
     state = result.state;
 
     result = step(state, "plugin:votes", "gen-b", 1_100);
-    expect(result.moves).toEqual([{ key: "plugin:votes", content: "gen-b:m-1", generation: 1 }]);
+    expect(result.moves).toEqual([{ key: "plugin:votes", content: "gen-b", generation: 1 }]);
   });
 
   it("content changing mid-settle restarts the settle clock", () => {
@@ -83,7 +84,7 @@ describe("advanceAdopt (the file-watcher state machine)", () => {
     let state = step(initialAdoptState, "plugin:votes", "gen-a", 0).state;
     state = step(state, "plugin:votes", "gen-b", 0).state;
     const moved = step(state, "plugin:votes", "gen-b", 2_000);
-    expect(moved.moves).toEqual([{ key: "plugin:votes", content: "gen-b:m-1", generation: 1 }]);
+    expect(moved.moves).toEqual([{ key: "plugin:votes", content: "gen-b", generation: 1 }]);
 
     const settled = step(moved.state, "plugin:votes", "gen-b", 3_000);
     expect(settled.moves).toEqual([]);
@@ -98,7 +99,7 @@ describe("advanceAdopt (the file-watcher state machine)", () => {
     const wiped = advance(state, [observation("plugin:votes", null)], 2_000);
     expect(wiped.moves).toEqual([]);
     expect(wiped.state.pending.has("plugin:votes")).toBe(false);
-    expect(wiped.state.served.get("plugin:votes")?.content).toBe("gen-a:m-1");
+    expect(wiped.state.served.get("plugin:votes")?.content).toBe("gen-a");
 
     const back = advance(wiped.state, [observation("plugin:votes", fingerprint("gen-b"))], 2_100);
     expect(back.moves).toEqual([]);
@@ -116,16 +117,13 @@ describe("advanceAdopt (the file-watcher state machine)", () => {
     const rolledBack: AdoptState = {
       ...state,
       served: new Map([
-        [
-          "plugin:votes",
-          { content: "gen-a:m-1", fingerprint: fingerprint("gen-a"), generation: 0 },
-        ],
+        ["plugin:votes", { content: "gen-a", fingerprint: fingerprint("gen-a"), generation: 0 }],
       ]),
     };
     let retry = step(rolledBack, "plugin:votes", "gen-b", 4_000);
     expect(retry.moves).toEqual([]);
     retry = step(retry.state, "plugin:votes", "gen-b", 5_100);
-    expect(retry.moves).toEqual([{ key: "plugin:votes", content: "gen-b:m-1", generation: 1 }]);
+    expect(retry.moves).toEqual([{ key: "plugin:votes", content: "gen-b", generation: 1 }]);
   });
 
   it("units adopt independently", () => {
@@ -159,7 +157,7 @@ describe("advanceAdopt (the file-watcher state machine)", () => {
       2_000,
     );
     state = result.state;
-    expect(result.moves).toEqual([{ key: "plugin:votes", content: "b:m-1", generation: 1 }]);
+    expect(result.moves).toEqual([{ key: "plugin:votes", content: "b", generation: 1 }]);
 
     result = advance(
       state,
@@ -169,29 +167,24 @@ describe("advanceAdopt (the file-watcher state machine)", () => {
       ],
       3_000,
     );
-    expect(result.moves).toEqual([{ key: "plugin:registry", content: "y:m-1", generation: 1 }]);
+    expect(result.moves).toEqual([{ key: "plugin:registry", content: "y", generation: 1 }]);
   });
 
   it("only content counts — mtime-only changes are the same generation", () => {
     const state = step(initialAdoptState, "plugin:votes", "gen-a", 0).state;
     const restamped = advance(
       state,
-      [
-        observation("plugin:votes", {
-          container: { mtimeMs: 9_999, content: "gen-a" },
-          manifest: { mtimeMs: 9_999, content: "m-1" },
-        }),
-      ],
+      [observation("plugin:votes", fingerprint("gen-a", 9_999))],
       2_000,
     );
     expect(restamped.moves).toEqual([]);
-    expect(restamped.state.served.get("plugin:votes")?.fingerprint.container?.mtimeMs).toBe(9_999);
+    expect(restamped.state.served.get("plugin:votes")?.fingerprint.newestMtimeMs).toBe(9_999);
   });
 
   it("fingerprintContentOf distinguishes container and manifest content", () => {
-    expect(fingerprintContentOf(fingerprint("a", "m-1"))).toBe("a:m-1");
-    expect(fingerprintContentOf(fingerprint("a", "m-2"))).not.toBe(
-      fingerprintContentOf(fingerprint("a", "m-1")),
+    expect(fingerprintContentOf(fingerprint("digest-a"))).toBe("digest-a");
+    expect(fingerprintContentOf(fingerprint("digest-b"))).not.toBe(
+      fingerprintContentOf(fingerprint("digest-a")),
     );
     expect(fingerprintContentOf(null)).toBe("missing");
   });

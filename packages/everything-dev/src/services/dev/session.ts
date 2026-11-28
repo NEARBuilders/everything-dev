@@ -430,13 +430,7 @@ export const runDevSession = (
     const readinessDeadlineMs = deps.readinessDeadlineMs ?? null;
 
     const unitSpecFor = (pkg: string): UnitSpec => {
-      const descriptor = services.get(pkg);
-      if (!descriptor) {
-        console.error(
-          `[DEV-DEBUG] no descriptor for ${pkg} — services keys: ${[...services.keys()].join(", ")}`,
-        );
-        throw new Error(`no service descriptor for unit ${pkg}`);
-      }
+      const descriptor = services.get(pkg)!;
       const phase = pkg === "host" ? 2 : 1;
       const port =
         pkg === "host" && orchestrator.port

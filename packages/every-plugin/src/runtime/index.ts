@@ -289,12 +289,14 @@ export class PluginRuntime<R = RegisteredPlugins> {
   }
 
   /**
-   * Dev reload (issue #942): drop this plugin's loaded instance, purge its
-   * Module Federation container so the next load re-fetches the rebuilt
-   * bytes, and re-run the full load → instantiate → initialize → register
-   * pipeline against the SAME config. The old instance's lifecycle scope
-   * closes inside the eviction (Layer finalizers release DB pools and other
-   * scoped resources), so a reload leaks nothing.
+   * Dev reload (issue #942, ADR 0051): re-initialize this plugin from its
+   * rebuilt bytes without ever taking the old generation offline. The
+   * sequence is build-then-swap-then-release — the previous instance keeps
+   * serving (its scope stays open) while the fresh one loads whole; the
+   * caller swaps its serving seam right after this resolves, and only then
+   * is the previous instance's scope closed (Layer finalizers release DB
+   * pools and other scoped resources). A request either runs the old
+   * generation whole or the new one — never a half-reloaded state.
    *
    * Dev-only by contract: a production consumer has no reason to re-load a
    * plugin it already initialized — use it from the host's dev adopt loop,
@@ -306,7 +308,11 @@ export class PluginRuntime<R = RegisteredPlugins> {
     plugins?: Record<string, unknown>,
   ): Promise<UsePluginResult<K, R>> {
     const entry = this.registry[pluginId];
-    await this.evictPlugin(pluginId, config, plugins);
+    const cacheKey = this.generateCacheKey(pluginId, { ...config, __plugins: plugins ?? {} });
+    const previous = this.pluginCache.get(cacheKey);
+    this.pluginCache.delete(cacheKey);
+    this.routerCache.delete(cacheKey);
+
     const remoteUrl = entry && !("module" in entry) ? entry.remote : undefined;
     if (remoteUrl) {
       const purge = Effect.gen(function* () {
@@ -330,7 +336,24 @@ export class PluginRuntime<R = RegisteredPlugins> {
         throw error;
       });
     }
-    return this.usePlugin(pluginId, config, plugins);
+
+    const fresh = await this.usePlugin(pluginId, config, plugins);
+
+    if (previous) {
+      const release = Effect.gen(function* () {
+        const pluginService = yield* PluginService;
+        const previousResult = yield* Effect.tryPromise({
+          try: () => previous,
+          catch: (error) => toPluginRuntimeError(error, pluginId, undefined, "evict-plugin"),
+        }).pipe(Effect.orElseSucceed(() => null));
+        if (previousResult) {
+          yield* pluginService.shutdownPlugin(previousResult);
+        }
+      });
+      await this.runPromise(release).catch(() => {});
+    }
+
+    return fresh;
   }
 
   async evictPlugin<K extends keyof R & string>(
