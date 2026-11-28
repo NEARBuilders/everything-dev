@@ -1,7 +1,7 @@
 # Effect Schema contracts (oRPC + Standard Schema)
 
 How to migrate a plugin's `src/contract.ts` from Zod to Effect Schema — piloted by
-`plugins/registry` (ADR 0048 §2). The oRPC machinery is unchanged; only the schema library
+`plugins/registry` (ADR 0050 §2). The oRPC machinery is unchanged; only the schema library
 moves.
 
 ## The one pattern to know
