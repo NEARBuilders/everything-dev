@@ -277,6 +277,20 @@ export function setCatalogRef(
   return true;
 }
 
+/** Scripts retired from child trees: the changeset lever is root-only
+ * (#572), sync-catalog/init are parent-only, and the dev:postgres* trio died
+ * with docker-compose (ADR 0038, #802). */
+export const RETIRED_CHILD_SCRIPTS = [
+  "sync-catalog",
+  "init",
+  "changeset",
+  "version",
+  "release",
+  "dev:postgres",
+  "dev:postgres:down",
+  "dev:postgres:reset",
+] as const;
+
 export async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> {
   const root = findWorkspaceRoot(projectDir);
   if (!root) return [];
@@ -292,7 +306,10 @@ export async function findWorkspacePackageJsons(projectDir: string): Promise<str
   return [...new Set(pkgPaths)];
 }
 
-export async function migrateChildRootPackageJson(projectDir: string): Promise<boolean> {
+export async function migrateChildRootPackageJson(
+  projectDir: string,
+  log?: (message: string) => void,
+): Promise<boolean> {
   const config = (await readAuthoredConfigInput(projectDir)) as Record<string, unknown> | null;
   const pkgPath = join(workspaceDirOf(projectDir), "package.json");
   if (!config || !existsSync(pkgPath)) {
@@ -347,22 +364,10 @@ export async function migrateChildRootPackageJson(projectDir: string): Promise<b
   // #572: children lost changesets — the release lever lives in the root
   // runtime only. Existing children's scripts go on the next migration; their
   // release.yml/.changeset copies become unowned (delete at will).
-  for (const obsoleteScript of [
-    ...getParentOnlyScriptKeys(projectDir),
-    "sync-catalog",
-    "init",
-    "changeset",
-    "version",
-    "release",
-    // ADR 0038 retired docker-compose; children scaffolded before that still
-    // carry the dead dev:postgres* trio (issue #802) — they fail with "no
-    // configuration file provided" against the retired compose file.
-    "dev:postgres",
-    "dev:postgres:down",
-    "dev:postgres:reset",
-  ]) {
+  for (const obsoleteScript of [...getParentOnlyScriptKeys(projectDir), ...RETIRED_CHILD_SCRIPTS]) {
     if (obsoleteScript in scripts) {
       delete scripts[obsoleteScript];
+      log?.(`scrubbed scripts.${obsoleteScript} from package.json (retired on children — #572)`);
       changed = true;
     }
   }

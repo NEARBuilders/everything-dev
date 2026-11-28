@@ -170,16 +170,27 @@ describe("absorbLegacySnapshot — the upgrade migration leg", () => {
     expect(existsSync(path.join(dir, ".bos", "sync-snapshot.json"))).toBe(true);
   });
 
-  it("removes an unparseable legacy file instead of failing the migration", async () => {
-    const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
+  it("removes an unparseable legacy file beside a lock that already carries the baseline", async () => {
+    const lock = {
+      ...lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config }),
+      template: { syncedAt: "2026-11-09T00:00:00.000Z", files: { x: "hash-6" } },
+    };
     writeFileSync(path.join(dir, "bos.lock.json"), JSON.stringify(lock, null, 2));
     mkdirSync(path.join(dir, ".bos"), { recursive: true });
     writeFileSync(path.join(dir, ".bos", "sync-snapshot.json"), "{ not json");
 
     expect(await absorbLegacySnapshot(dir)).toBe("removed");
     expect(existsSync(path.join(dir, ".bos", "sync-snapshot.json"))).toBe(false);
-    const onDisk = parseLockfile(readFileSync(path.join(dir, "bos.lock.json"), "utf8"));
-    expect(onDisk.template).toBeUndefined();
+  });
+
+  it("keeps an unparseable legacy file when the lock carries no baseline — deletion is lock-verified", async () => {
+    const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    writeFileSync(path.join(dir, "bos.lock.json"), JSON.stringify(lock, null, 2));
+    mkdirSync(path.join(dir, ".bos"), { recursive: true });
+    writeFileSync(path.join(dir, ".bos", "sync-snapshot.json"), "{ not json");
+
+    expect(await absorbLegacySnapshot(dir)).toBeUndefined();
+    expect(existsSync(path.join(dir, ".bos", "sync-snapshot.json"))).toBe(true);
   });
 
   it("is undefined when there is nothing to absorb", async () => {

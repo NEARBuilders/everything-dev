@@ -77,18 +77,16 @@ export async function writeSnapshot(
 }
 
 /**
- * The upgrade migration leg: absorb a legacy `.bos/sync-snapshot.json` into
- * `bos.lock.json`'s `template.sync` and delete the file, so it stops
- * rewriting ~70 hash lines across long-lived branches and stops being
- * committed. "absorbed" — the lock gained the baseline (the repo's committed
- * artifact changes; `bos.lock.json` rides the migration report). "removed" —
- * a stale duplicate beside an already-absorbed lock, or an unparseable file.
- * undefined — nothing to do: no legacy file, or no lock (the legacy file
- * stays: it is still the only baseline).
+ * The read-only cleanup plan for the legacy snapshot file: the deletion only
+ * happens once the lock is verified to carry the baseline — either it
+ * already does (`template.sync` present), or the legacy file parses and the
+ * absorb writes it in first. An unparseable legacy file beside a lock
+ * without a baseline is left in place: deleting it would leave the repo
+ * with no baseline at all.
  */
-export async function absorbLegacySnapshot(
+export async function planLegacySnapshot(
   projectDir: string,
-): Promise<"absorbed" | "removed" | undefined> {
+): Promise<"absorb-and-delete" | "delete" | undefined> {
   const legacyPath = snapshotPath(projectDir);
   if (!existsSync(legacyPath)) return undefined;
 
@@ -102,15 +100,43 @@ export async function absorbLegacySnapshot(
   const lock = await readLockfileIfExists(projectDir);
   if (!lock) return undefined;
 
-  if (legacy && !lock.template) {
+  if (lock.template) return "delete";
+  return legacy ? "absorb-and-delete" : undefined;
+}
+
+/**
+ * The upgrade migration leg: absorb a legacy `.bos/sync-snapshot.json` into
+ * `bos.lock.json`'s `template.sync` and delete the file, so it stops
+ * rewriting ~70 hash lines across long-lived branches and stops being
+ * committed. Deletion is lock-verified (ADR 0047): "absorbed" — the lock
+ * gained the baseline (the repo's committed artifact changes;
+ * `bos.lock.json` rides the migration report). "removed" — a stale duplicate
+ * beside a lock that already carries the baseline. undefined — nothing to
+ * do: no legacy file, no lock (the legacy file stays: it is still the only
+ * baseline), or an unparseable legacy file beside a lock without a baseline.
+ */
+export async function absorbLegacySnapshot(
+  projectDir: string,
+  log?: (message: string) => void,
+): Promise<"absorbed" | "removed" | undefined> {
+  const plan = await planLegacySnapshot(projectDir);
+  if (!plan) return undefined;
+
+  const legacyPath = snapshotPath(projectDir);
+  if (plan === "absorb-and-delete") {
+    const legacy = JSON.parse(readFileSync(legacyPath, "utf-8")) as SyncSnapshot;
+    const lock = await readLockfileIfExists(projectDir);
+    if (!lock) return undefined;
     writeLockfileSync(
       { ...lock, template: { syncedAt: legacy.timestamp, files: legacy.files } },
       projectDir,
     );
     rmSync(legacyPath, { force: true });
+    log?.("absorbed .bos/sync-snapshot.json into bos.lock.json template.sync and deleted the file");
     return "absorbed";
   }
 
   rmSync(legacyPath, { force: true });
+  log?.("removed stale .bos/sync-snapshot.json — bos.lock.json already carries the baseline");
   return "removed";
 }
