@@ -305,71 +305,231 @@ async function isStaleMember(member: WorkspaceMember): Promise<boolean> {
   return isWorkspaceDistStale(member.dir, oracle);
 }
 
+export type StalenessOracleKind = "mtime" | "content-hash";
+
+/**
+ * Why a member was judged stale (#483). The mtime oracle reports input drift
+ * as input-hash-mismatch — it has no hashes, only newer-than-dist.
+ */
+export type StalenessReason =
+  | "no-cache-entry"
+  | "missing-dist"
+  | "input-hash-mismatch"
+  | "dist-hash-mismatch"
+  | `dependency-stale:${string}`;
+
+export interface StalenessVerdict {
+  readonly stale: boolean;
+  readonly reason: StalenessReason | null;
+  readonly oracle: StalenessOracleKind;
+}
+
 export interface StalenessOracle {
   isStale(member: WorkspaceMember): Promise<boolean>;
   /** Post-build hook (#430): hash oracles persist the member's input hash so
    * the next judgement can be fresh. Optional — the mtime oracle ignores it. */
   recordBuilt?(member: WorkspaceMember): Promise<void>;
+  /** Non-destructive explain (#483): verdict, stale reason, and the oracle
+   * kind in play. Optional — isStale stays the boolean contract. */
+  judge?(member: WorkspaceMember): Promise<StalenessVerdict>;
 }
 
 export const mtimeStalenessOracle: StalenessOracle = {
   isStale: isStaleMember,
+  judge: async (member) => {
+    const distEntry = distOracle(member.dir);
+    if (!distEntry) return { stale: false, reason: null, oracle: "mtime" };
+    if (!existsSync(join(member.dir, distEntry))) {
+      return { stale: true, reason: "missing-dist", oracle: "mtime" };
+    }
+    const stale = await isWorkspaceDistStale(member.dir, distEntry);
+    return { stale, reason: stale ? "input-hash-mismatch" : null, oracle: "mtime" };
+  },
 };
 
+/** Judge through the explain seam when the oracle has one (#483); an oracle
+ * without a judge falls back to the boolean path with best-effort fields. */
+export async function judgeStaleness(
+  oracle: StalenessOracle,
+  member: WorkspaceMember,
+): Promise<StalenessVerdict> {
+  if (oracle.judge) return oracle.judge(member);
+  const stale = await oracle.isStale(member);
+  return { stale, reason: stale ? "input-hash-mismatch" : null, oracle: "mtime" };
+}
+
 const HASH_SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".bos", ".turbo", ".next"]);
+
+type FileStatsManifest = Record<string, [number, number]>;
+
+async function walkFileStats(
+  dir: string,
+  prefix = "",
+  files: FileStatsManifest = {},
+): Promise<FileStatsManifest> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
+    if (HASH_SKIP_DIRS.has(entry.name)) continue;
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      await walkFileStats(join(dir, entry.name), relative, files);
+    } else {
+      const stats = await stat(join(dir, entry.name));
+      files[relative] = [stats.mtimeMs, stats.size];
+    }
+  }
+  return files;
+}
+
+function statsManifestEquals(recorded: FileStatsManifest, current: FileStatsManifest): boolean {
+  if (Object.keys(recorded).length !== Object.keys(current).length) return false;
+  for (const [relative, [mtimeMs, size]] of Object.entries(current)) {
+    const saved = recorded[relative];
+    if (!saved || saved[0] !== mtimeMs || saved[1] !== size) return false;
+  }
+  return true;
+}
 
 async function hashWorkspaceTree(
   dir: string,
   hash: ReturnType<typeof createHash>,
   prefix = "",
+  files?: FileStatsManifest,
 ): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
     if (HASH_SKIP_DIRS.has(entry.name)) continue;
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
-      await hashWorkspaceTree(join(dir, entry.name), hash, relative);
+      await hashWorkspaceTree(join(dir, entry.name), hash, relative, files);
     } else {
-      const content = await readFile(join(dir, entry.name));
+      const path = join(dir, entry.name);
       hash.update(relative);
-      hash.update(content);
+      hash.update(await readFile(path));
+      if (files) {
+        const stats = await stat(path);
+        files[relative] = [stats.mtimeMs, stats.size];
+      }
     }
   }
 }
 
-async function memberInputHash(
-  member: WorkspaceMember,
-  byName: Map<string, WorkspaceMember>,
-  memo: Map<string, Promise<string>>,
-  envKey: string,
-): Promise<string> {
-  const cached = memo.get(member.name);
-  if (cached) return cached;
-  const computed = (async () => {
-    const own = createHash("sha256");
-    await hashWorkspaceTree(member.dir, own);
-    const depHashes: string[] = [];
-    for (const dep of member.localDeps) {
-      const depMember = byName.get(dep);
-      if (depMember) {
-        depHashes.push(`${dep}:${await memberInputHash(depMember, byName, memo, envKey)}`);
-      }
-    }
-    own.update(envKey);
-    own.update(depHashes.sort().join("|"));
-    return own.digest("hex");
-  })();
-  memo.set(member.name, computed);
-  return computed;
+interface SelfHashResult {
+  selfHash: string;
+  files: FileStatsManifest;
+}
+
+async function computeSelfHash(member: WorkspaceMember, envKey: string): Promise<SelfHashResult> {
+  const hash = createHash("sha256");
+  const files: FileStatsManifest = {};
+  await hashWorkspaceTree(member.dir, hash, "", files);
+  hash.update(envKey);
+  return { selfHash: hash.digest("hex"), files };
+}
+
+function composeInputHash(selfHash: string, depEntries: readonly [string, string][]): string {
+  const hash = createHash("sha256");
+  hash.update(selfHash);
+  hash.update(
+    depEntries
+      .map(([dep, depHash]) => `${dep}:${depHash}`)
+      .sort()
+      .join("|"),
+  );
+  return hash.digest("hex");
+}
+
+interface DistOutputRecord {
+  entry: string;
+  hash: string;
+  anchorHash: string;
+  files: FileStatsManifest;
+}
+
+function distRootSegment(distEntry: string): string | null {
+  const normalized = distEntry.replace(/^\.\//, "");
+  const segments = normalized.split("/");
+  return segments.length > 1 ? (segments[0] ?? null) : null;
+}
+
+async function hashDistOutput(memberDir: string, distEntry: string): Promise<DistOutputRecord> {
+  const hash = createHash("sha256");
+  const files: FileStatsManifest = {};
+  const root = distRootSegment(distEntry);
+  if (root) {
+    await hashWorkspaceTree(join(memberDir, root), hash, root, files);
+  }
+  const normalized = distEntry.replace(/^\.\//, "");
+  hash.update(normalized);
+  const entryPath = join(memberDir, distEntry);
+  const entryBytes = await readFile(entryPath);
+  hash.update(entryBytes);
+  const entryStats = await stat(entryPath);
+  files[normalized] = [entryStats.mtimeMs, entryStats.size];
+  const anchorHash = createHash("sha256").update(entryBytes).digest("hex");
+  return { entry: distEntry, hash: hash.digest("hex"), anchorHash, files };
+}
+
+/**
+ * Dist integrity (#482): the entry file is the distOracle existence probe, so
+ * its bytes are re-verified on every judgement; siblings ride the stats fast
+ * path — identical stats trust the recorded hash (the same residual risk #481
+ * accepts for inputs).
+ */
+async function distIntegrityReason(
+  memberDir: string,
+  distEntry: string,
+  record: DistOutputRecord | undefined,
+): Promise<StalenessReason | null> {
+  if (!record) return "dist-hash-mismatch";
+  const anchor = createHash("sha256");
+  anchor.update(await readFile(join(memberDir, distEntry)));
+  if (anchor.digest("hex") !== record.anchorHash) return "dist-hash-mismatch";
+  const root = distRootSegment(distEntry);
+  if (!root) return null;
+  if (statsManifestEquals(record.files, await walkFileStats(join(memberDir, root), root))) {
+    return null;
+  }
+  const current = await hashDistOutput(memberDir, distEntry);
+  return current.hash === record.hash ? null : "dist-hash-mismatch";
+}
+
+interface BuildCacheEntry {
+  hash?: string;
+  selfHash?: string;
+  envKey?: string;
+  files?: FileStatsManifest;
+  deps?: Record<string, string>;
+  dist?: DistOutputRecord;
+}
+
+/**
+ * v2 cache shape (#481/#482): each member carries a per-file [mtimeMs, size]
+ * manifest so the next judgement can skip content reads, plus the dist output
+ * record. Pre-v2 flat caches fail the version gate wholesale instead of
+ * half-matching; bump only when the entry semantics change again.
+ */
+const BUILD_CACHE_VERSION = 2;
+
+interface BuildCacheFile {
+  version: number;
+  members: Record<string, BuildCacheEntry>;
 }
 
 /**
  * Content-hash staleness oracle (#430) — a Turborepo-style judgement: a
  * member is fresh when its recorded input hash (workspace tree + transitive
- * local-dependency hashes + build-mode env) matches and its dist entry still
- * exists. Anything unknown (no cache entry, unreadable tree, hash mismatch)
- * errs toward building. `recordBuilt` persists post-build so the next run
- * starts from truth; the cache lives at <workspaceRoot>/.bos/build-cache.json.
+ * local-dependency hashes + build-mode env) matches, its dist entry still
+ * exists, and the dist bytes still match the recorded output hash (#482).
+ * Anything unknown (no cache entry, unreadable tree, hash mismatch) errs
+ * toward building. `recordBuilt` persists post-build so the next run starts
+ * from truth; the cache lives at <workspaceRoot>/.bos/build-cache.json.
+ *
+ * #481 fast path: when the tree's [mtimeMs, size] stats match the entry's
+ * manifest, the recorded self hash is reused without reading file contents;
+ * any drift (changed/new/removed file) falls back to a full rehash. Dep
+ * hashes still compose transitively in the fast path — a dep's verdict feeds
+ * its dependents through the same memo.
  */
 export function contentHashStalenessOracle(
   rootDir: string,
@@ -379,15 +539,23 @@ export function contentHashStalenessOracle(
   const envKey = `${process.env.NODE_ENV ?? ""}|${process.env.DEPLOY ?? ""}`;
   const byName = new Map(members.map((member) => [member.name, member]));
 
-  const readCache = (): Record<string, { hash?: string }> => {
+  const readCache = (): BuildCacheFile => {
     try {
-      return JSON.parse(readFileSync(cachePath, "utf8")) as Record<string, { hash?: string }>;
+      const parsed = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<BuildCacheFile> | null;
+      if (
+        parsed?.version !== BUILD_CACHE_VERSION ||
+        typeof parsed.members !== "object" ||
+        parsed.members === null
+      ) {
+        return { version: BUILD_CACHE_VERSION, members: {} };
+      }
+      return { version: BUILD_CACHE_VERSION, members: parsed.members };
     } catch {
-      return {};
+      return { version: BUILD_CACHE_VERSION, members: {} };
     }
   };
 
-  const writeCache = (cache: Record<string, { hash?: string }>) => {
+  const writeCache = (cache: BuildCacheFile) => {
     try {
       mkdirSync(join(rootDir, ".bos"), { recursive: true });
       writeFileSync(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
@@ -396,27 +564,120 @@ export function contentHashStalenessOracle(
     }
   };
 
+  interface MemberJudgement {
+    verdict: StalenessVerdict;
+    inputHash: string;
+  }
+
+  const createJudgementPass = (cache: Record<string, BuildCacheEntry>) => {
+    // Fresh memo per pass: a previous pass's hashes must not leak — the tree
+    // may have changed since.
+    const memo = new Map<string, Promise<MemberJudgement>>();
+
+    const resolveSelfHash = async (
+      member: WorkspaceMember,
+      entry: BuildCacheEntry | undefined,
+    ): Promise<string> => {
+      if (entry?.selfHash && entry.envKey === envKey && entry.files) {
+        if (statsManifestEquals(entry.files, await walkFileStats(member.dir))) {
+          return entry.selfHash;
+        }
+      }
+      return (await computeSelfHash(member, envKey)).selfHash;
+    };
+
+    const judgeVerdict = async (
+      member: WorkspaceMember,
+      entry: BuildCacheEntry | undefined,
+      depEntries: readonly [string, string][],
+      inputHash: string,
+    ): Promise<StalenessVerdict> => {
+      const distEntry = distOracle(member.dir);
+      if (!distEntry || !existsSync(join(member.dir, distEntry))) {
+        return { stale: true, reason: "missing-dist", oracle: "content-hash" };
+      }
+      if (!entry?.hash) {
+        return { stale: true, reason: "no-cache-entry", oracle: "content-hash" };
+      }
+      for (const [dep, depHash] of depEntries) {
+        if (entry.deps?.[dep] !== depHash) {
+          return { stale: true, reason: `dependency-stale:${dep}`, oracle: "content-hash" };
+        }
+      }
+      if (entry.hash !== inputHash) {
+        return { stale: true, reason: "input-hash-mismatch", oracle: "content-hash" };
+      }
+      const distReason = await distIntegrityReason(member.dir, distEntry, entry.dist);
+      if (distReason) return { stale: true, reason: distReason, oracle: "content-hash" };
+      return { stale: false, reason: null, oracle: "content-hash" };
+    };
+
+    const judgeMember = (member: WorkspaceMember): Promise<MemberJudgement> => {
+      const cached = memo.get(member.name);
+      if (cached) return cached;
+      const computed = (async (): Promise<MemberJudgement> => {
+        const entry = cache[member.name];
+        const depEntries: [string, string][] = [];
+        for (const dep of member.localDeps) {
+          const depMember = byName.get(dep);
+          if (!depMember) continue;
+          depEntries.push([dep, (await judgeMember(depMember)).inputHash]);
+        }
+        const selfHash = await resolveSelfHash(member, entry);
+        const inputHash = composeInputHash(selfHash, depEntries);
+        return { verdict: await judgeVerdict(member, entry, depEntries, inputHash), inputHash };
+      })();
+      memo.set(member.name, computed);
+      return computed;
+    };
+
+    return judgeMember;
+  };
+
+  const judge = async (member: WorkspaceMember): Promise<StalenessVerdict> => {
+    try {
+      const judgeMember = createJudgementPass(readCache().members);
+      return (await judgeMember(member)).verdict;
+    } catch {
+      // Unreadable state (missing tree, unparsable cache) judges stale; the
+      // reason is best-effort — explain must never crash the caller.
+      return { stale: true, reason: "input-hash-mismatch", oracle: "content-hash" };
+    }
+  };
+
   return {
+    judge,
     isStale: async (member) => {
       try {
-        const distEntry = distOracle(member.dir);
-        if (!distEntry) return true;
-        if (!existsSync(join(member.dir, distEntry))) return true;
-        // Fresh memo per judgement: a previous call's hashes must not leak —
-        // the tree may have changed since.
-        const memo = new Map<string, Promise<string>>();
-        const current = await memberInputHash(member, byName, memo, envKey);
-        return readCache()[member.name]?.hash !== current;
+        return (await judge(member)).stale;
       } catch {
         return true;
       }
     },
     recordBuilt: async (member) => {
       try {
-        const memo = new Map<string, Promise<string>>();
-        const current = await memberInputHash(member, byName, memo, envKey);
         const cache = readCache();
-        cache[member.name] = { hash: current };
+        const judgeMember = createJudgementPass(cache.members);
+        const depEntries: [string, string][] = [];
+        for (const dep of member.localDeps) {
+          const depMember = byName.get(dep);
+          if (!depMember) continue;
+          depEntries.push([dep, (await judgeMember(depMember)).inputHash]);
+        }
+        const { selfHash, files } = await computeSelfHash(member, envKey);
+        const distEntry = distOracle(member.dir);
+        const dist =
+          distEntry && existsSync(join(member.dir, distEntry))
+            ? await hashDistOutput(member.dir, distEntry)
+            : undefined;
+        cache.members[member.name] = {
+          hash: composeInputHash(selfHash, depEntries),
+          selfHash,
+          envKey,
+          files,
+          deps: Object.fromEntries(depEntries),
+          ...(dist ? { dist } : {}),
+        };
         writeCache(cache);
       } catch {
         // A failed recording costs a rebuild next run — never fail the build.

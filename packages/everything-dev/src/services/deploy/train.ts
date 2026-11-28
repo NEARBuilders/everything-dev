@@ -538,6 +538,7 @@ export async function runPublishTrain(
         targets,
         deploy: true,
         verbose: input.verbose,
+        dryRun: input.dryRun,
         ...(input.forceBuild ? { forceBuild: true } : {}),
       },
       {

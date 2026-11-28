@@ -97,6 +97,12 @@ export const BuildOptionsSchema = z.object({
     .describe(
       "Allow pre-Phase-A snapshots without verifiable manifest pins (their bytes were overwritten in place)",
     ),
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Report staleness verdicts for every member in the prerequisite closure without building (exit 0 regardless of verdicts)",
+    ),
 });
 
 export const BuildResultSchema = z.object({

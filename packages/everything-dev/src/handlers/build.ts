@@ -82,6 +82,7 @@ export function registerBuild(builder: BosBuilder) {
         runtimeConfig,
         targets,
         deploy: false,
+        dryRun: input.dryRun,
       };
       const { built, skipped } = yield* Effect.tryPromise({
         try: () => train.buildTargets(buildInput),
@@ -92,6 +93,10 @@ export function registerBuild(builder: BosBuilder) {
           skipped: [],
         }),
       });
+
+      if (input.dryRun) {
+        return { status: "success" as const, built: [], skipped };
+      }
 
       if (built.length === 0) {
         return {
