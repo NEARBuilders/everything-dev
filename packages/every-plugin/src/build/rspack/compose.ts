@@ -20,15 +20,26 @@ class EveryPluginComposedBuild implements RspackPluginInstance {
 export interface PluginBaseConfigOptions {
   drizzle?: boolean;
   externals?: string[];
-  /** Concrete rspack fields to merge over the defaults (devtool, infrastructureLogging, ...). */
+  extraPlugins?: unknown[];
+  content?: false;
+  cwd?: string;
   rspack?: Partial<PluginBaseConfig>;
 }
 
 const pluginRequire = createRequire(import.meta.url);
 
-/** Config filenames that mark a project root, nearest-first. Authored
- * descriptor projects (the platform) carry bos.app.ts; generated child
- * projects carry bos.config.json. */
+function loadContentCompiler(): (new (options?: { cwd?: string }) => unknown) | null {
+  for (const request of ["./content", "./content.cjs", "./content.ts"]) {
+    try {
+      const mod = pluginRequire(request) as {
+        ContentCompilerPlugin?: new (options?: { cwd?: string }) => unknown;
+      };
+      if (mod.ContentCompilerPlugin) return mod.ContentCompilerPlugin;
+    } catch {}
+  }
+  return null;
+}
+
 const CONFIG_FILENAMES = ["bos.config.json", "bos.app.ts"] as const;
 
 export function findBosConfigPath(from: string = process.cwd()): string | null {
@@ -63,7 +74,18 @@ export interface PluginBaseConfig {
 
 export function createPluginBaseConfig(options: PluginBaseConfigOptions = {}): PluginBaseConfig {
   const shouldDeploy = process.env.DEPLOY === "true";
+  const workspace = options.cwd ?? process.cwd();
   const plugins: unknown[] = [new EveryPluginComposedBuild(false)];
+
+  if (options.content !== false && fs.existsSync(path.join(workspace, "velite.config.ts"))) {
+    const ContentCompilerPlugin = loadContentCompiler();
+    if (!ContentCompilerPlugin) {
+      throw new Error(
+        `createPluginBaseConfig: "${workspace}" declares velite.config.ts but the content compiler could not be loaded — reinstall every-plugin or set content: false to wire it by hand`,
+      );
+    }
+    plugins.push(new ContentCompilerPlugin({ cwd: workspace }));
+  }
 
   if (options.drizzle !== false) {
     const drizzlePlugin = loadDrizzleMigrationsPlugin();
@@ -80,7 +102,7 @@ export function createPluginBaseConfig(options: PluginBaseConfigOptions = {}): P
     ...options.rspack,
     externals: options.externals ?? options.rspack?.externals ?? ["pg", "@electric-sql/pglite"],
     devtool: options.rspack?.devtool ?? (shouldDeploy ? false : "source-map"),
-    plugins,
+    plugins: [...plugins, ...(options.extraPlugins ?? [])],
     infrastructureLogging: options.rspack?.infrastructureLogging ?? { level: "error" },
     stats: options.rspack?.stats ?? "errors-warnings",
   };

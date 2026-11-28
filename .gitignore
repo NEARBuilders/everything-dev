@@ -354,6 +354,9 @@ node_modules/.federation
 # every-plugin synthesized build config
 .every-plugin/
 
+# velite content output (compiled by the docs plugin's rspack build)
+plugins/docs/.velite/
+
 # vendored Effect source (local clone restored by `bun run prepare`; see AGENTS.md)
 repos/
 

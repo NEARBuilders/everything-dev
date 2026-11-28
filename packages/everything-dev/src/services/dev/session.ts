@@ -148,6 +148,12 @@ export interface DevSessionDeps {
   restartBackoffMs?: number;
 }
 
+const envReadinessDeadlineMs = (): number | null => {
+  const raw = getProcessEnv("BOS_READINESS_DEADLINE_MS");
+  const parsed = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
 export const runDevSession = (
   configDir: string,
   orchestrator: AppOrchestrator,
@@ -427,7 +433,7 @@ export const runDevSession = (
     onSessionReady?.(sessionHandle);
 
     const supervisor = yield* Supervisor;
-    const readinessDeadlineMs = deps.readinessDeadlineMs ?? null;
+    const readinessDeadlineMs = deps.readinessDeadlineMs ?? envReadinessDeadlineMs();
 
     const unitSpecFor = (pkg: string): UnitSpec => {
       const descriptor = services.get(pkg)!;

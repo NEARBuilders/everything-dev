@@ -45,6 +45,10 @@ test.describe("SSR compose", () => {
     // 'ai' legitimately composes too when its manifest loads.
     expect(manifestNames.has("ui"), "payload must embed the core ui manifest").toBe(true);
     expect(manifestNames.has("auth"), "payload must embed the auth manifest").toBe(true);
+    expect(
+      [...manifestNames].some((name) => name.includes("docs")),
+      "payload must embed the docs plugin-ui manifest",
+    ).toBe(true);
     // Dev stacks serve the fixed dev entry; pinned (start) stacks serve the
     // content-hashed entry derived from the slot's version manifest.
     expect(authRemote?.entry, "auth remote must point at a remoteEntry").toMatch(

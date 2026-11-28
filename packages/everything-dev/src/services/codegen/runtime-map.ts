@@ -471,6 +471,7 @@ export interface PluginManifestAsset {
   kind: string;
   plugin?: { name?: string; version?: string };
   contract?: { types?: { sha256?: string } };
+  docs?: { dir?: string };
 }
 
 export interface BackendRecord {
@@ -527,6 +528,9 @@ export const RUNTIME_SOURCES = ${json(map.sources)} as const;
 export const RUNTIME_BACKENDS = ${json(map.backends)} as const;
 export type RuntimeBackend = (typeof RUNTIME_BACKENDS)[number];
 
+export const RUNTIME_CONTENT_SOURCES = ${json(map.content)} as const;
+export type RuntimeContentSource = (typeof RUNTIME_CONTENT_SOURCES)[number];
+
 /** Routes owned by a plugin/remote ui source (not the core). */
 export const REMOTE_ROUTES = ${json(remoteRoutes)} as const;
 export type RemoteRoute = (typeof REMOTE_ROUTES)[number];
@@ -555,6 +559,7 @@ interface GeneratedRuntimeMap {
     note: string | null;
   }>;
   backends: BackendRecord[];
+  content: ContentSourceRecord[];
   unresolved: UnresolvedSource[];
   mounts: ComposedRuntimeMap["mounts"];
   routes: ComposedRuntimeMap["routes"];
@@ -567,6 +572,14 @@ interface GeneratedRuntimeMap {
      * explainer telling the truth about a stale lockfile. */
     drift: Array<{ key: string; kind: string; serving: string | null; frozen: string | null }>;
   };
+}
+
+export interface ContentSourceRecord {
+  name: string;
+  mount: string;
+  source: "local" | "remote";
+  location: string;
+  declaredByManifest?: true;
 }
 
 /** The lockfile's dotted config path for a map source key (ui sources). */
@@ -680,6 +693,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   // Backend inventory (#594 review): the auth mirror dedupes against the
   // auth app remote's backend (same source, same key collision rule). Effect
   // generators cannot await — the fetch loop runs inside the promise.
+  const backendManifestAssets = new Map<string, PluginManifestAsset>();
   const described: Array<BackendRecord | null> = [
     describeBackend(configDir, "host", "host", runtimeConfig.host),
     describeBackend(configDir, "api", "api", runtimeConfig.api),
@@ -697,6 +711,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
         if (backend.pluginManifestUrl) {
           try {
             const asset = await fetchPluginManifestAsset(backend.pluginManifestUrl);
+            backendManifestAssets.set(backend.key, asset);
             collected.push({
               ...backend,
               pluginVersion: asset.plugin?.version,
@@ -715,6 +730,36 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
     },
     catch: (cause) => new RuntimeMapError({ message: String(cause) }),
   });
+
+  const content: ContentSourceRecord[] = [];
+  if (existsSync(join(configDir, "docs"))) {
+    content.push({ name: "app", mount: "/", source: "local", location: "docs" });
+  }
+  for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
+    if (plugin?.source !== "local" || !plugin.localPath) continue;
+    if (!existsSync(join(plugin.localPath, "docs"))) continue;
+    content.push({
+      name: key,
+      mount: `plugins/${key}`,
+      source: "local",
+      location:
+        plugin.localPath.startsWith(configDir) === true
+          ? plugin.localPath.slice(configDir.length + 1).replace(/\\/g, "/")
+          : plugin.localPath,
+    });
+  }
+  for (const backend of backends) {
+    if (backend.source !== "remote" || backend.kind !== "plugin") continue;
+    const asset = backendManifestAssets.get(backend.key);
+    if (!asset?.docs?.dir) continue;
+    content.push({
+      name: backend.key,
+      mount: `plugins/${backend.key}`,
+      source: "remote",
+      location: backend.location,
+      declaredByManifest: true,
+    });
+  }
 
   if (sources.length === 0 && unresolved.length === 0 && backends.length === 0) return null;
 
@@ -754,6 +799,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
       note: source.note ?? null,
     })),
     backends,
+    content,
     unresolved,
     mounts: composed.mounts,
     routes: composed.routes,

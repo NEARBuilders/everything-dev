@@ -96,6 +96,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+        with:
+          # Full history so the comment budget can attribute unbaselined files
+          # to the PR surface: the pull_request merge ref's first parent (main)
+          # must be diffable, and a shallow clone would make the ratchet
+          # hard-fail on files the base branch added.
+          fetch-depth: 0
 
       - name: Guard — no stray bun artifacts
         run: |
@@ -179,6 +185,9 @@ jobs:
 
       - name: Run Effect lint (oxlint, type-aware)
         run: pnpm run lint:effect
+
+      - name: Enforce the comment budget
+        run: pnpm run lint:comments
 
       - name: Check agent skills lock
         run: pnpm run skills:check

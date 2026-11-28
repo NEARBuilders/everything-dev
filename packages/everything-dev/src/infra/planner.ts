@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { Clock, Effect } from "effect";
 import {
   type AuthRemoteShape,
