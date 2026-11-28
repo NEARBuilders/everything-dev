@@ -10,6 +10,9 @@ export type UnitPayload =
       readonly args: readonly string[];
       readonly cwd: string;
       readonly port: number;
+      /** The service descriptor's env overlay (BOS_DEV_SERVER, BOS_UI_PORT,
+       * NODE_OPTIONS) — the generated infra env is applied separately. */
+      readonly env?: Record<string, string>;
     }
   | { readonly _tag: "host-module"; readonly remoteUrl: string; readonly port: number }
   | { readonly _tag: "probe"; readonly url: string };

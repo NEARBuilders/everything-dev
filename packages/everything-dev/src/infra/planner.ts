@@ -5,6 +5,7 @@ import {
   type AuthRemoteShape,
   buildDescription,
   isAuthMirrorPluginEntry,
+  isFolderFormUiSource,
 } from "../services/dev/service-descriptor";
 import { loadPortState, savePortState } from "../services/infra";
 import type { RuntimeConfig } from "../types";
@@ -301,7 +302,11 @@ export function buildServiceDescriptors(
           localPath: undefined,
         });
       }
-      if (p?.ui && pluginCfg.ui?.source === "local") {
+      if (
+        p?.ui &&
+        pluginCfg.ui?.source === "local" &&
+        !isFolderFormUiSource(pluginCfg.ui.localPath)
+      ) {
         descriptors.push({
           key: `plugin-ui:${pluginId}`,
           source: "local",

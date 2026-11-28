@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type BuildTargetsDeps,
   buildWorkspaceTargets,
+  trainBuildEnv,
   type WorkspaceBuildOutcome,
   type WorkspaceBuildRender,
 } from "../../src/services/workspace/build-train";
@@ -385,6 +386,46 @@ function makeRealTargetRoot(): string {
   tmpRoots.push(root);
   return root;
 }
+
+describe("trainBuildEnv (#940)", () => {
+  const ambient = {
+    BOS_SSR: "1",
+    BOS_DEV_SERVER: "1",
+    DEPLOY: "true",
+    PATH: "/bin",
+  };
+
+  it("a dev-shape train build strips BOS_SSR and DEPLOY, keeps the dev-server escape hatch", () => {
+    const env = trainBuildEnv({ configDir, deploy: false }, ambient);
+    expect(env.NODE_ENV).toBe("development");
+    expect(env.BOS_SSR).toBeUndefined();
+    expect(env.DEPLOY).toBeUndefined();
+    expect(env.BOS_DEV_SERVER).toBe("1");
+    expect(env.MF_BUILD_VERSION).toBeUndefined();
+  });
+
+  it("a deploy train build stamps production shape without the dev-session SSR flag", () => {
+    const root = mkdtempSync(join(tmpdir(), "train-env-"));
+    tmpRoots.push(root);
+    writeFileSync(join(root, "package.json"), "{}\n");
+    mkdirSync(join(root, "node_modules", "everything-dev"), { recursive: true });
+    writeFileSync(
+      join(root, "node_modules", "everything-dev", "package.json"),
+      `${JSON.stringify({ name: "everything-dev", version: "2.0.0-rc.18" })}\n`,
+    );
+
+    const env = trainBuildEnv({ configDir: root, deploy: true }, ambient);
+    expect(env.NODE_ENV).toBe("production");
+    expect(env.DEPLOY).toBe("true");
+    expect(env.BOS_SSR).toBeUndefined();
+    expect(env.MF_BUILD_VERSION).toBe("2.0.0-rc.18");
+  });
+
+  it("deploy without an installed framework version carries no MF_BUILD_VERSION", () => {
+    const env = trainBuildEnv({ configDir, deploy: true }, { PATH: "/bin" });
+    expect(env.MF_BUILD_VERSION).toBeUndefined();
+  });
+});
 
 describe("BuildTrainService", () => {
   it("Live resolves the composition-provided render through the context", async () => {

@@ -71,6 +71,39 @@ func DevShapeRebuildUi(t *testing.T) {
 	}
 }
 
+// PlainTrainBuildUi runs the plain build train scoped to the ui target —
+// `pnpm run build ui` from the repo root, the repro shape from the issue:
+// NO BOS_SSR and NO BOS_DEV_SERVER in the child env (both are stripped even
+// if the operator's shell carries them, pinning the exact scenario under
+// test). It returns an error instead of Fatal so it can run in a goroutine
+// while the harness polls the serving stack.
+func PlainTrainBuildUi() error {
+	cmd := exec.Command("pnpm", "run", "build", "ui")
+	cmd.Dir = RepoRoot()
+	env := []string{}
+	for _, entry := range os.Environ() {
+		if strings.HasPrefix(entry, "BOS_SSR=") || strings.HasPrefix(entry, "BOS_DEV_SERVER=") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	cmd.Env = env
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("plain train ui build failed: %w\n%s", err, tailString(out.String(), 4000))
+	}
+	return nil
+}
+
+// UiSsrContainerPath is the dev SSR container artifact a running dev:ssr
+// stack serves through the host's loopback dist server.
+func UiSsrContainerPath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(RepoRoot(), "ui", "dist", "ssr", "remoteEntry.server.js")
+}
+
 // newestModTimeUnder walks root and returns the newest file mtime under it.
 func newestModTimeUnder(root string) (time.Time, error) {
 	var newest time.Time

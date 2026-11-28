@@ -296,7 +296,10 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
 
     const services = buildServiceDescriptorMapFromPlan(plan, { ssr, proxy });
 
-    const packages = [...plan.serviceDescriptors.keys()];
+    // The unit list is the spawnable set — the session looks every unit up in
+    // this map (`unitSpecFor`), so the planner's phantom keys (folder-form
+    // plugin ui, which the plugin's own process builds) must never ride.
+    const packages = [...services.keys()];
     if (isDebug(getProcessEnv("DEBUG"))) {
       yield* Effect.logError(`[DEBUG dev] services keys: ${packages.join(", ")}`);
     }

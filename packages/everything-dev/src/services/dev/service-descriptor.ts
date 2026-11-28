@@ -118,6 +118,19 @@ const SERVICE_CONFIGS = {
   Pick<ServiceDescriptor, "command" | "args" | "env" | "defaultPort" | "readinessPath">
 >;
 
+/**
+ * A folder-form plugin ui source (src/routes but no own package.json) is
+ * built by its plugin's dev process child (BOS_UI_PORT) — it never spawns
+ * its own service unit.
+ */
+export function isFolderFormUiSource(uiLocalPath: string | undefined): boolean {
+  return Boolean(
+    uiLocalPath &&
+      existsSync(path.join(uiLocalPath, "src", "routes")) &&
+      !existsSync(path.join(uiLocalPath, "package.json")),
+  );
+}
+
 export function buildServiceDescriptorMap(
   runtimeConfig: RuntimeConfig,
   options?: { ssr?: boolean; proxy?: boolean },
@@ -211,12 +224,8 @@ export function buildServiceDescriptorMap(
       // (no own package.json) — `every-plugin dev` spawns its UI build as a
       // child (BOS_UI_PORT), so no separate plugin-ui service is spawned.
       const uiLocalPath = pluginConfig.ui?.localPath;
-      const isFolderFormUi = Boolean(
-        uiLocalPath &&
-          pluginConfig.ui?.source === "local" &&
-          existsSync(path.join(uiLocalPath, "src", "routes")) &&
-          !existsSync(path.join(uiLocalPath, "package.json")),
-      );
+      const isFolderFormUi =
+        pluginConfig.ui?.source === "local" && isFolderFormUiSource(uiLocalPath);
       const folderUiPort = pluginConfig.ui?.port ?? pluginBasePort;
       if (isFolderFormUi) pluginBasePort = folderUiPort + 1;
 
