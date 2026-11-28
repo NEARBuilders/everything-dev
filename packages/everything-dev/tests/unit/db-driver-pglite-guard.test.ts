@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
@@ -93,5 +93,37 @@ describe("pglite double-open guard (ADR 0044)", () => {
     await b.db.execute(sql`SELECT 1`);
     await a.close();
     await b.close();
+  });
+});
+
+describe("pglite data dir Postgres-major diagnosis (ADR 0044)", () => {
+  it("names both Postgres majors when a persistent data dir cannot open, and frees the dir for a retry", async () => {
+    const dir = join(tempDir("everything-dev-pglite-major-"), "old");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "PG_VERSION"), "16\n");
+    const { PGlite } = await import("@electric-sql/pglite");
+    const probe = new PGlite();
+    await probe.waitReady;
+    const runningMajor = String(
+      (await probe.query("SHOW server_version")).rows[0]?.server_version,
+    ).split(".")[0];
+    await probe.close();
+
+    const open = (): Promise<unknown> =>
+      createDatabaseDriver(`pglite:${dir}`, {}, undefined).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    const failure = await open();
+
+    expect(failure).toBeInstanceOf(Error);
+    const error = failure as Error;
+    expect(error.message).toContain(`"${dir}"`);
+    expect(error.message).toContain("initialized by PostgreSQL 16");
+    expect(error.message).toContain(`runs PostgreSQL ${runningMajor}`);
+    expect(error.cause).toBeInstanceOf(Error);
+
+    const retry: unknown = await open();
+    expect((retry as Error).message).toContain("initialized by PostgreSQL 16");
   });
 });
