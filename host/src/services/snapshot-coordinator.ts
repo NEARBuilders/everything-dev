@@ -7,7 +7,7 @@ import {
 import { remoteDigests } from "everything-dev/digest";
 import { resolveMergedConfigInput } from "everything-dev/resolution";
 import { bootSnapshotOf, writeBootSnapshot } from "everything-dev/snapshot";
-import type { BosConfig, BosConfigInput } from "everything-dev/types";
+import type { BosConfig, BosConfigInput, RuntimeConfig } from "everything-dev/types";
 import { formatChainFailures, verifyChain } from "everything-dev/verify";
 import { logger } from "../utils/logger";
 import { FederationContainers } from "./federation/containers";
@@ -79,9 +79,10 @@ const bootFrozenRestartRemotes = (
  * Persist the approved snapshot (ADR 0041): one writer seam — every verified
  * generation is stamped to disk so a restart can serve it during a
  * registry/CDN outage. Non-fatal: a snapshot-write failure must never fail
- * the adopt.
+ * the adopt. Shared with the reconciler, which persists the held generation
+ * it verified before committing the replacement.
  */
-const persistBootSnapshot = (resolvedPointer: BosConfig) =>
+export const persistBootSnapshot = (resolvedPointer: BosConfig) =>
   Effect.tryPromise(async () => {
     if (!resolvedPointer.domain) {
       throw new Error(`resolved pointer for ${resolvedPointer.account} has no domain`);
@@ -250,6 +251,48 @@ export const adoptPublishedPointer = Effect.fn("SnapshotCoordinator.adopt")(func
 });
 
 /**
+ * Verify a published pointer WITHOUT adopting it — the reconciler's
+ * pre-replacement check (issue #941): the same derive pipeline the adopt
+ * runs (extends-walk → runtime config) plus the chain walk over the pinned
+ * entries, and none of the effects (no compose, no swap, no snapshot
+ * write). The held generation only earns an instance replacement once this
+ * passes — a broken publish defers forever and the coherent old pair keeps
+ * serving. Returns the resolved pointer (the approved snapshot's input) and
+ * the derived config (whose digest is the replacement's target identity).
+ */
+export const verifyPublishedPointer = Effect.fn("SnapshotCoordinator.verify")(function* (input: {
+  publishedConfig: BosConfig;
+  baseDir?: string;
+}): Effect.fn.Return<{ resolved: BosConfig; config: RuntimeConfig }, SnapshotAdoptError> {
+  const baseDir = input.baseDir ?? process.cwd();
+  const resolved = yield* Effect.tryPromise(() =>
+    resolvePointerConfig(input.publishedConfig, baseDir),
+  ).pipe(Effect.catch((cause) => adoptFailure("deriving the published pointer failed", cause)));
+
+  const config = yield* buildRuntimeConfigEffect(resolved, baseDir, "production").pipe(
+    Effect.catch((cause) => adoptFailure("deriving the published pointer failed", cause)),
+  );
+
+  const chain = yield* Effect.tryPromise(() =>
+    verifyChain({
+      config: resolved as unknown as BosConfigInput,
+      depth: "entries",
+    }),
+  ).pipe(
+    Effect.catch((cause) =>
+      adoptFailure("the candidate composition failed chain verification", cause),
+    ),
+  );
+  if (!chain.ok) {
+    return yield* adoptFailure(
+      "the candidate composition failed chain verification",
+      new Error(formatChainFailures(chain)),
+    );
+  }
+  return { resolved, config };
+});
+
+/**
  * Service seam over the transaction: resolves the published pointer against
  * the snapshot (the watch fiber's tick and admin re-adopts call this).
  * `pendingRestart` is the coherence guard's ledger — the boot-frozen remotes
@@ -266,6 +309,11 @@ export class SnapshotCoordinator extends Context.Service<
       SnapshotAdoptError
     >;
     readonly pendingRestart: Effect.Effect<readonly string[]>;
+    /** The consumer's ack (the reconciler, issue #941): the held generation's
+     * replacement is committed, so a restart is no longer owed — the ledger
+     * clears and /health stops reporting `pendingRestart`. The next held
+     * adopt re-arms it. */
+    readonly clearPendingRestart: Effect.Effect<void>;
   }
 >()("host/SnapshotCoordinator") {
   static readonly layer = Layer.effect(
@@ -287,6 +335,7 @@ export class SnapshotCoordinator extends Context.Service<
             Effect.provideService(FederationLoader, loader),
           ),
         pendingRestart: Ref.get(pendingRestartRef),
+        clearPendingRestart: Ref.set(pendingRestartRef, []),
       });
     }),
   ).pipe(Layer.provide(FederationLoader.layer), Layer.provide(FederationContainers.layer));
