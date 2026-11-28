@@ -30,6 +30,7 @@ export function registerDb(builder: BosBuilder) {
           slug: "",
           journalTable: "",
           journalSchema: "",
+          dataSchema: "",
           diagnosis: "error",
           localMigrationCount: 0,
           appliedHashCount: 0,

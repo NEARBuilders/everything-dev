@@ -1,7 +1,17 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PGlite } from "@electric-sql/pglite";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DatabaseBinding, DatabaseBindingsService } from "../../src/db/bindings";
@@ -9,6 +19,7 @@ import { DatabaseBindings, makeDatabaseBindings } from "../../src/db/bindings";
 import type { DrizzleKitService } from "../../src/db/drizzle-kit";
 import { DrizzleKit, makeDrizzleKitLive } from "../../src/db/drizzle-kit";
 import { workspaceIdentityFromWorkspaceDir } from "../../src/db/identity";
+import { diagnosePlugin, type SqlExecutor } from "../../src/services/db/doctor";
 import type { RuntimeConfig } from "../../src/types";
 
 const cleanups: Array<() => void> = [];
@@ -253,5 +264,139 @@ describe("npx shim mechanism", () => {
     });
 
     expect(readFileSync(outFile, "utf-8")).toBe("x");
+  });
+});
+
+const DOCTOR_MIGRATION_SQL = 'CREATE TABLE IF NOT EXISTS "builders" (id int);\n';
+
+function doctorMigrationHash(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+/** A fake plugin workspace with a real src/db/migrations layout for the doctor to read. */
+function doctorWorkspace(name: string, withSqlFile: boolean): string {
+  const dir = mkdtempSync(join(tmpdir(), "everything-dev-doctor-"));
+  writeFileSync(join(dir, "package.json"), `${JSON.stringify({ name })}\n`);
+  const migrationsDir = join(dir, "src", "db", "migrations");
+  mkdirSync(join(migrationsDir, "meta"), { recursive: true });
+  writeFileSync(
+    join(migrationsDir, "meta", "_journal.json"),
+    JSON.stringify({
+      entries: [{ idx: 0, when: 1_700_000_000_000, tag: "0001_init" }],
+    }),
+  );
+  if (withSqlFile) {
+    writeFileSync(join(migrationsDir, "0001_init.sql"), DOCTOR_MIGRATION_SQL);
+  }
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+function doctorBinding(opts: {
+  section: DatabaseBinding["section"];
+  key: string;
+  slug: string;
+  workspaceDir: string;
+  journal?: { schema: string; table: string };
+}): DatabaseBinding {
+  return {
+    key: opts.key,
+    source: "local",
+    section: opts.section,
+    identity: {
+      slug: opts.slug,
+      secretName: "TEST_DATABASE_URL",
+      journal: opts.journal ?? {
+        schema: "drizzle",
+        table: `__drizzle_migrations_${opts.slug}`,
+        slug: opts.slug,
+      },
+      workspaceDir: opts.workspaceDir,
+    },
+    url: "postgres://u:p@localhost:5432/unused_by_executor",
+  };
+}
+
+function pgliteExecutor(pglite: PGlite): SqlExecutor {
+  return {
+    query: async (text, params) => {
+      const result = await pglite.query(text, params as never[]);
+      return { rows: result.rows as Record<string, unknown>[] };
+    },
+  };
+}
+
+async function seedJournalRows(
+  pglite: PGlite,
+  coords: { schema: string; table: string },
+  hashes: string[],
+): Promise<void> {
+  await pglite.exec(`CREATE SCHEMA IF NOT EXISTS "${coords.schema}"`);
+  await pglite.exec(
+    `CREATE TABLE "${coords.schema}"."${coords.table}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
+  );
+  for (const hash of hashes) {
+    await pglite.query(
+      `INSERT INTO "${coords.schema}"."${coords.table}" (hash, created_at) VALUES ($1, $2)`,
+      [hash, 1_700_000_000_000],
+    );
+  }
+}
+
+describe("db doctor data-schema resolution (#663)", () => {
+  it("reports healthy when the expected tables live in the plugin's data schema", async () => {
+    const pglite = new PGlite();
+    const workspaceDir = doctorWorkspace("@everything-dev/widgets-plugin", true);
+    await pglite.exec(`CREATE SCHEMA "plugin_widgets"`);
+    await pglite.exec(`CREATE TABLE "plugin_widgets"."builders" (id int)`);
+    await seedJournalRows(pglite, { schema: "drizzle", table: "__drizzle_migrations_widgets" }, [
+      doctorMigrationHash(DOCTOR_MIGRATION_SQL),
+    ]);
+
+    const report = await diagnosePlugin(
+      doctorBinding({ section: "plugins", key: "widgets", slug: "widgets", workspaceDir }),
+      pgliteExecutor(pglite),
+    );
+
+    expect(report.diagnosis).toBe("healthy");
+    expect(report.dataSchema).toBe("plugin_widgets");
+    expect(report.missingTables).toEqual([]);
+  });
+
+  it("reports the v1 topology (tables in public, journal present) as drift-safe-repair — boot checks plugin_<slug>", async () => {
+    const pglite = new PGlite();
+    const workspaceDir = doctorWorkspace("@everything-dev/widgets-plugin", true);
+    await pglite.exec(`CREATE TABLE "builders" (id int)`);
+    await seedJournalRows(pglite, { schema: "drizzle", table: "__drizzle_migrations_widgets" }, [
+      doctorMigrationHash(DOCTOR_MIGRATION_SQL),
+    ]);
+
+    const report = await diagnosePlugin(
+      doctorBinding({ section: "plugins", key: "widgets", slug: "widgets", workspaceDir }),
+      pgliteExecutor(pglite),
+    );
+
+    expect(report.diagnosis).toBe("drift-safe-repair");
+    expect(report.dataSchema).toBe("plugin_widgets");
+    expect(report.missingTables).toEqual(["builders"]);
+    expect(report.appliedHashCount).toBe(1);
+  });
+
+  it("keeps the public topology for the api workspace", async () => {
+    const pglite = new PGlite();
+    const workspaceDir = doctorWorkspace("api", true);
+    await pglite.exec(`CREATE TABLE "builders" (id int)`);
+    await seedJournalRows(pglite, { schema: "drizzle", table: "__drizzle_migrations_api" }, [
+      doctorMigrationHash(DOCTOR_MIGRATION_SQL),
+    ]);
+
+    const report = await diagnosePlugin(
+      doctorBinding({ section: "app.api", key: "api", slug: "api", workspaceDir }),
+      pgliteExecutor(pglite),
+    );
+
+    expect(report.diagnosis).toBe("healthy");
+    expect(report.dataSchema).toBe("public");
+    expect(report.missingTables).toEqual([]);
   });
 });

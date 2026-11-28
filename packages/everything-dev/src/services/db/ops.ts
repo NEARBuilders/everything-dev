@@ -62,6 +62,7 @@ export class DbOpsService extends Context.Service<
               slug: "",
               journalTable: "",
               journalSchema: "",
+              dataSchema: "",
               diagnosis: "error" as const,
               localMigrationCount: 0,
               appliedHashCount: 0,
