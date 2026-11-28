@@ -14,7 +14,8 @@ export function formatUnknownError(error: unknown): string {
   if (error instanceof Error) {
     const parts = [error.message || error.name];
     if (error.cause !== undefined && error.cause !== null) {
-      parts.push(`(cause: ${formatUnknownError(error.cause)})`);
+      const causeText = formatUnknownError(error.cause);
+      if (!parts[0].includes(causeText)) parts.push(`(cause: ${causeText})`);
     }
     return parts.join(" ");
   }
