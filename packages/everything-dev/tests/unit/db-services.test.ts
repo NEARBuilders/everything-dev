@@ -20,8 +20,8 @@ import { DatabaseBindings, makeDatabaseBindings } from "../../src/db/bindings";
 import type { DrizzleKitService } from "../../src/db/drizzle-kit";
 import { DrizzleKit, makeDrizzleKitLive } from "../../src/db/drizzle-kit";
 import { workspaceIdentityFromWorkspaceDir } from "../../src/db/identity";
-import { diagnosePlugin, type SqlExecutor } from "../../src/services/db/doctor";
 import type { MigrationDatabase } from "../../src/db/run-migrations";
+import { diagnosePlugin, type SqlExecutor } from "../../src/services/db/doctor";
 import { repairPlugin } from "../../src/services/db/repair";
 import type { RuntimeConfig } from "../../src/types";
 
