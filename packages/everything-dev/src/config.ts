@@ -3,6 +3,7 @@
  * `services/resolution/` — this barrel keeps the `./config` subpath and the
  * internal import surface stable.
  */
+// config loading — the authored-config loader chain
 export {
   CircularExtendsError,
   ConfigLoadError,
@@ -19,12 +20,11 @@ export {
   resetConfigPathCache,
   resolveConfigComposableEntries,
 } from "./services/resolution/load";
+// extends merging — ordered merge + extends-ref resolution
 export type { BosEnv } from "./services/resolution/merge";
-export {
-  mergeBosConfigWithExtends,
-  resolveExtendsRef,
-} from "./services/resolution/merge";
+export { mergeBosConfigWithExtends, resolveExtendsRef } from "./services/resolution/merge";
 
+// runtime building — the resolved runtime for host + plugins
 export {
   buildRuntimeConfig,
   buildRuntimeConfigEffect,
@@ -33,6 +33,7 @@ export {
   resolveLocalDevelopmentPath,
   resolveUiRuntimeName,
 } from "./services/resolution/runtime";
+// resolved-config serialization — the .bos resolved-config lifecycle
 export {
   getResolvedConfigPath,
   loadGeneratedResolvedConfig,
@@ -40,5 +41,6 @@ export {
   resolveBosConfigPath,
   writeResolvedConfig,
 } from "./services/resolution/serialize";
+// shared config types
 export type { BosConfig, RuntimeConfig } from "./types";
 export { BosConfigSchema } from "./types";

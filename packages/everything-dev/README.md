@@ -11,6 +11,10 @@ A consolidated product package for building Module Federation apps with oRPC API
 - `everything-dev/api` - API plugin loading and router stitching
 - `everything-dev/host` - Host server orchestration
 
+### Adding a public export
+
+The public surface is guarded by `tests/unit/public-surface.test.ts`: no entry may be an `export *` barrel (re-export shims use explicit named lists with `//` section comments, in the shape of `src/db/index.ts`), and the per-entry symbol snapshot must be regenerated (`pnpm vitest run tests/unit/public-surface.test.ts -u`) in the same PR as the export change, so every interface change is a visible diff. Before adding a symbol to an entry, name its consumer — internal-only helpers stay module-internal (importable by relative path inside the package, just not re-exported), and symbols consumed only by this package's tests should generally not be public at all. The guard prints an advisory warning for symbols with zero references outside their defining module; emitted child-repo code (descriptor/serialize.ts, scaffold steps, every-plugin stubs) counts as a consumer.
+
 ### Plugin commands
 
 - `bos plugin add <source>` - attach local or remote plugins

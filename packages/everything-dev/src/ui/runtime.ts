@@ -1,5 +1,6 @@
 import type { ClientRuntimeConfig } from "../types";
 
+// client runtime info (shared shape with ./types)
 export type { ClientRuntimeInfo } from "../types";
 
 declare global {
