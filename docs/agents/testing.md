@@ -62,6 +62,24 @@ Choose the lowest layer that pins the behavior. Escalate when the failure you
 are preventing only materializes one layer up (cookie handling, hydration,
 loading states, module loading are things jsdom cannot even reproduce).
 
+## Test shape — which layer asserts what
+
+A renderer swap deletes exactly one test layer; prefer the two that survive it
+([ADR 0050](../adr/0050-renderer-agnostic-ui-readiness.md)):
+
+| Layer | Survives a renderer swap? | Why |
+|---|---|---|
+| Node tests of pure logic (`*.logic.ts`, `lib/queries/*.test.ts`) | ✅ | no renderer in the test at all |
+| Behavioral browser specs (`data-testid` journeys) | ✅ | any DOM host renders the same testids |
+| jsdom component tests (`*.test.tsx`, `@testing-library/*`) | ❌ | bound to React rendering specifics |
+
+Default new assertions to the bottom or top layer; a mid-layer jsdom test needs
+a stated React-specific reason (hook wiring, portal behavior). Extract the logic
+first: state transitions and derived computations belong in renderer-free
+modules with zero React imports (ADR 0050 §3) — that is what makes the bottom
+layer possible. Don't mass-delete existing `*.test.tsx` files; migrate them
+opportunistically as their features are touched.
+
 ## What to assume the parent covers — and what to cover here
 
 **Assume covered upstream** (framework suite in `NEARBuilders/everything-dev`,
