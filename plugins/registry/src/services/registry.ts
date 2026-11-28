@@ -174,11 +174,23 @@ interface DiscoveryCache {
   expiresAt: number;
 }
 
-let discoveryCache: DiscoveryCache | null = null;
+interface ResolvedRuntimeCache {
+  runtime: ResolvedPublishedRuntime;
+  configKey: string;
+  expiresAt: number;
+}
 
-/** Test seam — the discovery cache is module-global. */
-export function resetDiscoveryCache(): void {
-  discoveryCache = null;
+function logRegistrySkip(context: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[registry] ${context}: ${message}`);
+}
+
+function configCacheKey(rawConfig: BosConfigInput): string {
+  try {
+    return JSON.stringify(rawConfig);
+  } catch {
+    return "";
+  }
 }
 
 export interface KvEntry {
@@ -274,10 +286,12 @@ export function createRegistryMethods(
 ) {
   const namespace = config.namespace;
 
-  const discoverPublishedConfigs = async (): Promise<DiscoveredConfig[]> => {
-    if (discoveryCache && Date.now() < discoveryCache.expiresAt) {
-      return discoveryCache.data;
-    }
+  let discoveryCache: DiscoveryCache | null = null;
+  let discoveryInflight: Promise<DiscoveredConfig[]> | null = null;
+  const resolvedRuntimeCache = new Map<string, ResolvedRuntimeCache>();
+  const resolvedRuntimeInflight = new Map<string, Promise<ResolvedPublishedRuntime>>();
+
+  const listNamespaceConfigs = async (): Promise<DiscoveredConfig[]> => {
     // Discovery lists the namespace's own network — the primitive derives
     // the host from the account, so the old cross-host scan with a
     // mismatched namespace string has no coherent primitive equivalent.
@@ -321,26 +335,116 @@ export function createRegistryMethods(
       pageToken = page.pageToken;
     }
 
-    const data = apps.sort(compareDiscovered);
-    discoveryCache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
-    return data;
+    return apps.sort(compareDiscovered);
   };
 
-  const resolveAppSummary = async (item: DiscoveredConfig): Promise<RegistryAppSummary> => {
-    const resolved = await resolvePublishedRuntime(
-      item.accountId,
-      item.gatewayId,
-      item.rawConfig,
-      config,
-      client,
+  const discoverPublishedConfigs = async (): Promise<DiscoveredConfig[]> => {
+    if (discoveryCache && Date.now() < discoveryCache.expiresAt) {
+      return discoveryCache.data;
+    }
+    if (discoveryInflight) {
+      return discoveryInflight;
+    }
+    const run = (async () => {
+      try {
+        const data = await listNamespaceConfigs();
+        discoveryCache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
+        return data;
+      } catch (error) {
+        if (discoveryCache) {
+          logRegistrySkip("discovery refresh failed; serving cached entries", error);
+          return discoveryCache.data;
+        }
+        throw error;
+      } finally {
+        discoveryInflight = null;
+      }
+    })();
+    discoveryInflight = run;
+    return run;
+  };
+
+  const resolveRuntime = (item: DiscoveredConfig): Promise<ResolvedPublishedRuntime> => {
+    const cacheKey = `${item.accountId}/${item.gatewayId}`;
+    const configKey = configCacheKey(item.rawConfig);
+    const cached = resolvedRuntimeCache.get(cacheKey);
+    if (cached && cached.configKey === configKey && Date.now() < cached.expiresAt) {
+      return Promise.resolve(cached.runtime);
+    }
+    const inflight = resolvedRuntimeInflight.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+    const run = (async () => {
+      try {
+        const runtime = await resolvePublishedRuntime(
+          item.accountId,
+          item.gatewayId,
+          item.rawConfig,
+          config,
+          client,
+        );
+        resolvedRuntimeCache.set(cacheKey, {
+          runtime,
+          configKey,
+          expiresAt: Date.now() + CACHE_TTL_MS,
+        });
+        return runtime;
+      } catch (error) {
+        const stale = resolvedRuntimeCache.get(cacheKey);
+        if (stale && stale.configKey === configKey) {
+          logRegistrySkip(`runtime refresh for ${cacheKey} failed; serving cached runtime`, error);
+          return stale.runtime;
+        }
+        throw error;
+      } finally {
+        resolvedRuntimeInflight.delete(cacheKey);
+      }
+    })();
+    resolvedRuntimeInflight.set(cacheKey, run);
+    return run;
+  };
+
+  const resolveDiscovered = async (
+    items: DiscoveredConfig[],
+  ): Promise<Array<{ item: DiscoveredConfig; runtime: ResolvedPublishedRuntime }>> => {
+    const settled = await Promise.allSettled(
+      items.map(async (item) => ({ item, runtime: await resolveRuntime(item) })),
     );
-    const metadata = await getRegistryMetadata(item.accountId, item.gatewayId);
-
-    return {
-      ...normalizeResolvedConfig(item.accountId, item.gatewayId, resolved),
-      metadata,
-    };
+    const resolved: Array<{ item: DiscoveredConfig; runtime: ResolvedPublishedRuntime }> = [];
+    settled.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        resolved.push(result.value);
+        return;
+      }
+      const item = items[index];
+      logRegistrySkip(
+        `skipping ${item?.accountId}/${item?.gatewayId}: unable to resolve runtime`,
+        result.reason,
+      );
+    });
+    return resolved;
   };
+
+  const safeMetadata = async (
+    accountId: string,
+    gatewayId: string,
+  ): Promise<RegistryMetadata | null> => {
+    try {
+      return await getRegistryMetadata(accountId, gatewayId);
+    } catch (error) {
+      logRegistrySkip(`metadata read for ${accountId}/${gatewayId} failed`, error);
+      return null;
+    }
+  };
+
+  const buildAppSummary = async (
+    item: DiscoveredConfig,
+    runtime: ResolvedPublishedRuntime,
+  ): Promise<RegistryAppSummary> => ({
+    ...normalizeResolvedConfig(item.accountId, item.gatewayId, runtime),
+    metadata: await safeMetadata(item.accountId, item.gatewayId),
+  });
 
   const normalizeResolvedConfig = (
     accountId: string,
@@ -417,23 +521,14 @@ export function createRegistryMethods(
       const limit = clamp(input.limit ?? 24, 1, 100);
       const offset = clamp(parseCursor(input.cursor), 0, Number.MAX_SAFE_INTEGER);
       const discovered = await discoverPublishedConfigs();
-      const resolved = await Promise.all(
-        discovered.map(async (item) => ({
-          item,
-          runtime: await resolvePublishedRuntime(
-            item.accountId,
-            item.gatewayId,
-            item.rawConfig,
-            config,
-            client,
-          ),
-        })),
-      );
+      const resolved = await resolveDiscovered(discovered);
       const filtered = resolved.filter(({ item, runtime }) =>
         matchesRegistryFilters(item.accountId, item.gatewayId, runtime.lineage, input),
       );
       const page = filtered.slice(offset, offset + limit);
-      const data = await Promise.all(page.map(({ item }) => resolveAppSummary(item)));
+      const data = await Promise.all(
+        page.map(({ item, runtime }) => buildAppSummary(item, runtime)),
+      );
       const nextOffset = offset + page.length;
 
       return {
@@ -451,7 +546,10 @@ export function createRegistryMethods(
       const matches = discovered
         .filter((item) => item.accountId === accountId)
         .sort(compareDiscovered);
-      const data = await Promise.all(matches.map(resolveAppSummary));
+      const resolved = await resolveDiscovered(matches);
+      const data = await Promise.all(
+        resolved.map(({ item, runtime }) => buildAppSummary(item, runtime)),
+      );
 
       return {
         data,
@@ -473,16 +571,10 @@ export function createRegistryMethods(
         return null;
       }
 
-      const resolved = await resolvePublishedRuntime(
-        accountId,
-        gatewayId,
-        match.rawConfig,
-        config,
-        client,
-      );
+      const resolved = await resolveRuntime(match);
       const normalized = normalizeResolvedConfig(accountId, gatewayId, resolved);
       const metadataKey = getRegistryMetadataKey(accountId, gatewayId);
-      const metadata = await getRegistryMetadata(accountId, gatewayId);
+      const metadata = await safeMetadata(accountId, gatewayId);
 
       return {
         ...normalized,
@@ -499,13 +591,16 @@ export function createRegistryMethods(
       const discovered = await discoverPublishedConfigs();
 
       for (const item of discovered) {
-        const resolved = await resolvePublishedRuntime(
-          item.accountId,
-          item.gatewayId,
-          item.rawConfig,
-          config,
-          client,
-        );
+        let resolved: ResolvedPublishedRuntime;
+        try {
+          resolved = await resolveRuntime(item);
+        } catch (error) {
+          logRegistrySkip(
+            `skipping ${item.accountId}/${item.gatewayId} while matching host`,
+            error,
+          );
+          continue;
+        }
         const normalized = normalizeResolvedConfig(item.accountId, item.gatewayId, resolved);
 
         if (normalized.hostUrl !== hostUrl) {
@@ -513,7 +608,7 @@ export function createRegistryMethods(
         }
 
         const metadataKey = getRegistryMetadataKey(item.accountId, item.gatewayId);
-        const metadata = await getRegistryMetadata(item.accountId, item.gatewayId);
+        const metadata = await safeMetadata(item.accountId, item.gatewayId);
 
         return {
           ...normalized,
