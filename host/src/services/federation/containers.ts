@@ -11,7 +11,14 @@ import { FederationError } from "../errors";
 import { type LocalDistServer, startLocalDistServer } from "../local-dist-server";
 
 const LOCAL_CONTAINER_READY_POLL_MS = 300;
-const LOCAL_CONTAINER_READY_TIMEOUT_MS = 120_000;
+export const LOCAL_CONTAINER_READY_TIMEOUT_MS = 120_000;
+/**
+ * The mid-rebuild budget (#940): while a last-good generation is available,
+ * the wait probes for a rebuild that may be seconds from landing, then the
+ * compose falls back — a request never parks for the full cold-boot budget
+ * behind bytes a concurrent build is rewriting.
+ */
+export const LOCAL_CONTAINER_RECOVERY_TIMEOUT_MS = 600;
 
 const runFetch = (url: string, init?: RequestInit): Promise<Response> => fetch(url, init);
 
@@ -84,6 +91,7 @@ export function resolveLocalRoot(localPath: string): string {
 export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function* (
   entry: RemoteEntry,
   env: BosEnv,
+  options?: { timeoutMs?: number },
 ): Effect.fn.Return<void, FederationError> {
   const containerUrl = entryUrls(entry, env).ssr;
   if (!containerUrl) {
@@ -92,6 +100,8 @@ export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function
       detail: `${entry.name} SSR container has no entry URL — no local dist server`,
     });
   }
+  const timeoutMs = options?.timeoutMs ?? LOCAL_CONTAINER_READY_TIMEOUT_MS;
+  const announce = options?.timeoutMs === undefined;
   let announced = false;
   let polls = 0;
   const startedAt = yield* Clock.currentTimeMillis;
@@ -106,7 +116,7 @@ export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function
   }).pipe(
     Effect.orElseSucceed(() => false),
     Effect.tap((ready) =>
-      !ready && !announced
+      !ready && !announced && announce
         ? Effect.gen(function* () {
             announced = true;
             yield* Effect.log(`⏳ waiting for ${entry.name} to compile (SSR container not ready)…`);
@@ -119,7 +129,7 @@ export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function
     until: (isReady) => isReady,
   }).pipe(
     Effect.timeoutOrElse({
-      duration: `${LOCAL_CONTAINER_READY_TIMEOUT_MS} millis`,
+      duration: `${timeoutMs} millis`,
       orElse: () => Effect.succeed(false),
     }),
   );
