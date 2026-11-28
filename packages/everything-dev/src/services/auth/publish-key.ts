@@ -6,6 +6,9 @@ import { addFunctionCallAccessKey, ensureNearCli, listPublishKeys } from "./near
 /** The FC methods a publish key is scoped to. */
 export const PUBLISH_FUNCTION_NAMES = ["__fastdata_kv"];
 
+/** The allowance a freshly minted publish key gets when the caller names none. */
+export const PUBLISH_KEY_DEFAULT_ALLOWANCE = "1NEAR";
+
 /**
  * The publish-key mint behind `bos login --key`'s export (ticket #423):
  * ensure the near CLI, resolve the network + registry
@@ -37,7 +40,7 @@ export async function mintPublishKey(input: {
   const keyPair = await addFunctionCallAccessKey({
     account: input.account,
     contract,
-    allowance: input.allowance ?? "1NEAR",
+    allowance: input.allowance ?? PUBLISH_KEY_DEFAULT_ALLOWANCE,
     functionNames,
     network,
   });

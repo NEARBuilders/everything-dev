@@ -13,6 +13,7 @@
 - **Depends on**: 059 (timing instrumentation proves the win and measures it)
 - **Category**: dx / perf
 - **Planned at**: commit `1e435601`, 2026-10-28
+- **Re-based** (2026-11-28, verified at `01454f9f`): mostly overtaken. The redesign's premise — evict memoized entries so the next load re-executes — was replaced by generation-scoped composition (ADR 0049, #938): a rebuilt container is a new entry, `CompositionRuntime.ensureRemotes` retires the generation, and dev adopts rebuilt plugin generations without a restart (#968). `purgeRemoteEntryCache`, `services/dev-reload.ts` and `federation.server.ts` no longer exist. The open remainder is the host-mediated surface — `AGENTS.md:439`: "the api child replaces on rebuild; host-mediated `/api/*` serving still needs a restart (ADR 0051)". Re-scope the plan to that.
 - **Issue**: https://github.com/NEARBuilders/everything-dev/issues/641
 
 ## Why this matters

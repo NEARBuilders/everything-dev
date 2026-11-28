@@ -128,7 +128,7 @@ describe("device link", () => {
     );
     expect(tokenRes.status).toBe(400);
     const body = (await tokenRes.json()) as { error?: string };
-    expect(body.error).toBe("invalid_grant");
+    expect(body.error).toBe("invalid_client");
   });
 
   it("rejects device code requests from any client id other than the configured Device Link client and the bos CLI", async () => {

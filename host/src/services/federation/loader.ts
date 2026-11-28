@@ -12,6 +12,7 @@ import {
 import type { RouterModule } from "../../types";
 import type { RuntimeConfig } from "../config";
 import { ExposeModuleMissing, FederationError } from "../errors";
+import { enforceCacheLimit } from "../ttl-cache";
 import { CompositionRuntime, type CompositionSession } from "./instance";
 
 const EXPOSE_CACHE_TTL = "5 minutes";
@@ -182,7 +183,12 @@ export class FederationLoader extends Context.Service<
         params: ExposeLoadParams & { session: CompositionSession },
       ): Effect.Effect<T, FederationError> => {
         const cacheKey = exposeCacheKey(params.session.generation, params);
-        exposeParams.set(cacheKey, { session: params.session, params });
+        rememberLoad(
+          exposeParams,
+          cacheKey,
+          { session: params.session, params },
+          MAX_EXPOSE_CACHE_SIZE,
+        );
         return Cache.get(exposeCache, cacheKey) as unknown as Effect.Effect<T, FederationError>;
       };
 
@@ -199,7 +205,12 @@ export class FederationLoader extends Context.Service<
           });
         }
         const cacheKey = exposeCacheKey(params.session.generation, params);
-        routerParams.set(cacheKey, { session: params.session, params });
+        rememberLoad(
+          routerParams,
+          cacheKey,
+          { session: params.session, params },
+          MAX_ROUTER_MODULE_CACHE_SIZE,
+        );
         return Cache.get(routerCache, cacheKey);
       };
 
@@ -215,6 +226,23 @@ export class FederationLoader extends Context.Service<
 
 const exposeCacheKey = (generation: number, params: ExposeLoadParams) =>
   `${generation}::${params.remoteName}::${params.entryUrl}::${params.expose}`;
+
+/** Record a load's params for its cache key. The params maps are the lookup
+ * side-channel for cache misses — bounded like the caches they serve, since
+ * every entry pins a session (and through it a Module Federation instance). */
+const rememberLoad = (
+  params: Map<string, CachedLoad>,
+  cacheKey: string,
+  load: CachedLoad,
+  capacity: number,
+): void => {
+  // KEEP: re-insert so insertion order is recency order — FIFO eviction then
+  // drops the least-recently-used key, and a retired generation stops being
+  // pinned forever (#974).
+  params.delete(cacheKey);
+  params.set(cacheKey, load);
+  enforceCacheLimit(params, capacity);
+};
 
 /**
  * One expose load through the compose-pinned session: serialized share-scope

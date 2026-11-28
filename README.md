@@ -47,6 +47,17 @@ Start at the [documentation map](./docs/README.md) — what this repository is a
 - [AGENTS.md](./AGENTS.md) — the operating guide for agents
 
 The docs plugin publishes all of it at `/docs` on every runtime that composes it — the same markdown, compiled when the plugin builds.
+## Local development
+
+```bash
+pnpm run setup   # install + toolchain prepare + generated types + a fast verify (idempotent)
+pnpm run dev     # UI on http://localhost:3003, API on http://localhost:3001, Auth on http://localhost:3002
+pnpm run test
+```
+
+No `.env`, Postgres or Docker: every local database is a persistent PGlite data dir under `.bos/db`. Start with `pnpm run setup` rather than a bare `pnpm install` — it also prepares the Effect toolchain (the patched `tsc` and `oxlint`) that `pnpm run typecheck` and `pnpm run lint` need, and it is a fast no-op on a healthy checkout.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and [AGENTS.md](./AGENTS.md) for the full operational guide.
 
 ## Deploy
 

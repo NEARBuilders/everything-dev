@@ -8,6 +8,7 @@ import {
   InfraMaterializerLive,
   materializeViaLayer,
 } from "../../src/infra/materializer";
+import { renderOperatorFlags } from "../../src/services/infra";
 import type { RuntimeConfig } from "../../src/types";
 
 function buildRuntimeConfig(overrides?: Partial<RuntimeConfig>): RuntimeConfig {
@@ -82,6 +83,26 @@ describe("InfraMaterializer Tag + Layer", () => {
     expect(existsSync(join(dir, ".env"))).toBe(false);
     expect(existsSync(join(dir, ".env.test"))).toBe(true);
     expect(existsSync(join(dir, "docker-compose.yml"))).toBe(false);
+  });
+
+  it(".env.example documents the operator flags with empty defaults — and the committed one matches the renderer", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-materializer-flags-"));
+    tempDirs.push(dir);
+
+    await materializeAll(dir, buildRuntimeConfig());
+
+    const block = `${renderOperatorFlags().join("\n")}\n`;
+    expect(readFileSync(join(dir, ".env.example"), "utf-8").endsWith(block)).toBe(true);
+    expect(block).toContain("\nBOS_HOLD_ON_BACKEND_CHANGE=\n");
+    expect(block).toContain("\nBOS_RECONCILE_HELD_GENERATIONS=\n");
+    expect(block).toContain("\nBOS_SNAPSHOT_DIR=\n");
+    expect(block).toContain("\nBOS_LOG_LEVEL=\n");
+
+    const committed = readFileSync(
+      join(import.meta.dirname, "../../../..", ".env.example"),
+      "utf-8",
+    );
+    expect(committed.endsWith(block)).toBe(true);
   });
 
   it(".env is syncEnvFile's domain — the materializer must not clobber user keys", async () => {

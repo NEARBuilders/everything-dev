@@ -17,6 +17,7 @@
 - **Depends on**: done/002-effect-bridge-dedupe.md, plans/004-orpc-boundary-typing.md (adjacent code; land after both)
 - **Category**: tech-debt
 - **Planned at**: commit `c9ca44e1`, 2026-09-15
+- **Re-based** (2026-11-28, verified at `01454f9f`): `packages/every-plugin/src/effect-bridge.ts` and `build/rspack/dev-server-middleware.ts` are gone. The interceptors are now four `onError` sites, not six: `host/src/routes/api.ts:55-56` and `:319` (the fetch `RPCHandler` and the OpenAPI handler), and `packages/every-plugin/src/dev/serve.ts:285-287` and `:302-304` (both route through `formatORPCError` in `every-plugin/src/errors`).
 
 ## Why this matters
 

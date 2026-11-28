@@ -67,7 +67,7 @@ describe("migratePnpm", () => {
     expect(yaml).toContain(`every-plugin: ${V2_CATALOG["every-plugin"]}`);
     expect(yaml).toContain(`better-near-auth: ${V2_CATALOG["better-near-auth"]}`);
     // ecosystem rows: V2_CATALOG wins over v1 leftovers
-    expect(yaml).toContain("better-auth: 1.7.14");
+    expect(yaml).toContain("better-auth: 1.7.28");
     expect(yaml).toContain("overrides:");
     expect(yaml).toContain('"@tanstack/router-core": 1.171.39');
     expect(yaml).toContain("- api");

@@ -255,25 +255,50 @@ export async function deleteAccessKeys(
   await runNearCommand(args);
 }
 
+export interface FunctionCallAccessKeyCommand {
+  account: string;
+  contract: string;
+  allowance: string;
+  functionNames: string[];
+  publicKey: string;
+  network: "mainnet" | "testnet";
+}
+
+/** The near-cli-rs argument vector that adds a function-call access key, up
+ * to the network — one home for the command shape, so the repair hint the
+ * publish preflight prints is exactly what `bos login --key` runs. */
+export function functionCallAccessKeyArgs(command: FunctionCallAccessKeyCommand): string[] {
+  return [
+    "account",
+    "add-key",
+    command.account,
+    "grant-function-call-access",
+    "--allowance",
+    command.allowance,
+    "--contract-account-id",
+    command.contract,
+    "--function-names",
+    command.functionNames.join(", "),
+    "use-manually-provided-public-key",
+    command.publicKey,
+    "network-config",
+    command.network,
+  ];
+}
+
 export async function addFunctionCallAccessKey(
   config: FunctionCallAccessKeyConfig,
 ): Promise<NearKeyPair> {
   const keyPair = config.keyPair ?? generateNearKeyPair();
   const args = [
-    "account",
-    "add-key",
-    config.account,
-    "grant-function-call-access",
-    "--allowance",
-    config.allowance,
-    "--contract-account-id",
-    config.contract,
-    "--function-names",
-    config.functionNames.join(", "),
-    "use-manually-provided-public-key",
-    keyPair.publicKey,
-    "network-config",
-    config.network || (config.account.endsWith(".testnet") ? "testnet" : "mainnet"),
+    ...functionCallAccessKeyArgs({
+      account: config.account,
+      contract: config.contract,
+      allowance: config.allowance,
+      functionNames: config.functionNames,
+      publicKey: keyPair.publicKey,
+      network: config.network || (config.account.endsWith(".testnet") ? "testnet" : "mainnet"),
+    }),
     "sign-with-keychain",
     "send",
   ];

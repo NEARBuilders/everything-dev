@@ -20,6 +20,7 @@
 - **Depends on**: done/001-buildscoped-helper.md (same files; land 001 first)
 - **Category**: tech-debt / type-safety
 - **Planned at**: commit `c9ca44e1`, 2026-09-15
+- **Re-based** (2026-11-28, verified at `01454f9f`): Step 4's shape exists — `createPlugin.withPlugins<PluginsClient>()` threads the plugin-client types. Of the excerpt sites, `packages/every-plugin/src/orpc.ts`, `api/src/lib/auth.ts` and `every-plugin/src/build/rspack/dev-server-middleware.ts` are gone, and `plugin.ts` / `plugin.service.ts` carry no `as any` / `as unknown as` casts any more. The chain now lives in the host: `host/src/routes/api.ts:52,173,316,330,336` (`RPCHandler`, `OpenAPIHandler` and `openApiGenerator.generate` all take `apiRouter as any`), `host/src/services/mcp.ts:129,145,146,165`, and one config cast at `host/src/services/plugins.ts:714`. Re-target Steps 1/3 at those sites.
 
 ## Why this matters
 

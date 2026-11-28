@@ -558,15 +558,66 @@ describe("checkPublishKeyHealth — the preflight key probe", () => {
     await expect(checkPublishKeyHealth(input)).resolves.toEqual({ ok: true });
   });
 
-  it("a key missing from the account fails with the on-chain add-key repair line", async () => {
+  /** The backtick-wrapped command a repair hint tells the operator to run. */
+  function repairCommandOf(hint: string | undefined): string {
+    const command = hint?.match(/`([^`]+)`/)?.[1];
+    if (!command) throw new Error(`no backtick-wrapped command in hint: ${hint}`);
+    return command;
+  }
+
+  const keyMissing = () =>
     getAccessKeyMock.mockRejectedValue(
       nearError("AccessKeyDoesNotExistError", "the access key is not found"),
     );
+
+  it("a key missing from the account fails with a runnable add-key repair command", async () => {
+    keyMissing();
     const health = await checkPublishKeyHealth(input);
     expect(health.ok).toBe(false);
     expect(health.error).toContain(validKey.publicKey.toString());
-    expect(health.error).toContain("near account add-key dev.everything.near");
-    expect(health.error).toContain("--method-names __fastdata_kv");
+    expect(repairCommandOf(health.error).split(" ")).toEqual([
+      "near",
+      "account",
+      "add-key",
+      "dev.everything.near",
+      "grant-function-call-access",
+      "--allowance",
+      "1NEAR",
+      "--contract-account-id",
+      "dev.everything.near",
+      "--function-names",
+      "__fastdata_kv",
+      "use-manually-provided-public-key",
+      validKey.publicKey.toString(),
+      "network-config",
+      "mainnet",
+    ]);
+  });
+
+  it("the repair command targets the network the probe checked", async () => {
+    keyMissing();
+    const health = await checkPublishKeyHealth({
+      ...input,
+      account: "dev.everything.testnet",
+      contract: "dev.everything.testnet",
+      network: "testnet",
+    });
+    expect(health.ok).toBe(false);
+    const tokens = repairCommandOf(health.error).split(" ");
+    expect(tokens.slice(0, 4)).toEqual(["near", "account", "add-key", "dev.everything.testnet"]);
+    expect(tokens.slice(-2)).toEqual(["network-config", "testnet"]);
+  });
+
+  it("a mis-scoped key carries the same repair command", async () => {
+    getAccessKeyMock.mockResolvedValue({
+      nonce: 1,
+      permission: {
+        FunctionCall: { receiver_id: "some.other.contract.near", method_names: ["__fastdata_kv"] },
+      },
+    });
+    const health = await checkPublishKeyHealth(input);
+    expect(health.ok).toBe(false);
+    expect(repairCommandOf(health.error).split(" ")).toContain("grant-function-call-access");
   });
 
   it("a missing publisher account fails with the account named", async () => {

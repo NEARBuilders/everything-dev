@@ -14,11 +14,13 @@ New here? Get onboarded and plugged in:
 ## Quick Setup
 
 ```bash
-pnpm install               # Install dependencies
+pnpm run setup             # Install + prepare the toolchain + generated types + a fast verify (idempotent)
 pnpm run dev               # Start development (host mode auto-detected)
 ```
 
 That's it — no Postgres, no Docker. On first run `bos dev` creates `.env` from `.env.example` (with a generated `BETTER_AUTH_SECRET`); every local database is a persistent PGlite data dir under `.bos/db` (ADR 0038). Set a `postgres://` URL in `.env` only when you need production-style or shared server access.
+
+A bare `pnpm install` still works when you deliberately want no git hooks, but it skips the toolchain prepare — the first `pnpm run lint` then fails with exactly the error `pnpm run setup` exists to prevent. `pnpm run setup` is safe to re-run at any time and is a fast no-op on a healthy checkout.
 
 `pnpm run db:migrate` is optional — the API and plugins auto-apply migrations on boot.
 

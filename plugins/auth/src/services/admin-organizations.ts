@@ -100,14 +100,33 @@ export const buildAdminOrganizationsService = ({
       ),
     );
 
+  // KEEP: an organization's row is the serialization point for its membership
+  // guards — a lock-free count-then-write lets two admins strip the last owner
+  // or overshoot capacity between the read and the write (#972).
+  const lockOrganization = async (tx: Pick<Db, "select">, organizationId: string) =>
+    (
+      await tx
+        .select({ id: schema.organization.id })
+        .from(schema.organization)
+        .where(eq(schema.organization.id, organizationId))
+        .for("update")
+    ).length > 0;
+
+  const syncTeamMemberCountOn = async (
+    executor: Pick<Db, "select" | "update">,
+    teamId: string,
+  ): Promise<void> => {
+    const [{ count } = { count: 0 }] = await executor
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.teamMember)
+      .where(eq(schema.teamMember.teamId, teamId));
+    await executor
+      .update(schema.team)
+      .set({ memberCount: count })
+      .where(eq(schema.team.id, teamId));
+  };
   const syncTeamMemberCount = (teamId: string) =>
-    attemptDb(async () => {
-      const [{ count } = { count: 0 }] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(schema.teamMember)
-        .where(eq(schema.teamMember.teamId, teamId));
-      await db.update(schema.team).set({ memberCount: count }).where(eq(schema.team.id, teamId));
-    });
+    attemptDb(() => syncTeamMemberCountOn(db, teamId));
 
   return AdminOrganizationsService.of({
     listOrganizations: (input) =>
@@ -384,52 +403,58 @@ export const buildAdminOrganizationsService = ({
         });
       }
 
-      const existing = yield* attemptDb(() =>
-        db.query.member.findFirst({
-          where: and(
-            eq(schema.member.organizationId, input.organizationId),
-            eq(schema.member.userId, input.userId),
-          ),
+      const outcome = yield* attemptDb(() =>
+        db.transaction(async (tx) => {
+          if (!(await lockOrganization(tx, input.organizationId))) {
+            return { kind: "org-missing" } as const;
+          }
+          const existing = await tx.query.member.findFirst({
+            where: and(
+              eq(schema.member.organizationId, input.organizationId),
+              eq(schema.member.userId, input.userId),
+            ),
+          });
+          if (existing) return { kind: "already-member" } as const;
+
+          const [countRow] = await tx
+            .select({ memberCount: sql<number>`count(*)::int` })
+            .from(schema.member)
+            .where(eq(schema.member.organizationId, input.organizationId));
+          const memberCount = countRow?.memberCount ?? 0;
+          if (!membershipPolicy.hasCapacity(memberCount)) return { kind: "full" } as const;
+
+          const [member] = await tx
+            .insert(schema.member)
+            .values({
+              id: crypto.randomUUID(),
+              organizationId: input.organizationId,
+              userId: input.userId,
+              role: input.role,
+              createdAt: new Date(),
+            })
+            .returning();
+          return member ? ({ kind: "added", member } as const) : ({ kind: "failed" } as const);
         }),
       );
-      if (existing) {
-        return yield* new AuthApiError({
-          code: "BAD_REQUEST",
-          data: {},
-          message: "User is already a member of this organization",
-        });
+      switch (outcome.kind) {
+        case "org-missing":
+          return yield* notFound(input.organizationId);
+        case "already-member":
+          return yield* new AuthApiError({
+            code: "BAD_REQUEST",
+            data: {},
+            message: "User is already a member of this organization",
+          });
+        case "full":
+          return yield* new AuthApiError({
+            code: "BAD_REQUEST",
+            data: {},
+            message: "This organization is full, so no more members can join",
+          });
+        case "failed":
+          return yield* new MemberNotFound({ message: "Member creation failed" });
       }
-
-      const [{ memberCount } = { memberCount: 0 }] = yield* attemptDb(() =>
-        db
-          .select({ memberCount: sql<number>`count(*)::int` })
-          .from(schema.member)
-          .where(eq(schema.member.organizationId, input.organizationId)),
-      );
-      if (!membershipPolicy.hasCapacity(memberCount)) {
-        return yield* new AuthApiError({
-          code: "BAD_REQUEST",
-          data: {},
-          message: "This organization is full, so no more members can join",
-        });
-      }
-
-      const now = new Date();
-      const [member] = yield* attemptDb(() =>
-        db
-          .insert(schema.member)
-          .values({
-            id: crypto.randomUUID(),
-            organizationId: input.organizationId,
-            userId: input.userId,
-            role: input.role,
-            createdAt: now,
-          })
-          .returning(),
-      );
-      if (!member) {
-        return yield* new MemberNotFound({ message: "Member creation failed" });
-      }
+      const { member } = outcome;
       return {
         id: member.id,
         userId: member.userId,
@@ -442,140 +467,139 @@ export const buildAdminOrganizationsService = ({
     removeMember: Effect.fn("AdminOrganizationsService.removeMember")(function* (
       input: InferInput<"adminRemoveMember">,
     ) {
-      const organization = yield* attemptDb(() =>
-        db.query.organization.findFirst({
-          where: eq(schema.organization.id, input.organizationId),
-        }),
-      );
-      if (!organization) {
-        return yield* notFound(input.organizationId);
-      }
+      const outcome = yield* attemptDb(() =>
+        db.transaction(async (tx) => {
+          if (!(await lockOrganization(tx, input.organizationId))) {
+            return { kind: "org-missing" } as const;
+          }
 
-      const member = yield* attemptDb(() =>
-        db.query.member.findFirst({
-          where: and(
-            eq(schema.member.organizationId, input.organizationId),
-            eq(schema.member.userId, input.userId),
-          ),
-        }),
-      );
-      if (!member) {
-        return yield* new MemberNotFound({ message: "Member not found" });
-      }
-
-      const members = yield* attemptDb(() =>
-        db.query.member.findMany({
-          where: eq(schema.member.organizationId, input.organizationId),
-          columns: { role: true },
-        }),
-      );
-      const owners = members.filter((row) => parseMemberRoles(row.role).includes("owner"));
-      if (parseMemberRoles(member.role).includes("owner") && owners.length <= 1) {
-        return yield* new AuthApiError({
-          code: "BAD_REQUEST",
-          data: {},
-          message: "Cannot remove the only owner of an organization",
-        });
-      }
-
-      const orgTeams = yield* attemptDb(() =>
-        db
-          .select({ id: schema.team.id })
-          .from(schema.team)
-          .where(eq(schema.team.organizationId, input.organizationId)),
-      );
-      if (orgTeams.length > 0) {
-        const teamIds = orgTeams.map((team) => team.id);
-        const affectedTeams = yield* attemptDb(() =>
-          db
-            .select({ teamId: schema.teamMember.teamId })
-            .from(schema.teamMember)
-            .where(
-              and(
-                eq(schema.teamMember.userId, input.userId),
-                inArray(schema.teamMember.teamId, teamIds),
-              ),
+          const member = await tx.query.member.findFirst({
+            where: and(
+              eq(schema.member.organizationId, input.organizationId),
+              eq(schema.member.userId, input.userId),
             ),
-        );
-        yield* attemptDb(() =>
-          db
-            .delete(schema.teamMember)
-            .where(
-              and(
-                eq(schema.teamMember.userId, input.userId),
-                inArray(schema.teamMember.teamId, teamIds),
-              ),
-            ),
-        );
-        for (const { teamId } of affectedTeams) {
-          yield* syncTeamMemberCount(teamId);
-        }
-      }
+          });
+          if (!member) return { kind: "member-missing" } as const;
 
-      yield* attemptDb(() => db.delete(schema.member).where(eq(schema.member.id, member.id)));
+          const members = await tx.query.member.findMany({
+            where: eq(schema.member.organizationId, input.organizationId),
+            columns: { role: true },
+          });
+          const owners = members.filter((row) => parseMemberRoles(row.role).includes("owner"));
+          if (parseMemberRoles(member.role).includes("owner") && owners.length <= 1) {
+            return { kind: "last-owner" } as const;
+          }
+
+          const orgTeams = await tx
+            .select({ id: schema.team.id })
+            .from(schema.team)
+            .where(eq(schema.team.organizationId, input.organizationId));
+          if (orgTeams.length > 0) {
+            const teamIds = orgTeams.map((team) => team.id);
+            const affectedTeams = await tx
+              .select({ teamId: schema.teamMember.teamId })
+              .from(schema.teamMember)
+              .where(
+                and(
+                  eq(schema.teamMember.userId, input.userId),
+                  inArray(schema.teamMember.teamId, teamIds),
+                ),
+              );
+            await tx
+              .delete(schema.teamMember)
+              .where(
+                and(
+                  eq(schema.teamMember.userId, input.userId),
+                  inArray(schema.teamMember.teamId, teamIds),
+                ),
+              );
+            for (const { teamId } of affectedTeams) {
+              await syncTeamMemberCountOn(tx, teamId);
+            }
+          }
+
+          await tx.delete(schema.member).where(eq(schema.member.id, member.id));
+          return { kind: "removed" } as const;
+        }),
+      );
+      switch (outcome.kind) {
+        case "org-missing":
+          return yield* notFound(input.organizationId);
+        case "member-missing":
+          return yield* new MemberNotFound({ message: "Member not found" });
+        case "last-owner":
+          return yield* new AuthApiError({
+            code: "BAD_REQUEST",
+            data: {},
+            message: "Cannot remove the only owner of an organization",
+          });
+      }
       return { success: true };
     }),
 
     updateMemberRole: Effect.fn("AdminOrganizationsService.updateMemberRole")(function* (
       input: InferInput<"adminUpdateMemberRole">,
     ) {
-      const organization = yield* attemptDb(() =>
-        db.query.organization.findFirst({
-          where: eq(schema.organization.id, input.organizationId),
+      const outcome = yield* attemptDb(() =>
+        db.transaction(async (tx) => {
+          if (!(await lockOrganization(tx, input.organizationId))) {
+            return { kind: "org-missing" } as const;
+          }
+
+          const member = await tx.query.member.findFirst({
+            where: and(
+              eq(schema.member.organizationId, input.organizationId),
+              eq(schema.member.userId, input.userId),
+            ),
+          });
+          if (!member) return { kind: "member-missing" } as const;
+
+          const demotingOnlyOwner =
+            parseMemberRoles(member.role).includes("owner") &&
+            !parseMemberRoles(input.role).includes("owner");
+          if (demotingOnlyOwner) {
+            const members = await tx.query.member.findMany({
+              where: eq(schema.member.organizationId, input.organizationId),
+              columns: { role: true },
+            });
+            const owners = members.filter((row) => parseMemberRoles(row.role).includes("owner"));
+            if (owners.length <= 1) return { kind: "last-owner" } as const;
+          }
+
+          const [updated] = await tx
+            .update(schema.member)
+            .set({ role: input.role })
+            .where(eq(schema.member.id, member.id))
+            .returning();
+          return updated
+            ? ({ kind: "updated", member: updated } as const)
+            : ({ kind: "failed", memberId: member.id } as const);
         }),
       );
-      if (!organization) {
-        return yield* notFound(input.organizationId);
-      }
-
-      const member = yield* attemptDb(() =>
-        db.query.member.findFirst({
-          where: and(
-            eq(schema.member.organizationId, input.organizationId),
-            eq(schema.member.userId, input.userId),
-          ),
-        }),
-      );
-      if (!member) {
-        return yield* new MemberNotFound({ message: "Member not found" });
-      }
-
-      const demotingOnlyOwner =
-        parseMemberRoles(member.role).includes("owner") &&
-        !parseMemberRoles(input.role).includes("owner");
-      if (demotingOnlyOwner) {
-        const members = yield* attemptDb(() =>
-          db.query.member.findMany({
-            where: eq(schema.member.organizationId, input.organizationId),
-            columns: { role: true },
-          }),
-        );
-        const owners = members.filter((row) => parseMemberRoles(row.role).includes("owner"));
-        if (owners.length <= 1) {
+      switch (outcome.kind) {
+        case "org-missing":
+          return yield* notFound(input.organizationId);
+        case "member-missing":
+          return yield* new MemberNotFound({ message: "Member not found" });
+        case "last-owner":
           return yield* new AuthApiError({
             code: "BAD_REQUEST",
             data: {},
             message: "Cannot demote the only owner of an organization",
           });
-        }
+        case "failed":
+          return yield* new MemberNotFound({
+            message: "Member not found",
+            memberId: outcome.memberId,
+          });
       }
-
-      const [updated] = yield* attemptDb(() =>
-        db
-          .update(schema.member)
-          .set({ role: input.role })
-          .where(eq(schema.member.id, member.id))
-          .returning(),
-      );
-      if (!updated) {
-        return yield* new MemberNotFound({ message: "Member not found", memberId: member.id });
-      }
+      const { member } = outcome;
       return {
-        id: updated.id,
-        userId: updated.userId,
-        organizationId: updated.organizationId,
-        role: updated.role,
-        createdAt: toDate(updated.createdAt),
+        id: member.id,
+        userId: member.userId,
+        organizationId: member.organizationId,
+        role: member.role,
+        createdAt: toDate(member.createdAt),
       };
     }),
 
