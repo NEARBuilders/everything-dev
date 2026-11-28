@@ -10,7 +10,12 @@ import {
   isBuildInvocation,
   uiEntryFilename,
 } from "../artifact-names";
-import { CONTRACT_TYPES_FILE, generateContractTypes } from "../contract-types";
+import {
+  CONTRACT_TYPES_FILE,
+  generateAdditionalExports,
+  generateContractTypes,
+  readAdditionalExportsConfig,
+} from "../contract-types";
 import { BuildReportPlugin } from "./build-report-plugin";
 import { ChunkCompletenessPlugin } from "./chunk-completeness-plugin";
 import { buildSharedDependencies } from "./module-federation";
@@ -86,6 +91,21 @@ export class EmitPluginManifest implements RspackPluginInstance {
 
         const contractSha256 = crypto.createHash("sha256").update(contractTypes).digest("hex");
         const hashedEntry = findHashedEntry(Object.keys(compilation.assets), "remoteEntry");
+
+        const additionalSources = readAdditionalExportsConfig(context);
+        let additionalArtifacts: Awaited<ReturnType<typeof generateAdditionalExports>> = [];
+        if (additionalSources.length > 0) {
+          try {
+            additionalArtifacts = await generateAdditionalExports(context, additionalSources);
+          } catch (error) {
+            console.warn(
+              `[EmitPluginManifest] Additional export types failed — ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
+        }
+
         const manifest: Record<string, unknown> = {
           schemaVersion: 1,
           kind: "every-plugin/manifest",
@@ -107,12 +127,24 @@ export class EmitPluginManifest implements RspackPluginInstance {
           },
         };
 
+        if (additionalArtifacts.length > 0) {
+          manifest.additionalExports = additionalArtifacts.map((artifact) => ({
+            path: artifact.path,
+            exports: artifact.exports,
+            sha256: artifact.sha256,
+          }));
+        }
+
         if (rawSource) {
           compilation.emitAsset(
             manifestFileName,
             new rawSource(`${JSON.stringify(manifest, null, 2)}\n`),
           );
           compilation.emitAsset(`types/${contractFileName}`, new rawSource(`${contractTypes}`));
+          for (const artifact of additionalArtifacts) {
+            const content = fs.readFileSync(path.join(context, artifact.file), "utf8");
+            compilation.emitAsset(artifact.file, new rawSource(content));
+          }
         }
       });
     });

@@ -16,8 +16,8 @@ deletion ledger executed (8 files, ~1,590 lines → 2 matrix files + fixture).
 | ui pruner kept only the first barrel importer's names | advanced children failed typecheck (`Badge`/`InfoRow`/`SectionHeader` gone) | **fixed** (union semantics, `prune-barrel-union.test.ts`) |
 | slim api template never exported `ContractType` | generated ui types didn't compile | **fixed** (export added) |
 | `drizzle-orm` undeclared in the framework package | ui-only children: `bos` dead (`ERR_MODULE_NOT_FOUND`) | **fixed** (dependency declared) |
-| inherited `ai` mount into stripped `_authenticated` | **every simple child fails `bos types gen`** | issue 01 (`.scratch/init-born-healthy/issues/`) — `KNOWN_DEFECTS` row |
-| auth plugin publishes no `additionalExports` | no child passes ui typecheck (`Auth = any` stubs) | issue 02 — `KNOWN_DEFECTS` row; needs auth build + republish |
+| inherited `ai` mount into stripped `_authenticated` | **every simple child fails `bos types gen`** | **fixed in the stacked follow-up** (#935 — engine + static model omit-with-warning; simple cell fully green, row deleted) |
+| auth plugin publishes no `additionalExports` | no child passes ui typecheck (`Auth = any` stubs) | **producer fixed in the stacked follow-up** (#936 — `every-plugin.additionalExports` build knob; consumer republish pending, `KNOWN_DEFECTS` row stays until the auth plugin republishes) |
 | advanced shipped parent-coupled routes (`deploys`→hosting api, `things`→votes/proposals) | routes exist but can never work in a child | **fixed** (`STARTER_PRODUCT_EXCLUSIONS` + coherence test) |
 | children never received `tsconfig.base.json` | every `host`-override child failed `bos build` (`Tsconfig not found`) | **fixed** (`INIT_ROOT_PATTERNS`) |
 | remote auth binds production-side in a child dev host → refused empty PGlite | `bos dev` host died for every child | **fixed** (`AUTH_ALLOW_PGLITE_DEFAULT=1` in `.env.example`) |
