@@ -12,6 +12,7 @@ Workflows:
 - `Release` — changeset versioning and npm publish (triggered by push to `main`, canonical changesets flow); when a publish is imminent, the regression gate (`tier: release` — unit + start + backcompat) gates it first
 - `Full regression` — reusable matrix (`regression-full.yml`): unit + dev + start + backcompat + framework regression as PARALLEL planes (wall = slowest plane), tiered by input — `tier: release` = unit + start + backcompat (the publish gate), `tier: nightly` = the full matrix (the nightly canaries the dev + framework planes)
 - `Backcompat nightly` — nightly main-tip proof: the registry sentinel plus the full regression matrix (`tier: nightly`) via `regression-full.yml`
+- `Issue reconcile` — daily read-only tracker audit: fixed-but-open issues (merged PR bodies carrying closing keywords), stale `Blocked by:` links, `needs-triage` backlog age; auto-close and report-commenting are `workflow_dispatch` opt-ins (issue #957)
 - `consumer-ci` / `consumer-deploy` / `consumer-staging` — reusable workflows for generated child repos (see [Consumer workflows](#consumer-workflows))
 
 Design: the test tiers run where a decision is made (docs/agents/testing.md) — T0 local lefthook hooks, T1 vital-plane CI on pull requests, T2 the regression gate (unit + start + backcompat, `tier: release`) before a release and the full matrix nightly on the main tip (`tier: nightly` — parallel planes). There is no `push: main` CI trigger and no merge queue. `Deploy` and `Release` trigger directly on push and gate themselves: they re-verify the commit is still the main tip (stale runs skip; the run for the new tip deploys/releases instead), and Deploy additionally verifies the commit landed as a pull request (PR provenance — a raw direct push has no associated PR and fails the gate; `workflow_dispatch` with the `force` input is the deliberate escape hatch).
@@ -135,6 +136,18 @@ This is the canonical [changesets/action](https://github.com/changesets/changese
 - `NEAR_TESTNET_PRIVATE_KEY` — signs the staging FastKV config publish
 - `BOS_STAGING_STORAGE_API_KEY` — staging bundle upload (optional; a deploy key minted with `bos login --key --env staging` when the config's staging domain differs from the production domain — otherwise `BOS_STORAGE_API_KEY` matches both)
 - `RAILWAY_STAGING_TOKEN` — the staging Railway service token
+
+### Issue reconcile (`issue-reconcile.yml`)
+
+**Trigger:** Daily schedule (`23 21 * * *`) or `workflow_dispatch`.
+
+**Purpose:** The reconciliation automation from issue #957 — keeps the tracker honest between human triage sessions. One batched-GraphQL sweep (no clone, no install): merged PRs since the previous successful run whose bodies carry `Fixes/Closes/Resolves #N` against an issue still open, open issues whose stated `Blocked by:` blockers are closed, and `needs-triage` issues older than 7 days. The report lands in the run summary.
+
+**Behavior:**
+- Read-only by default: nothing is written to issues. The sweep window is the previous successful run's timestamp (`actions: read`), so a cancelled run only widens the next one; on a first run it falls back to the `lookback-days` input (default 14).
+- `auto-close` (off by default) closes fixed-but-open issues with the credit-comment pattern the manual sweeps used (#478/#473/#739/#920); `tracking-issue` posts the report as a comment on one issue. Both only run on explicit `workflow_dispatch` — the `enforce` job carries the only `issues: write` permission and is skipped otherwise.
+
+The parse logic lives in `scripts/issue-reconcile.mjs` (zero-dependency node, `--since/--out` report mode, `--apply` write mode).
 
 ## Consumer workflows
 
