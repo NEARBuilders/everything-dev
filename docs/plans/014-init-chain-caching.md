@@ -17,6 +17,7 @@
 - **Depends on**: none
 - **Category**: perf / dx
 - **Planned at**: commit `c9ca44e1`, 2026-09-15
+- **Re-based** (2026-11-28, verified at `01454f9f`): still open. No `ResolvedChainContext` exists anywhere in the tree, and the chain still resolves more than once per run — `services/scaffold/init.ts:954` and `:1338` each call `resolveCatalogChainSource`, and `services/scaffold/init-flow.ts:54` fetches the parent config separately. All three files still exist; the excerpt line numbers have drifted.
 
 ## Why this matters
 

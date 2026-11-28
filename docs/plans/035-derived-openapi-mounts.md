@@ -16,6 +16,7 @@
 - **Depends on**: done/029-platform-cdn.md
 - **Category**: architecture
 - **Planned at**: 2026-09-19, recorded during plan 029 execution
+- **Re-based** (2026-11-28, verified at `01454f9f`): the motivating mount is gone from the host. `host/src/routes/bundles-proxy.ts` (ADR 0011) no longer exists — `host/src/routes/` is `api.ts`, `health.ts`, `html.ts`, `ssr.ts` — and `/bundles/<account>/<gateway>/<remote>/` survives only as a same-origin note in `host/src/services/config.ts:44` (bundle bytes are the storage origin's, ADR 0011). Re-verify that any host-side prefix remains to derive before executing.
 
 ## Why this matters
 

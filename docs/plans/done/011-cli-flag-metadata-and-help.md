@@ -19,6 +19,7 @@
 - **Depends on**: none
 - **Category**: dx
 - **Planned at**: commit `c9ca44e1`, 2026-09-15
+- **Closed** (2026-11-28 — DONE): per-command help landed in `src/cli/help.ts` + `src/cli/flags.ts` (#426/#437). Residue, left deliberately: `src/cli/parse.ts` still reads zod `.def` internals (`parse.ts:17,19,30,34,39,60`) — an upstream-typing concern, not a flag-metadata one.
 
 ## Why this matters
 
