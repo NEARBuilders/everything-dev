@@ -301,7 +301,14 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
         }
 
         if (forwardedProto || forwardedHost) {
-          req = new Request(url, req);
+          // KEEP: `new Request(url, req)` (Request-as-init) throws
+          // "Illegal invocation" on Node ≥ 26's undici — copy explicitly.
+          const hasBody = req.method !== "GET" && req.method !== "HEAD";
+          req = new Request(url, {
+            method: req.method,
+            headers: req.headers,
+            ...(hasBody ? { body: req.body, duplex: "half" } : {}),
+          });
         }
 
         return app.fetch(req, env, executionCtx);
