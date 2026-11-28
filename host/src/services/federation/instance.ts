@@ -52,7 +52,7 @@ function bypassInstanceModuleCache(mf: ModuleFederationInstance, remoteName: str
 /**
  * The shared Module Federation composition instance, swapped by generation.
  *
- * Invariants (ADR 0048):
+ * Invariants (ADR 0049):
  *
  * 1. ONE instance per generation ⇒ ONE share scope per generation — core
  *    Router and plugin trees negotiate singletons (react, react-dom,

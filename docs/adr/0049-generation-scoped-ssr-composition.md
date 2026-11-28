@@ -1,4 +1,4 @@
-# 0048 — Generation-scoped SSR composition (hot swap as the invalidation primitive)
+# 0049 — Generation-scoped SSR composition (hot swap as the invalidation primitive)
 
 Date: 2026-11-27
 

@@ -499,7 +499,7 @@ export const composeUi = Effect.fn("composeUi")(function* (
   // Every source's entry resolves BEFORE the compose session opens: the
   // session pins one generation for the whole compose, so a rebuild landing
   // mid-compose can only change the entries the NEXT compose sees — never
-  // this one's bytes (mixed generations mix React copies; ADR 0048
+  // this one's bytes (mixed generations mix React copies; ADR 0049
   // invariant 4).
   const loader = yield* FederationLoader;
   const nonCore = composable.filter(({ source }) => source.key !== CORE_UI_KEY);

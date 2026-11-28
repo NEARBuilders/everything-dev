@@ -51,7 +51,7 @@ interface CachedLoad {
 
 /**
  * TTL-capped, retry-bounded, negative-cached expose loads executed through a
- * compose-pinned generation session (ADR 0048).
+ * compose-pinned generation session (ADR 0049).
  *
  * Invariants:
  *
