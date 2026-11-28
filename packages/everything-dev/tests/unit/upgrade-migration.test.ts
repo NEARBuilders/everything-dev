@@ -1,12 +1,15 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { lockfileOf } from "../../src/services/lockfile/schema";
+import { planCleanout, runCleanout } from "../../src/services/scaffold/cleanout";
 import {
   describeMigrationFailure,
   diffCatalogEntries,
   migrateChildRootPackageJson,
 } from "../../src/services/scaffold/upgrade";
+import { BosConfigSchema } from "../../src/types";
 
 describe("describeMigrationFailure", () => {
   it("faces the re-exec child's JSON error", () => {
@@ -182,5 +185,178 @@ describe("migrateChildRootPackageJson", () => {
       `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`,
     );
     expect(await migrateChildRootPackageJson(dir)).toBe(false);
+  });
+});
+
+describe("cleanout — the migration deletes legacy state for real (#921)", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function makeChildDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "cleanout-child-"));
+    tempDirs.push(dir);
+    writeFileSync(
+      join(dir, "bos.app.ts"),
+      `export default ${JSON.stringify(
+        {
+          name: "child",
+          extends: "bos://dev.everything.near/everything.dev",
+          account: "test.near",
+        },
+        null,
+        2,
+      )};\n`,
+    );
+    return dir;
+  }
+
+  const lockConfig = BosConfigSchema.parse({
+    account: "test.near",
+    domain: "test.dev",
+    app: {
+      host: { development: "local:host", production: "https://cdn/host/" },
+      ui: { development: "local:ui", production: "https://cdn/ui/" },
+      api: { development: "local:api", production: "https://cdn/api/" },
+    },
+  });
+
+  function writeGhostSnapshot(dir: string): void {
+    mkdirSync(join(dir, ".bos"), { recursive: true });
+    writeFileSync(
+      join(dir, "bos.lock.json"),
+      JSON.stringify(
+        lockfileOf({ account: "test.near", gateway: "test.dev", config: lockConfig }),
+        null,
+        2,
+      ),
+    );
+    writeFileSync(
+      join(dir, ".bos", "sync-snapshot.json"),
+      JSON.stringify(
+        { timestamp: "2026-11-01T00:00:00.000Z", files: { ".gitignore": "hash-1" } },
+        null,
+        2,
+      ),
+    );
+  }
+
+  function writeGhostChangesets(dir: string): void {
+    mkdirSync(join(dir, ".changeset"), { recursive: true });
+    writeFileSync(
+      join(dir, ".changeset", "config.json"),
+      JSON.stringify({ $schema: "https://unpkg.com/@changesets/config" }, null, 2),
+    );
+    writeFileSync(
+      join(dir, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "child",
+          private: true,
+          type: "module",
+          scripts: {
+            dev: "bos dev",
+            changeset: "changeset",
+            version: "changeset version",
+            release: "changeset release",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
+
+  it("the dry-run plan names every ghost without writing anything", async () => {
+    const dir = makeChildDir();
+    writeGhostSnapshot(dir);
+    writeGhostChangesets(dir);
+
+    const plan = await planCleanout(dir);
+
+    expect(plan.map((item) => item.target)).toEqual([
+      ".bos/sync-snapshot.json",
+      ".changeset/",
+      "package.json scripts.changeset",
+      "package.json scripts.version",
+      "package.json scripts.release",
+    ]);
+    expect(existsSync(join(dir, ".changeset"))).toBe(true);
+    expect(existsSync(join(dir, ".bos", "sync-snapshot.json"))).toBe(true);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as {
+      scripts: Record<string, unknown>;
+    };
+    expect(pkg.scripts.changeset).toBe("changeset");
+  });
+
+  it("the run deletes each ghost and logs what it removed", async () => {
+    const dir = makeChildDir();
+    writeGhostSnapshot(dir);
+    writeGhostChangesets(dir);
+    const log = vi.fn();
+
+    const { items, lockAbsorbed } = await runCleanout(dir, log);
+
+    expect(lockAbsorbed).toBe(true);
+    expect(items.map((item) => item.target)).toEqual([".bos/sync-snapshot.json", ".changeset/"]);
+    expect(existsSync(join(dir, ".changeset"))).toBe(false);
+    expect(existsSync(join(dir, ".bos", "sync-snapshot.json"))).toBe(false);
+    const lock = JSON.parse(readFileSync(join(dir, "bos.lock.json"), "utf-8")) as {
+      template?: { files?: Record<string, string> };
+    };
+    expect(lock.template?.files).toEqual({ ".gitignore": "hash-1" });
+    const messages = log.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((m) => m.includes("sync-snapshot.json"))).toBe(true);
+    expect(messages.some((m) => m.includes(".changeset/"))).toBe(true);
+  });
+
+  it("a re-run is a no-op", async () => {
+    const dir = makeChildDir();
+    writeGhostSnapshot(dir);
+    writeGhostChangesets(dir);
+    await runCleanout(dir, () => {});
+    await migrateChildRootPackageJson(dir, () => {});
+
+    expect(await planCleanout(dir)).toEqual([]);
+    const second = await runCleanout(dir, () => {});
+    expect(second).toEqual({ items: [], lockAbsorbed: false });
+  });
+
+  it("the root runtime keeps its changesets — the lever lives there", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cleanout-root-"));
+    tempDirs.push(dir);
+    writeFileSync(
+      join(dir, "bos.app.ts"),
+      `export default ${JSON.stringify({ name: "root", account: "test.near" }, null, 2)};\n`,
+    );
+    writeGhostChangesets(dir);
+
+    expect(await planCleanout(dir)).toEqual([]);
+    const { items } = await runCleanout(dir, () => {});
+    expect(items).toEqual([]);
+    expect(existsSync(join(dir, ".changeset"))).toBe(true);
+  });
+
+  it("the script scrub logs what it removed", async () => {
+    const dir = makeChildDir();
+    writeGhostChangesets(dir);
+    const log = vi.fn();
+
+    expect(await migrateChildRootPackageJson(dir, log)).toBe(true);
+
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as {
+      scripts: Record<string, unknown>;
+    };
+    expect(pkg.scripts.changeset).toBeUndefined();
+    expect(pkg.scripts.version).toBeUndefined();
+    expect(pkg.scripts.release).toBeUndefined();
+    expect(pkg.scripts.dev).toBe("bos dev");
+    const messages = log.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((m) => m.includes("scripts.changeset"))).toBe(true);
+    expect(messages.some((m) => m.includes("scripts.release"))).toBe(true);
   });
 });

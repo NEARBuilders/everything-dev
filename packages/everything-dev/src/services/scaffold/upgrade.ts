@@ -12,6 +12,7 @@ import {
   reconcileWorkspaceYamlFile,
   verifyReleaseAgeExcludes,
 } from "../workspace/catalog-overrides";
+import { describeCleanoutItem, planCleanout } from "./cleanout";
 import { runPnpmApproveAll, runPnpmInstallForUpgrade } from "./init";
 import { installWithReleaseAgeRemediation } from "./install-remediation";
 import { syncTemplate } from "./sync";
@@ -163,6 +164,9 @@ export async function upgradeTemplate(
       }
     }
 
+    const cleanoutPlan = await timePhase(timings, "plan cleanout", () => planCleanout(projectDir));
+    const cleanoutNotes = cleanoutPlan.map((item) => describeCleanoutItem(item, "plan"));
+
     return {
       status: "dry-run",
       packages: [
@@ -177,6 +181,7 @@ export async function upgradeTemplate(
         provenance: parentSource.platform.provenance,
       },
       updatesAvailable: hasUpdates,
+      ...(cleanoutNotes.length > 0 ? { notes: cleanoutNotes } : {}),
       timings,
       changelogUrl,
     };
