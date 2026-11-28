@@ -363,7 +363,7 @@ export async function provisionOwnerAdmin(
     const networkId = options.networkId ?? "mainnet";
     const recipient = options.recipient ?? "seed.internal";
 
-    const ensureAdmin = async (userId: string): Promise<void> => {
+    const ensureAdmin = async (db: SeedDb, userId: string): Promise<void> => {
       const current = await db.execute(sql`SELECT role FROM "user" WHERE id = ${userId}`);
       const role = rowsOf(current)[0]?.role;
       if (role !== "admin") await promoteToAdmin(db, userId);
@@ -371,43 +371,46 @@ export async function provisionOwnerAdmin(
 
     if (credential.nearAccount) {
       const accountId = credential.nearAccount;
-      const existing =
-        (await findUserIdByNearAccount(db, accountId)) ??
-        (await findUserIdByEmail(db, ownerEmailForAccount(accountId, recipient)));
-      if (existing) {
-        await ensureAdmin(existing);
-        return { mode: "near", provisioned: true, accountId: existing };
+      const linked = await findUserIdByNearAccount(db, accountId);
+      if (linked) {
+        await ensureAdmin(db, linked);
+        return { mode: "near", provisioned: true, accountId: linked };
       }
 
-      const userId = randomUUID();
       const email = ownerEmailForAccount(accountId, recipient);
-      await db.execute(
-        sql`INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
-            VALUES (${userId}, ${accountId}, ${email}, true, 'admin', now(), now())`,
-      );
-      await db.execute(
-        sql`INSERT INTO near_account (id, user_id, account_id, network, public_key, is_primary, created_at)
-            VALUES (${randomUUID()}, ${userId}, ${accountId}, ${networkId}, 'seed:pending', true, now())`,
-      );
+      const byEmail = await findUserIdByEmail(db, email);
+      const userId = byEmail ?? randomUUID();
       const providerAccountId = `${accountId}:${networkId}`;
-      const providerExists = rowsOf(
-        await db.execute(
-          sql`SELECT id FROM "account" WHERE provider_id = 'siwn' AND account_id = ${providerAccountId} LIMIT 1`,
-        ),
-      )[0];
-      if (!providerExists) {
-        await db.execute(
-          sql`INSERT INTO "account" (id, account_id, provider_id, user_id, created_at, updated_at)
-              VALUES (${randomUUID()}, ${providerAccountId}, 'siwn', ${userId}, now(), now())`,
+      // KEEP: one transaction — a partial owner (a user without its
+      // near_account or provider row) still reads as "already provisioned" on
+      // re-run, so the first SIWN sign-in mints a second, non-admin user (#971).
+      await db.transaction(async (tx) => {
+        if (byEmail) {
+          await ensureAdmin(tx, userId);
+        } else {
+          await tx.execute(
+            sql`INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
+                VALUES (${userId}, ${accountId}, ${email}, true, 'admin', now(), now())`,
+          );
+        }
+        await tx.execute(
+          sql`INSERT INTO near_account (id, user_id, account_id, network, public_key, is_primary, created_at)
+              VALUES (${randomUUID()}, ${userId}, ${accountId}, ${networkId}, 'seed:pending',
+                      NOT EXISTS (SELECT 1 FROM near_account WHERE user_id = ${userId} AND is_primary), now())`,
         );
-      }
+        await tx.execute(
+          sql`INSERT INTO "account" (id, account_id, provider_id, user_id, created_at, updated_at)
+              SELECT ${randomUUID()}, ${providerAccountId}, 'siwn', ${userId}, now(), now()
+              WHERE NOT EXISTS (SELECT 1 FROM "account" WHERE provider_id = 'siwn' AND account_id = ${providerAccountId})`,
+        );
+      });
       return { mode: "near", provisioned: true, accountId: userId };
     }
 
     const email = credential.email!;
     const existing = await findUserIdByEmail(db, email);
     if (existing) {
-      await ensureAdmin(existing);
+      await ensureAdmin(db, existing);
       return { mode: "email", provisioned: true, accountId: existing };
     }
     const userId = randomUUID();
