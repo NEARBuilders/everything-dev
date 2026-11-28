@@ -137,7 +137,11 @@ const relinkOxc = () => {
 };
 
 const ciMode = process.env.CI === "true" || process.env.BOS_CI === "1";
-const CI_REMEDY = "the workflow must run `pnpm run prepare` after `pnpm install --ignore-scripts`";
+const asPrepare =
+  process.argv.includes("--as-prepare") || process.env.BOS_ENSURE_ALLOW_NETWORK === "1";
+const CI_HOOK_REMEDY =
+  "hooks must not clone on a CI runner — the workflow that runs this checkout provisions the toolchain with `pnpm install --ignore-scripts` followed by `pnpm run prepare` (locally: `pnpm install && pnpm run prepare`)";
+const PREPARE_REMEDY = `the repair ran but the checkout is still unhealthy — check network access to ${EFFECT_REPO_URL} and the catalog.effect pin in pnpm-workspace.yaml, then re-run \`pnpm run prepare\``;
 const LOCAL_REMEDY = "pnpm install && pnpm run prepare";
 
 const initial = problems();
@@ -148,7 +152,7 @@ if (installMissing) {
   fail(initial, LOCAL_REMEDY);
 }
 
-if (!ciMode) {
+if (!ciMode || asPrepare) {
   console.log(
     `ensure-effect-toolchain: repairing ${initial.length} problem${initial.length === 1 ? "" : "s"}`,
   );
@@ -156,8 +160,8 @@ if (!ciMode) {
 
 const needsClone = initial.some((problem) => problem.startsWith("repos/effect"));
 if (needsClone) {
-  if (ciMode) {
-    fail(initial, CI_REMEDY);
+  if (ciMode && !asPrepare) {
+    fail(initial, CI_HOOK_REMEDY);
   }
   const pin = readEffectPin();
   if (pin === null) {
@@ -205,4 +209,4 @@ if (remaining.length === 0) {
   );
   process.exit(0);
 }
-fail(remaining, ciMode ? CI_REMEDY : LOCAL_REMEDY);
+fail(remaining, asPrepare ? PREPARE_REMEDY : ciMode ? CI_HOOK_REMEDY : LOCAL_REMEDY);
