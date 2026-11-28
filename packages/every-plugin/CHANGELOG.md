@@ -1,5 +1,46 @@
 # every-plugin
 
+## 3.0.0-rc.19
+
+### Major Changes
+
+- 1751cc9: Retire the `plugin.dev.ts` dev-overlay name — every unit's dev overlay is `bos.dev.ts`, matching the root form. The plugin dev server and the core-ui workspace detection fail loud when only the legacy `plugin.dev.ts` exists, and `bos upgrade` renames it automatically (original preserved under `.bos/sync-backup/`; canonical wins when both exist). The scaffold template, framework-owned inventory, child-owned-block splice, tsconfig includes, and test setups all ship the new name. Children on the legacy name must run `bos upgrade` (or rename by hand) before the next `bos dev`.
+
+### Minor Changes
+
+- 4bde32e: Content collections as a framework primitive (ADR 0054): a workspace with a `velite.config.ts` compiles its collections inside its rspack build automatically — the framework owns the compile step and the watch scoping (collection-pattern watcher instead of velite's unfilterable recursive watch, which crashed past the file-watcher limit on repository-root content). `plugin.manifest.json` self-describes non-code resources by convention (`content: { compiler: "velite" }`, `docs: { dir: "docs" }`), and compiled collections ride the dist as `content/<name>.json` artifacts — uploaded, diffed, and SRI-pinned by the deploy train's generic file machinery. `content: false` in the base-config options opts out for hand-wired `extraPlugins`.
+
+  ***
+
+  ## "everything-dev": minor
+
+  The runtime map inventories content sources (ADR 0054): `.content` in `runtime-map.json` and `RUNTIME_CONTENT_SOURCES` in the TS emission — the composing app's docs tree (`app`, mounted `/`), each local plugin workspace's `docs/` dir (`plugins/<id>`), and remote plugins declaring `docs.dir` in their manifest.
+
+- 5ad280c: Dev reload support (issue #942, ADR 0051): `PluginRuntime.reloadPlugin` drops
+  one plugin's loaded instance, purges its Module Federation container so the
+  next load re-fetches rebuilt bytes, and re-runs the load → instantiate →
+  initialize → register pipeline against the same config — the previous
+  instance's lifecycle scope closes during the eviction, so scoped resources
+  (DB pools) release. Backing it, `ModuleFederationService.unregisterRemote`
+  clears every memoized slot for a remote (registration, module cache, the
+  evaluated entry exports, the process-global entry-load promise) — the
+  container memoization lives in process-globals only the runtime's own remote
+  handler can purge. Dev-loop machinery: production consumers never call it.
+- 4bde32e: Plugin workspaces can append rspack plugins from `build.config.ts` via the new
+  `extraPlugins` option — instances are appended after the composed defaults
+  (manifest emission, build reporting, data-URI fix) and run in both build and
+  watch. This is the sanctioned escape hatch for build-time integrations such as
+  content pipelines.
+- fecb9d7: An attached plugin mounting into an area the runtime does not declare is now omitted with a compose log line instead of failing the whole composition — the runtime map generator mirrors the engine (`every-plugin/ui/manifest` construct + the codegen static model), so starter levels that strip a mount (simple drops `_authenticated`) no longer break `bos types gen`, `bos dev`, or SSR for children inheriting plugins that target it. Core ui sources keep the fail-loud throw: a mount typo in the runtime's own ui is still a config error.
+- 939be44: Plugin workspaces can publish additional type surfaces beside their contract: declare `"every-plugin": { "additionalExports": ["src/auth-export.ts"] }` in package.json and the build compiles each source to `types/<name>.d.ts`, emits it beside the bundle, and stamps `additionalExports: [{ path, exports, sha256 }]` into `plugin.manifest.json`. Remote consumers (`fetchAuthExportTypes`) already read that field — the auth plugin ships `src/auth-export.ts`, so scaffolded children stop typechecking ui against `Auth = any` stubs once the auth plugin republishes.
+- 6525639: The ui rsbuild factory's web-only builds never delete the built SSR
+  container (`dist/ssr`) anymore (#940): when the node environment is
+  excluded (a dev-shape train build without `BOS_SSR`), rsbuild's dist
+  clean keeps the `ssr` subtree via `cleanDistPath.keep`, so a
+  `pnpm run build` from a plain shell can no longer wipe the container a
+  running `dev:ssr` stack serves. Builds that include the node environment
+  (deploy trains, dev-session SSR builds) clean and re-emit it as before.
+
 ## 3.0.0-rc.18
 
 ### Patch Changes
