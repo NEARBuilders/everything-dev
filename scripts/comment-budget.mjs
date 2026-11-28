@@ -80,8 +80,7 @@ const lineAt = (starts, offset) => {
   return low + 1;
 };
 
-const readComments = (file) => {
-  const source = readFileSync(file, "utf8");
+const readComments = (file, source = readFileSync(file, "utf8")) => {
   const parsed = parseSync(file, source);
   const fatal = (parsed.errors ?? []).filter((error) => error.severity === "Error");
   if (fatal.length > 0) return { error: fatal[0].message, comments: [] };
@@ -123,6 +122,44 @@ const measure = (files) => {
 const readBaseline = () =>
   existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, "utf8")).files : {};
 
+const gitRun = (args) =>
+  execFileSync("git", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+
+const mergeBase = () => {
+  try {
+    return gitRun(["merge-base", "origin/main", "HEAD"]).trim();
+  } catch {
+    try {
+      const parents = gitRun(["rev-list", "--parents", "-n", "1", "HEAD"]).trim().split(" ");
+      return parents.length > 2 ? parents[1] : null;
+    } catch {
+      return null;
+    }
+  }
+};
+
+const prSurface = (base) => {
+  if (base === null) return null;
+  try {
+    return gitRun(["diff", "--name-only", `${base}..HEAD`]).split("\n");
+  } catch {
+    return null;
+  }
+};
+
+const proseAt = (ref, file) => {
+  try {
+    const source = gitRun(["show", `${ref}:${file}`]);
+    const { comments, error } = readComments(file, source);
+    if (error) return null;
+    return comments
+      .filter((comment) => !comment.directive)
+      .reduce((total, comment) => total + comment.lines, 0);
+  } catch {
+    return null;
+  }
+};
+
 const area = (file) => {
   const [top] = file.split("/");
   return file.includes("/") ? top : "(root)";
@@ -133,7 +170,11 @@ const runCheck = () => {
   const rows = measure(listFiles());
   const over = [];
   const added = [];
+  const adopted = [];
   const errors = [];
+  const base = mergeBase();
+  const surface = prSurface(base);
+  const surfaceSet = surface === null ? null : new Set(surface);
 
   for (const row of rows) {
     if (row.error) {
@@ -142,10 +183,19 @@ const runCheck = () => {
     }
     const budget = baseline[row.file];
     if (budget === undefined) {
-      if (row.prose > 0) added.push(row);
+      if (row.prose === 0) continue;
+      if (surfaceSet === null || surfaceSet.has(row.file)) added.push(row);
+      else adopted.push(`${row.file} — ${row.prose} comment line(s)`);
       continue;
     }
-    if (row.prose > budget) over.push({ ...row, budget });
+    if (row.prose > budget) {
+      const baseCount = base === null ? null : proseAt(base, row.file);
+      if (baseCount !== null && baseCount > budget) {
+        adopted.push(`${row.file} — grew ${budget} → ${row.prose} on the base branch`);
+        continue;
+      }
+      over.push({ ...row, budget });
+    }
   }
 
   const seen = new Set(rows.map((row) => row.file));
@@ -158,16 +208,19 @@ const runCheck = () => {
     console.error(`✗ ${row.file}: ${row.prose} comment lines, budget ${row.budget}`);
   }
   for (const file of gone) {
-    console.error(`✗ ${file}: in baseline but no longer tracked (run --update)`);
+    console.log(`- ${file}: in baseline but no longer tracked (run --update to prune)`);
+  }
+  for (const entry of adopted) {
+    console.log(`- ${entry} (carried in from the base branch — run --update to absorb)`);
   }
   for (const message of errors) {
     console.error(`! unparseable, skipped: ${message}`);
   }
 
-  if (added.length + over.length + gone.length > 0) {
+  if (added.length + over.length > 0) {
     const total = rows.reduce((sum, row) => sum + row.prose, 0);
     console.error(
-      `\n${added.length + over.length + gone.length} file(s) over budget. ` +
+      `\n${added.length + over.length} file(s) over budget. ` +
         `Delete the comments (move decisions to an ADR) or run \`pnpm run lint:comments -- --update\` ` +
         `only to ratchet the baseline down. Repo total: ${total} prose comment lines.`,
     );
