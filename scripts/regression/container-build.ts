@@ -448,7 +448,10 @@ const stage = () => {
       localPlugins.map(([key, workspace]) => [key, digestDist(path.join(workspace, "dist"))]),
     ),
     ...Object.fromEntries(
-      [...pluginUiSlots].map(([key, slot]) => [`${key}Ui`, digestDist(slot.uiDist, slot.uiDistSsr)]),
+      [...pluginUiSlots].map(([key, slot]) => [
+        `${key}Ui`,
+        digestDist(slot.uiDist, slot.uiDistSsr),
+      ]),
     ),
   };
 
