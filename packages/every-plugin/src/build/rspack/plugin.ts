@@ -127,6 +127,16 @@ export class EmitPluginManifest implements RspackPluginInstance {
           },
         };
 
+        // Workspace self-description of non-code resources (ADR 0052):
+        // content collections and the docs lane a composing runtime can
+        // mount — both by convention, no manifest authoring required.
+        if (fs.existsSync(path.join(context, "velite.config.ts"))) {
+          manifest.content = { compiler: "velite" };
+        }
+        if (fs.existsSync(path.join(context, "docs"))) {
+          manifest.docs = { dir: "docs" };
+        }
+
         if (additionalArtifacts.length > 0) {
           manifest.additionalExports = additionalArtifacts.map((artifact) => ({
             path: artifact.path,

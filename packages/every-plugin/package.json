@@ -138,6 +138,19 @@
       "import": "./dist/build/rspack/index.mjs",
       "require": "./dist/build/rspack/index.cjs"
     },
+    "./build/rspack/content": {
+      "bun": {
+        "types": "./src/build/rspack/content.ts",
+        "import": "./src/build/rspack/content.ts"
+      },
+      "development": {
+        "types": "./src/build/rspack/content.ts",
+        "import": "./src/build/rspack/content.ts"
+      },
+      "types": "./dist/build/rspack/content.d.mts",
+      "import": "./dist/build/rspack/content.mjs",
+      "require": "./dist/build/rspack/content.cjs"
+    },
     "./build/artifact-names": {
       "bun": {
         "types": "./src/build/artifact-names.ts",

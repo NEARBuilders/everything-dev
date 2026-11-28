@@ -16,6 +16,7 @@ export const entries: EntrySpec[] = [
   { entry: "src/runtime/services/normalize.ts", export: "./normalize" },
   { entry: "src/shared-deps-spec.ts", export: "./shared-deps-spec" },
   { entry: "src/build/rspack/index.ts", export: "./build/rspack" },
+  { entry: "src/build/rspack/content.ts", export: "./build/rspack/content" },
   { entry: "src/build/artifact-names.ts", export: "./build/artifact-names" },
   { entry: "src/version-manifest.ts", export: "./version-manifest" },
   { entry: "src/ui/manifest/index.ts", export: "./ui/manifest" },

@@ -96,6 +96,23 @@ remote, where it lives). The `backends` section lists every **serving** slot:
 backends, the entry records the composed bundle's `pluginVersion` and
 `contractSha256` from its published `plugin.manifest.json`.
 
+## Content sources (ADR 0052)
+
+The map's `content` section is the non-code inventory: every workspace
+publishing content into the docs surface, by directory convention.
+
+- the composing app's `docs/` tree → `name: "app"`, `mount: "/"`
+- a local plugin workspace's `docs/` dir → `name: <pluginId>`, `mount: "plugins/<id>"`
+- a remote plugin whose published `plugin.manifest.json` carries
+  `docs.dir` → same mount, `declaredByManifest: true`
+
+**"Where does this doc come from?"** —
+`jq '.content[] | select(.name == "auth")' .bos/generated/runtime-map.json`.
+A remote plugin declaring `docs.dir` means its bundle publishes content;
+whether the composing docs plugin serves it is the docs surface's own
+decision (shadowing and mount rules live in the docs plugin, per
+ADR 0051).
+
 ## When the map is missing
 
 `.bos/generated/runtime-map.json` absent means `bos types gen` has not run

@@ -14,14 +14,26 @@ database and no publishing pipeline: the markdown in `docs/` (plus `GLOSSARY.md`
 each plugin's own `docs/` folder) is the single source of truth, compiled at build time
 and served read-only.
 
+The content **compilation** itself is framework-owned (ADR 0052): this workspace
+declares its collections in `velite.config.ts`, and `every-plugin`'s build composition
+compiles and watches them — no hand-written build integration. The compiled collections
+also ride the plugin's dist as `content/<name>.json` artifacts, so the deploy train's
+generic file machinery publishes them like any other asset. The plugin optionally
+serves `sources` variables — published content artifact URLs — instead of its baked
+bundle, which is how a composing runtime points the reader at its own content.
+
 ## How content flows
 
 1. Edit markdown in the repository — the app's `docs/**` tree, `GLOSSARY.md`, or any
    plugin's `plugins/<name>/docs/**` tree — by hand or by an agent.
 2. Merge to `main`. CI deploys; the deploy train rebuilds the plugin.
-3. During the plugin's rspack build, a `beforeCompile` hook runs
-   [Velite](https://velite.js.org), which compiles every matching file into typed JSON.
-4. The compiled JSON is bundled into the plugin, and the read API serves it.
+3. During the plugin's rspack build, the framework-owned content compiler
+   (`every-plugin`'s `ContentCompilerPlugin`, auto-wired because this
+   workspace declares `velite.config.ts`) runs
+   [Velite](https://velite.js.org), compiling every matching file into typed
+   JSON.
+4. The compiled JSON is bundled into the plugin, emitted as a `content/docs.json`
+   dist artifact, and served by the read API.
 
 Content changes are versioned, reviewed, and audited in git — nothing else stores them.
 
@@ -112,4 +124,6 @@ docs: Plugin("docs").path("plugins/docs", {
 The plugin declares no secrets and no database. Its velite config compiles the owning
 repo's content sources (the patterns live in the plugin's `velite.config.ts`, relative to
 that repo's root) — a runtime that wants its own docs owns or overrides the plugin
-workspace in its own repo, and the deploy train recompiles on merge.
+workspace in its own repo, and the deploy train recompiles on merge. Alternatively
+(ADR 0052 §4), the runtime can leave the plugin remote-only and point the plugin's
+`sources` variable at its own published content artifacts.
