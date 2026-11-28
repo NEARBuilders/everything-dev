@@ -5,14 +5,14 @@ import type { NetworkId } from "../registry/fastkv";
 import { parseYocto } from "./near-amounts";
 import { executeKeychainTransaction, isNearCliInstalled, NearTransactionError } from "./near-cli";
 
-export type SigningKeySource = "provided" | "credentials-file";
+type SigningKeySource = "provided" | "credentials-file";
 
-export interface ResolvedSigningKey {
+interface ResolvedSigningKey {
   source: SigningKeySource;
   privateKey: string;
 }
 
-export interface RegistryWriteRequest {
+interface RegistryWriteRequest {
   account: string;
   contract: string;
   method: string;
@@ -25,7 +25,7 @@ export type SigningStrategy =
   | { strategy: "near-kit"; privateKey: string; source: SigningKeySource }
   | { strategy: "near-cli-keychain" };
 
-export interface NearTransactionResult {
+interface NearTransactionResult {
   success: true;
   txHash?: string;
   signedWith: "env" | "credentials-file" | "near-cli-keychain";
@@ -38,7 +38,7 @@ export interface NearTransactionResult {
  * alike). NEAR_RPC_URL pins the signing stack to an endpoint with a real
  * transaction pool — set it to https://rpc.mainnet.near.org. Mirrors the
  * auth plugin's dev-wiring convention (plugins/auth/bos.dev.ts). */
-export function resolveNearRpcUrl(): string | undefined {
+function resolveNearRpcUrl(): string | undefined {
   return process.env.NEAR_RPC_URL || undefined;
 }
 
@@ -259,7 +259,7 @@ export async function classifyTransactionOutcome(
  * per gas unit) inclusion burn of a failed execution. */
 const MIN_PUBLISH_ALLOWANCE_YOCTO = 30_000_000_000_000_000_000_000n;
 
-export interface PublishKeyHealth {
+interface PublishKeyHealth {
   ok: boolean;
   warning?: string;
   error?: string;
@@ -426,7 +426,7 @@ export function classifyPublishBalance(
   return { ok, low: ok && balance < required * PUBLISH_BALANCE_LOW_HEADROOM };
 }
 
-export interface PublishBalanceHealth {
+interface PublishBalanceHealth {
   ok: boolean;
   warning?: string;
   error?: string;

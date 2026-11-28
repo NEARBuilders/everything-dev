@@ -36,7 +36,7 @@ import type {
   RouterContextWithApi,
 } from "./types";
 
-export interface ServerRouterModuleOptions<TRouteTree extends AnyRoute = AnyRoute> {
+interface ServerRouterModuleOptions<TRouteTree extends AnyRoute = AnyRoute> {
   /** The app's generated route tree — the core-only fallback when no composed tree is passed. */
   defaultRouteTree?: TRouteTree;
   /**

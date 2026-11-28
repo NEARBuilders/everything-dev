@@ -53,7 +53,7 @@ function isAbsoluteHttpUrl(value: string | undefined): value is string {
 
 export type { AppRouterFactory } from "./types";
 
-export interface CoreHydrateOptions {
+interface CoreHydrateOptions {
   /**
    * Loads the app's generated core route config — the only app-specific
    * input; clients, compose machinery, and the router come from the package.

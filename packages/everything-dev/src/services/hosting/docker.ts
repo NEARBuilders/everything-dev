@@ -46,7 +46,7 @@ import {
   type RuntimeDescriptor,
 } from "./adapter";
 
-export interface DockerHostingOptions {
+interface DockerHostingOptions {
   /** Container port the runtime serves HTTP on. */
   readonly containerPort?: number | undefined;
   /** Path polled for readiness after deploy/restart. */

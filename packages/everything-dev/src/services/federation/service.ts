@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import {
@@ -119,7 +118,7 @@ export function installIntegrityFetchHook(
   });
 }
 
-export interface HostPluginRuntimeOptions {
+interface HostPluginRuntimeOptions {
   /** The integrity-in-pipeline registry: resolved artifact URLs → pin SRI.
    * When present, the MF fetch hook installs inside this factory — the
    * loader verifies every registered byte at fetch time (#642 revival). */
@@ -209,21 +208,7 @@ export async function loadRemoteModule<T>(
   return mod;
 }
 
-export async function ensureNodeRuntimePlugin(): Promise<void> {
-  const instance = getFederationInstance();
-  if (typeof window !== "undefined") return;
-  if ((instance as any).__nodeRuntimePluginLoaded) return;
-
-  const mod: any = await import("@module-federation/node/runtimePlugin");
-  const factory = mod?.default ?? mod;
-  const plugin = typeof factory === "function" ? factory() : null;
-  if (plugin) {
-    instance.registerPlugins([plugin]);
-  }
-  (instance as any).__nodeRuntimePluginLoaded = true;
-}
-
-export interface FederationCompatRemote {
+interface FederationCompatRemote {
   role: string;
   url: string;
   reachable: boolean;
@@ -232,7 +217,7 @@ export interface FederationCompatRemote {
   reason?: string;
 }
 
-export interface FederationCompatReport {
+interface FederationCompatReport {
   ok: boolean;
   hostVersion: string | null;
   hostReachable: boolean;
@@ -266,7 +251,7 @@ function listFederationRemotes(bosConfig: BosConfig): Array<{ role: string; url:
   return out;
 }
 
-export interface UiCompositionRemote {
+interface UiCompositionRemote {
   remote: string;
   url: string;
   reachable: boolean;
@@ -274,7 +259,7 @@ export interface UiCompositionRemote {
   reason?: string;
 }
 
-export interface UiCompositionReport {
+interface UiCompositionReport {
   ok: boolean;
   remotes: UiCompositionRemote[];
 }
@@ -548,8 +533,4 @@ export async function checkFederationCompat(
     hostReason,
     remotes: remoteReports,
   };
-}
-
-export function loadBosConfigForMfCheck(configPath: string): BosConfig {
-  return JSON.parse(readFileSync(configPath, "utf8")) as BosConfig;
 }

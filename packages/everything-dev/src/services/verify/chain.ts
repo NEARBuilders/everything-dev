@@ -33,7 +33,7 @@ export function digestOf(ref: PinnedRemoteRef): { manifest: string; integrity: s
   return manifest && integrity ? { manifest, integrity } : null;
 }
 
-export interface RemoteDescriptor {
+interface RemoteDescriptor {
   remote: string;
   /** the remote's production base URL (…/bundles/<account>/<gateway>/<workspace>/) */
   base: string;
@@ -80,14 +80,14 @@ export interface VerifyReport {
   remotes: VerifyRemoteResult[];
 }
 
-export interface ChainEntryResult {
+interface ChainEntryResult {
   remote: string;
   url: string;
   ok: boolean;
   reason?: string;
 }
 
-export interface ChainVerifyResult {
+interface ChainVerifyResult {
   depth: ChainDepth;
   remotes: VerifyRemoteResult[];
   entries: ChainEntryResult[];

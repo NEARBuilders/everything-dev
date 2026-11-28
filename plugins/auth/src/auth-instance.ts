@@ -148,7 +148,7 @@ export function compactIpAddress(
   ipAddress: AuthIpAddressConfig | undefined,
 ): { ipAddressHeaders: string[] } & { trustedProxies?: string[] } {
   return {
-    ipAddressHeaders: ipAddress?.ipAddressHeaders ?? ["x-forwarded-for"],
+    ipAddressHeaders: ipAddress?.ipAddressHeaders ?? [],
     ...(ipAddress?.trustedProxies?.length ? { trustedProxies: ipAddress.trustedProxies } : {}),
   };
 }
@@ -592,10 +592,11 @@ export function createAuthInstance(
       // so an appending chain (Cloudflare + Railway) still fails to resolve —
       // deployments name a single trusted header (e.g. cf-connecting-ip) or
       // list their proxies in trustedProxies (#688, trust boundary #338).
-      // The default trusts the standard forwarded header; deployments without
-      // a proxy are unaffected (the header is absent and the fallback applies).
-      // The default trusts the standard forwarded header; deployments without
-      // a proxy are unaffected (the header is absent and the fallback applies).
+      // Unset config trusts no forwarded header: Better Auth falls back to
+      // the socket address, which behind a proxy is one shared bucket (its
+      // documented direct-connection trade-off). Deployments behind ingress
+      // MUST name their trusted header or list trusted proxies, per the
+      // auth-config guidance.
       ipAddress: compactIpAddress(config.ipAddress),
       // Sibling subdomains sharing one session cookie (#668): authored config
       // only — absent config keeps cookies host-scoped. The domain must be the

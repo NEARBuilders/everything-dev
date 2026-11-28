@@ -11,7 +11,9 @@ import {
 } from "react";
 import { matchLocale, resolveLocale, serializeLocaleCookie } from "./locale";
 
+// lingui re-export — Trans stays reachable from the single i18n specifier
 export { Trans } from "@lingui/react";
+// locale primitives
 export type { LocaleOptions } from "./locale";
 export {
   matchLocale,
@@ -20,6 +22,7 @@ export {
   resolveLocale,
   serializeLocaleCookie,
 } from "./locale";
+// message catalogs
 export { createMessageCatalogs } from "./message-catalogs";
 
 type SharedLocaleState = {

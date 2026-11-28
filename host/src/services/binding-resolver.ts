@@ -54,6 +54,13 @@ function devLocalhostLabel(hostname: string): string | null {
 }
 
 async function fetchBindingsFromApi(apiUrl: string): Promise<TenantBinding[]> {
+  // The consumer of this endpoint treats its payload as tenant authorization
+  // data (allowUiOverrides / allowBackendOverrides / allowSsr / status). When a
+  // runtime ships /api/tenants/bindings, the route MUST self-gate to trusted
+  // internal callers (loopback bind or a shared internal token that this fetch
+  // sends) — the resolver currently sends no credential by design of the local
+  // dev path, so the future route's own gate is the trust boundary. (Private
+  // audit finding, 2026-11-27.)
   const endpoint = `${apiUrl.replace(/\/$/, "")}/api/tenants/bindings`;
   let response: Response;
   try {

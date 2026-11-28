@@ -105,7 +105,7 @@ export function getDeviceLinkClientId(config?: Partial<ClientRuntimeConfig>): st
   return variables?.deviceLink?.clientId ?? DEFAULT_DEVICE_LINK_CLIENT_ID;
 }
 
-export interface CustodyWalletRegistration {
+interface CustodyWalletRegistration {
   registered: boolean;
   network?: string;
   walletId: string;
@@ -354,9 +354,9 @@ export function useRelayHistory(session: SessionData | null | undefined, authCli
   });
 }
 
-export type PasskeyWalletStatus = PasskeyWalletLink;
+type PasskeyWalletStatus = PasskeyWalletLink;
 
-export type PasskeyCeremonyError = Error & { code?: string; status?: number };
+type PasskeyCeremonyError = Error & { code?: string; status?: number };
 
 const UNSUPPORTED_AUTHENTICATOR_CODES = new Set([
   "PASSKEY_UNSUPPORTED_AUTHENTICATOR",
@@ -378,15 +378,6 @@ function toPasskeyError(
     code: error?.code,
     status: error?.status,
   });
-}
-
-export async function isPasskeyAutofillAvailable(): Promise<boolean> {
-  if (typeof window === "undefined" || !window.PublicKeyCredential) return false;
-  try {
-    return (await window.PublicKeyCredential.isConditionalMediationAvailable?.()) === true;
-  } catch {
-    return false;
-  }
 }
 
 /**

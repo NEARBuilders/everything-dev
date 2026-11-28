@@ -39,6 +39,7 @@ export const dbRenderers: Record<string, ResultRenderer> = {
 
     console.log(`\n${statusIcon}  ${result.plugin}`);
     console.log(`  ${colors.dim(`Journal:`)} ${result.journalSchema}.${result.journalTable}`);
+    console.log(`  ${colors.dim(`Data schema:`)} ${result.dataSchema}`);
     console.log(`  ${colors.dim(`Local migrations:`)} ${result.localMigrationCount}`);
     console.log(`  ${colors.dim(`Applied hashes:`)} ${result.appliedHashCount}`);
     if (result.expectedTables.length > 0) {

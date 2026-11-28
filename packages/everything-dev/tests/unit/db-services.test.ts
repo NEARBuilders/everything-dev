@@ -1,15 +1,48 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
 import { Effect } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseBinding, DatabaseBindingsService } from "../../src/db/bindings";
 import { DatabaseBindings, makeDatabaseBindings } from "../../src/db/bindings";
 import type { DrizzleKitService } from "../../src/db/drizzle-kit";
 import { DrizzleKit, makeDrizzleKitLive } from "../../src/db/drizzle-kit";
 import { workspaceIdentityFromWorkspaceDir } from "../../src/db/identity";
+import type { MigrationDatabase } from "../../src/db/run-migrations";
+import { diagnosePlugin, type SqlExecutor } from "../../src/services/db/doctor";
+import { repairPlugin } from "../../src/services/db/repair";
 import type { RuntimeConfig } from "../../src/types";
+
+const pgMock = vi.hoisted(() => ({
+  mockDb: undefined as
+    | { query: (text: string, params?: unknown[]) => Promise<{ rows: unknown[] }> }
+    | undefined,
+}));
+
+vi.mock("pg", () => ({
+  Pool: class {
+    async query(text: string, params?: unknown[]) {
+      const db = pgMock.mockDb;
+      if (!db) throw new Error("mock pg.Pool: no mockDb set for this test");
+      return db.query(text, params);
+    }
+    async end() {
+      return undefined;
+    }
+  },
+}));
 
 const cleanups: Array<() => void> = [];
 
@@ -17,6 +50,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) {
     cleanup();
   }
+  pgMock.mockDb = undefined;
 });
 
 function tempWorkspace(name: string): string {
@@ -253,5 +287,256 @@ describe("npx shim mechanism", () => {
     });
 
     expect(readFileSync(outFile, "utf-8")).toBe("x");
+  });
+});
+
+const DOCTOR_MIGRATION_SQL = 'CREATE TABLE IF NOT EXISTS "builders" (id int);\n';
+
+function doctorMigrationHash(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+/** A fake plugin workspace with a real src/db/migrations layout for the doctor to read. */
+function doctorWorkspace(name: string, withSqlFile: boolean): string {
+  const dir = mkdtempSync(join(tmpdir(), "everything-dev-doctor-"));
+  writeFileSync(join(dir, "package.json"), `${JSON.stringify({ name })}\n`);
+  const migrationsDir = join(dir, "src", "db", "migrations");
+  mkdirSync(join(migrationsDir, "meta"), { recursive: true });
+  writeFileSync(
+    join(migrationsDir, "meta", "_journal.json"),
+    JSON.stringify({
+      entries: [{ idx: 0, when: 1_700_000_000_000, tag: "0001_init" }],
+    }),
+  );
+  if (withSqlFile) {
+    writeFileSync(join(migrationsDir, "0001_init.sql"), DOCTOR_MIGRATION_SQL);
+  }
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+const REPAIR_MIGRATION_SQL = 'CREATE TABLE IF NOT EXISTS "builders" (id int);\n';
+
+function repairMigrationHash(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+const SHARED_JOURNAL = { schema: "drizzle", table: "__drizzle_migrations" } as const;
+
+/** A fake plugin workspace with a real src/db/migrations layout the re-apply pass loads. */
+function repairWorkspace(name: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "everything-dev-repair-"));
+  writeFileSync(join(dir, "package.json"), `${JSON.stringify({ name })}\n`);
+  const migrationsDir = join(dir, "src", "db", "migrations");
+  mkdirSync(join(migrationsDir, "meta"), { recursive: true });
+  writeFileSync(
+    join(migrationsDir, "meta", "_journal.json"),
+    JSON.stringify({
+      entries: [{ idx: 0, when: 1_700_000_000_000, tag: "0001_init" }],
+    }),
+  );
+  writeFileSync(join(migrationsDir, "0001_init.sql"), REPAIR_MIGRATION_SQL);
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+function doctorBinding(opts: {
+  section: DatabaseBinding["section"];
+  key: string;
+  slug: string;
+  workspaceDir: string;
+  journal?: { schema: string; table: string };
+}): DatabaseBinding {
+  return {
+    key: opts.key,
+    source: "local",
+    section: opts.section,
+    identity: {
+      slug: opts.slug,
+      secretName: "TEST_DATABASE_URL",
+      journal: opts.journal ?? {
+        schema: "drizzle",
+        table: `__drizzle_migrations_${opts.slug}`,
+        slug: opts.slug,
+      },
+      workspaceDir: opts.workspaceDir,
+    },
+    url: "postgres://u:p@localhost:5432/unused_by_executor",
+  };
+}
+
+function pgliteExecutor(pglite: PGlite): SqlExecutor {
+  return {
+    query: async (text, params) => {
+      const result = await pglite.query(text, params as never[]);
+      return { rows: result.rows as Record<string, unknown>[] };
+    },
+  };
+}
+
+function repairBinding(opts: {
+  slug: string;
+  workspaceDir: string;
+  journal: { schema: string; table: string };
+}): DatabaseBinding {
+  return {
+    key: "widgets",
+    source: "local",
+    section: "plugins",
+    identity: {
+      slug: opts.slug,
+      secretName: "WIDGETS_DATABASE_URL",
+      journal: { ...opts.journal, slug: opts.slug },
+      workspaceDir: opts.workspaceDir,
+    },
+    url: "postgres://u:p@localhost:5432/unused_by_mock_pool",
+  };
+}
+
+async function seedJournalRows(
+  pglite: PGlite,
+  coords: { schema: string; table: string },
+  hashes: string[],
+): Promise<void> {
+  await pglite.exec(`CREATE SCHEMA IF NOT EXISTS "${coords.schema}"`);
+  await pglite.exec(
+    `CREATE TABLE "${coords.schema}"."${coords.table}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
+  );
+  for (const hash of hashes) {
+    await pglite.query(
+      `INSERT INTO "${coords.schema}"."${coords.table}" (hash, created_at) VALUES ($1, $2)`,
+      [hash, 1_700_000_000_000],
+    );
+  }
+}
+
+describe("db doctor data-schema resolution (#663)", () => {
+  it("reports healthy when the expected tables live in the plugin's data schema", async () => {
+    const pglite = new PGlite();
+    const workspaceDir = doctorWorkspace("@everything-dev/widgets-plugin", true);
+    await pglite.exec(`CREATE SCHEMA "plugin_widgets"`);
+    await pglite.exec(`CREATE TABLE "plugin_widgets"."builders" (id int)`);
+    await seedJournalRows(pglite, { schema: "drizzle", table: "__drizzle_migrations_widgets" }, [
+      doctorMigrationHash(DOCTOR_MIGRATION_SQL),
+    ]);
+
+    const report = await diagnosePlugin(
+      doctorBinding({ section: "plugins", key: "widgets", slug: "widgets", workspaceDir }),
+      pgliteExecutor(pglite),
+    );
+
+    expect(report.diagnosis).toBe("healthy");
+    expect(report.dataSchema).toBe("plugin_widgets");
+    expect(report.missingTables).toEqual([]);
+  });
+
+  it("reports the v1 topology (tables in public, journal present) as drift-safe-repair — boot checks plugin_<slug>", async () => {
+    const pglite = new PGlite();
+    const workspaceDir = doctorWorkspace("@everything-dev/widgets-plugin", true);
+    await pglite.exec(`CREATE TABLE "builders" (id int)`);
+    await seedJournalRows(pglite, { schema: "drizzle", table: "__drizzle_migrations_widgets" }, [
+      doctorMigrationHash(DOCTOR_MIGRATION_SQL),
+    ]);
+
+    const report = await diagnosePlugin(
+      doctorBinding({ section: "plugins", key: "widgets", slug: "widgets", workspaceDir }),
+      pgliteExecutor(pglite),
+    );
+
+    expect(report.diagnosis).toBe("drift-safe-repair");
+    expect(report.dataSchema).toBe("plugin_widgets");
+    expect(report.missingTables).toEqual(["builders"]);
+    expect(report.appliedHashCount).toBe(1);
+  });
+
+  it("keeps the public topology for the api workspace", async () => {
+    const pglite = new PGlite();
+    const workspaceDir = doctorWorkspace("api", true);
+    await pglite.exec(`CREATE TABLE "builders" (id int)`);
+    await seedJournalRows(pglite, { schema: "drizzle", table: "__drizzle_migrations_api" }, [
+      doctorMigrationHash(DOCTOR_MIGRATION_SQL),
+    ]);
+
+    const report = await diagnosePlugin(
+      doctorBinding({ section: "app.api", key: "api", slug: "api", workspaceDir }),
+      pgliteExecutor(pglite),
+    );
+
+    expect(report.diagnosis).toBe("healthy");
+    expect(report.dataSchema).toBe("public");
+    expect(report.missingTables).toEqual([]);
+  });
+});
+
+async function journalHashes(
+  pglite: PGlite,
+  coords: { schema: string; table: string },
+): Promise<string[]> {
+  const result = await pglite.query<{ hash: string }>(
+    `SELECT hash FROM "${coords.schema}"."${coords.table}" ORDER BY id`,
+  );
+  return result.rows.map((r) => r.hash);
+}
+
+describe("db repair history-reset scoping (#664)", () => {
+  it("deletes only the target workspace's rows from the shared journal — sibling hashes survive", async () => {
+    const pglite = new PGlite();
+    pgMock.mockDb = pglite;
+    const workspaceDir = repairWorkspace("@everything-dev/widgets-plugin");
+    const targetHash = repairMigrationHash(REPAIR_MIGRATION_SQL);
+    await seedJournalRows(pglite, SHARED_JOURNAL, [targetHash, "sibling-hash-a", "sibling-hash-b"]);
+
+    const result = await repairPlugin(
+      repairBinding({ slug: "widgets", workspaceDir, journal: SHARED_JOURNAL }),
+      "history-reset",
+      {
+        openDatabase: async () => {
+          throw new Error("injected-open-database-failure");
+        },
+      },
+    );
+
+    expect(result.status).toBe("repaired");
+    expect(result.message).toContain("Automatic reapply failed");
+
+    const rows = await journalHashes(pglite, SHARED_JOURNAL);
+    expect(rows).toEqual(["sibling-hash-a", "sibling-hash-b"]);
+  });
+
+  it("reapplies migrations under the workspace's data schema, never into public", async () => {
+    const pglite = new PGlite();
+    pgMock.mockDb = pglite;
+    const workspaceDir = repairWorkspace("@everything-dev/widgets-plugin");
+    const targetHash = repairMigrationHash(REPAIR_MIGRATION_SQL);
+    const ownJournal = { schema: "drizzle", table: "__drizzle_migrations_widgets" };
+    await seedJournalRows(pglite, ownJournal, [targetHash]);
+
+    const result = await repairPlugin(
+      repairBinding({ slug: "widgets", workspaceDir, journal: ownJournal }),
+      "history-reset",
+      {
+        openDatabase: async () => {
+          // Mirror createDatabaseDriver's pglite namespace handling: the data
+          // schema owns unqualified DDL via search_path.
+          await pglite.exec(`SET search_path TO "plugin_widgets", public`);
+          return { db: drizzle(pglite) as unknown as MigrationDatabase, close: async () => {} };
+        },
+      },
+    );
+
+    expect(result.status).toBe("repaired");
+    expect(result.message).toContain("plugin_widgets");
+
+    const namespaced = await pglite.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'plugin_widgets'`,
+    );
+    expect(namespaced.rows.map((r) => r.table_name)).toContain("builders");
+
+    const sprayed = await pglite.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'builders'`,
+    );
+    expect(sprayed.rows).toHaveLength(0);
+
+    expect(await journalHashes(pglite, ownJournal)).toEqual([targetHash]);
   });
 });

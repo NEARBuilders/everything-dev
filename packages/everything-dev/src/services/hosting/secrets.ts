@@ -7,12 +7,12 @@
  */
 import type { RuntimeDescriptor } from "./adapter";
 
-export const RESERVED_SECRET_NAMES: ReadonlySet<string> = new Set([
+const RESERVED_SECRET_NAMES: ReadonlySet<string> = new Set([
   "PORT",
   "API_DATABASE_URL",
   "AUTH_DATABASE_URL",
 ]);
-export const RESERVED_SECRET_PREFIX = "BOS_";
+const RESERVED_SECRET_PREFIX = "BOS_";
 export const SECRET_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 
 export function isReservedSecretName(name: string): boolean {

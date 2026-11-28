@@ -2,7 +2,7 @@ import type { ClientRuntimeConfig } from "../types";
 import { entryUrls, type RemoteEntry } from "./remote-entry";
 import type { HeadLink, HeadScript } from "./types";
 
-export interface RemoteScriptsOptions {
+interface RemoteScriptsOptions {
   runtimeConfig?: Partial<ClientRuntimeConfig>;
   containerName?: string;
   hydratePath?: string;
