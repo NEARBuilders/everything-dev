@@ -24,6 +24,7 @@ import { getSnapshotBootHealth, type HealthLoadingState } from "./routes/health"
 import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
+import { forkDevPluginAdopt } from "./services/dev-plugin-adopt";
 import { HostServerError } from "./services/errors";
 import { FederationContainers } from "./services/federation/containers";
 import { FederationLifecycle } from "./services/federation/lifecycle";
@@ -269,9 +270,11 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     }
 
     registerAuthHandler(app, plugins);
-    yield* Effect.promise(() =>
+    const rpcServing = yield* Effect.promise(() =>
       setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState),
     );
+
+    yield* forkDevPluginAdopt({ config, plugins, serving: rpcServing });
 
     app.use("/*", sessionMiddleware);
 

@@ -9,7 +9,11 @@ import type {
   SecretsConfig,
 } from "../../types";
 import type { PluginRuntimeError } from "../errors";
-import { ModuleFederationServiceDefault } from "./module-federation.service";
+import { toPluginRuntimeError } from "../errors";
+import {
+  ModuleFederationService,
+  ModuleFederationServiceDefault,
+} from "./module-federation.service";
 import { PluginLifecycleService, PluginLifecycleServiceDefault } from "./plugin-lifecycle.service";
 import {
   PluginLoaderService,
@@ -33,6 +37,12 @@ export interface PluginServiceShape {
   ) => Effect.Effect<InitializedPlugin<T>, PluginRuntimeError>;
   registerPlugin: (plugin: InitializedPlugin<AnyPlugin>) => Effect.Effect<void>;
   shutdownPlugin: (plugin: InitializedPlugin<AnyPlugin>) => Effect.Effect<void>;
+  /** Drop a remote plugin's Module Federation container so its next load
+   * re-fetches fresh bytes — the dev reload's purge step (issue #942). */
+  purgePluginModule: (
+    pluginId: string,
+    remoteUrl: string,
+  ) => Effect.Effect<void, PluginRuntimeError>;
   cleanup: Effect.Effect<void>;
 }
 
@@ -45,6 +55,7 @@ export const PluginServiceDefault = Layer.effect(
   Effect.gen(function* () {
     const loader = yield* PluginLoaderService;
     const lifecycle = yield* PluginLifecycleService;
+    const moduleFederation = yield* ModuleFederationService;
 
     return {
       loadPlugin: loader.loadPlugin,
@@ -58,6 +69,14 @@ export const PluginServiceDefault = Layer.effect(
           ),
           Effect.ensuring(lifecycle.unregister(plugin)),
         ),
+      purgePluginModule: (pluginId: string, remoteUrl: string) =>
+        moduleFederation
+          .unregisterRemote(pluginId, remoteUrl)
+          .pipe(
+            Effect.mapError((error) =>
+              toPluginRuntimeError(error, pluginId, remoteUrl, "reload-purge"),
+            ),
+          ),
       cleanup: lifecycle.cleanup,
     };
   }),

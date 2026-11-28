@@ -17,6 +17,9 @@ export interface RawLogLine {
   line: string;
   isError?: boolean;
   timestamp?: number;
+  /** Explicit level override — session-authored lines (not child stdout)
+   * set it so the default display level shows them. */
+  level?: LogLevel;
 }
 
 export interface LogEvent {
@@ -82,6 +85,7 @@ const countBraces = (line: string): number => {
 interface PendingMeta {
   source: string;
   isError?: boolean;
+  level?: LogLevel;
   timestamp?: number;
 }
 
@@ -230,7 +234,10 @@ export function classifyEvent(raw: RawLogLine): LogEvent {
   let level: LogLevel;
   let isError = raw.isError === true;
 
-  if (exitMatch) {
+  if (raw.level) {
+    level = raw.level;
+    isError = raw.isError === true || raw.level === "error";
+  } else if (exitMatch) {
     if (exitMatch[2]) {
       level = CLEAN_SIGNALS.has(exitMatch[2]) ? "info" : "error";
     } else {
@@ -323,6 +330,7 @@ export function createLogPipeline(options: {
       source: meta.source,
       line: text,
       isError: meta.isError,
+      level: meta.level,
       timestamp: meta.timestamp,
     });
     sinks.file(event);
@@ -341,6 +349,7 @@ export function createLogPipeline(options: {
       const completed = feedLine(state, clean, {
         source: raw.source,
         isError: raw.isError,
+        level: raw.level,
         timestamp: raw.timestamp,
       });
       if (completed !== null) emit(completed.meta, completed.text);

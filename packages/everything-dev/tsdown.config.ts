@@ -134,6 +134,7 @@ export default defineConfig({
     "src/services/lockfile/schema.ts",
     "src/contract.meta.ts",
     "src/services/dev/logs.ts",
+    "src/services/dev/adopt.ts",
     "src/db/index.ts",
     "src/services/federation/service.ts",
     "src/services/deploy/integrity.ts",

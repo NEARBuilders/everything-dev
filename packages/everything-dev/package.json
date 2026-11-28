@@ -180,6 +180,15 @@
       "import": "./dist/services/dev/logs.mjs",
       "require": "./dist/services/dev/logs.cjs"
     },
+    "./dev-adopt": {
+      "development": {
+        "types": "./src/services/dev/adopt.ts",
+        "import": "./src/services/dev/adopt.ts"
+      },
+      "types": "./dist/services/dev/adopt.d.mts",
+      "import": "./dist/services/dev/adopt.mjs",
+      "require": "./dist/services/dev/adopt.cjs"
+    },
     "./federation": {
       "development": {
         "types": "./src/services/federation/service.ts",

@@ -288,6 +288,51 @@ export class PluginRuntime<R = RegisteredPlugins> {
     }
   }
 
+  /**
+   * Dev reload (issue #942): drop this plugin's loaded instance, purge its
+   * Module Federation container so the next load re-fetches the rebuilt
+   * bytes, and re-run the full load → instantiate → initialize → register
+   * pipeline against the SAME config. The old instance's lifecycle scope
+   * closes inside the eviction (Layer finalizers release DB pools and other
+   * scoped resources), so a reload leaks nothing.
+   *
+   * Dev-only by contract: a production consumer has no reason to re-load a
+   * plugin it already initialized — use it from the host's dev adopt loop,
+   * not from a request path.
+   */
+  async reloadPlugin<K extends keyof R & string>(
+    pluginId: K,
+    config: PluginConfigInput<R[K]>,
+    plugins?: Record<string, unknown>,
+  ): Promise<UsePluginResult<K, R>> {
+    const entry = this.registry[pluginId];
+    await this.evictPlugin(pluginId, config, plugins);
+    const remoteUrl = entry && !("module" in entry) ? entry.remote : undefined;
+    if (remoteUrl) {
+      const purge = Effect.gen(function* () {
+        const pluginService = yield* PluginService;
+        yield* pluginService.purgePluginModule(pluginId, remoteUrl);
+      }).pipe(
+        Effect.mapError((error) =>
+          toPluginRuntimeError(
+            error instanceof Error ? error : new Error(String(error)),
+            pluginId,
+            undefined,
+            "reload-purge",
+          ),
+        ),
+      );
+      await this.runPromise(purge).catch((error: unknown) => {
+        if (error instanceof PluginRuntimeError) {
+          console.warn(`[every-plugin] ${pluginId} reload purge failed: ${error.message}`);
+          return;
+        }
+        throw error;
+      });
+    }
+    return this.usePlugin(pluginId, config, plugins);
+  }
+
   async evictPlugin<K extends keyof R & string>(
     pluginId: K,
     config: PluginConfigInput<R[K]>,
