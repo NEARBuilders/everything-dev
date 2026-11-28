@@ -1,4 +1,4 @@
-# 0051 — Docs content sources and the mount-qualified slug scheme
+# 0053 — Docs content sources and the mount-qualified slug scheme
 
 Date: 2026-11-27
 Status: accepted

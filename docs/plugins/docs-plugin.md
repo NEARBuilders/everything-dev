@@ -14,7 +14,7 @@ database and no publishing pipeline: the markdown in `docs/` (plus `GLOSSARY.md`
 each plugin's own `docs/` folder) is the single source of truth, compiled at build time
 and served read-only.
 
-The content **compilation** itself is framework-owned (ADR 0052): this workspace
+The content **compilation** itself is framework-owned (ADR 0054): this workspace
 declares its collections in `velite.config.ts`, and `every-plugin`'s build composition
 compiles and watches them — no hand-written build integration. The compiled collections
 also ride the plugin's dist as `content/<name>.json` artifacts, so the deploy train's
@@ -54,7 +54,7 @@ docs lane by adding a `docs/` folder to its workspace; the docs plugin needs no 
 
 Each mounted plugin source owns its `plugins/<name>/…` prefix: where an app-authored page
 and a mounted plugin doc qualify to the same slug, the plugin's own content shadows the
-app page (see [ADR 0051](../adr/0051-docs-content-sources.md)).
+app page (see [ADR 0053](../adr/0053-docs-content-sources.md)).
 
 ## Frontmatter
 
@@ -125,5 +125,5 @@ The plugin declares no secrets and no database. Its velite config compiles the o
 repo's content sources (the patterns live in the plugin's `velite.config.ts`, relative to
 that repo's root) — a runtime that wants its own docs owns or overrides the plugin
 workspace in its own repo, and the deploy train recompiles on merge. Alternatively
-(ADR 0052 §4), the runtime can leave the plugin remote-only and point the plugin's
+(ADR 0054 §4), the runtime can leave the plugin remote-only and point the plugin's
 `sources` variable at its own published content artifacts.

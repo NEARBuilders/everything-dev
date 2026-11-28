@@ -60,7 +60,7 @@ const toRecord = (doc: CompiledRecord): DocRecord => {
 export default createPlugin({
   variables: z.object({
     /**
-     * Content sources served instead of the baked bundle (ADR 0052) —
+     * Content sources served instead of the baked bundle (ADR 0054) —
      * compiled collection JSONs published as content artifacts, one per
      * source. Absent/empty: the baked corpus the plugin was built with.
      */

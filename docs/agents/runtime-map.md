@@ -96,7 +96,7 @@ remote, where it lives). The `backends` section lists every **serving** slot:
 backends, the entry records the composed bundle's `pluginVersion` and
 `contractSha256` from its published `plugin.manifest.json`.
 
-## Content sources (ADR 0052)
+## Content sources (ADR 0054)
 
 The map's `content` section is the non-code inventory: every workspace
 publishing content into the docs surface, by directory convention.
@@ -111,7 +111,7 @@ publishing content into the docs surface, by directory convention.
 A remote plugin declaring `docs.dir` means its bundle publishes content;
 whether the composing docs plugin serves it is the docs surface's own
 decision (shadowing and mount rules live in the docs plugin, per
-ADR 0051).
+ADR 0053).
 
 ## When the map is missing
 

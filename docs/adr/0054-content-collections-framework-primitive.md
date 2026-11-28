@@ -1,12 +1,12 @@
-# 0052 — Content collections as a framework primitive
+# 0054 — Content collections as a framework primitive
 
 Date: 2026-11-28
 Status: accepted
-Builds on: 0051 (docs content sources), PR #450
+Builds on: 0053 (docs content sources), PR #450
 
 ## Context
 
-The docs plugin (ADR 0051) hand-rolled three things that exist for code
+The docs plugin (ADR 0053) hand-rolled three things that exist for code
 already:
 
 1. a build-time compile step (an rspack plugin class in `build.config.ts`),
@@ -102,7 +102,7 @@ are answered from the same inventory as routes and backends.
   optional and swappable.
 - **A generic shadowing/mount engine in the framework** — the composition
   layer's existing route/mount semantics stay the only engine; content
-  reuses them by reference (ADR 0051), it does not re-implement them.
+  reuses them by reference (ADR 0053), it does not re-implement them.
 - **Glob-driven source discovery in the compiler** — the docs plugin's
   original approach; it baked one repo's layout into a plugin. Directory
   convention per workspace plus manifest declaration scales without the
