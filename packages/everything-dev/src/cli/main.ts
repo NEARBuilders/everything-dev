@@ -1,10 +1,10 @@
 import { dirname } from "node:path";
 import process from "node:process";
 import { Data, Effect, Exit } from "effect";
+import { createPluginRuntime } from "every-plugin";
 import { findConfigPath } from "../config";
 import { secretsRenderers } from "../handlers/secrets";
 import bosPlugin from "../plugin";
-import { createPluginRuntime } from "../sdk";
 import { installBundleFetchFromEnv } from "../services/resolution/resolver";
 import { printBanner } from "../utils/banner";
 import { formatUnknownError } from "../utils/errors";

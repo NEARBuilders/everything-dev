@@ -1,6 +1,7 @@
 import "@orpc/openapi/extensions/route";
+import { oc } from "@orpc/contract";
 import * as z from "zod";
-import { oc } from "./sdk";
+import { DEFAULT_HOST_PORT } from "./infra/ports";
 import { isValidImageDigest } from "./services/deploy/image";
 import type { DevSessionData, StartSummary } from "./services/dev/session";
 import {
@@ -523,7 +524,7 @@ export const SmokeOptionsSchema = z.object({
   port: z
     .number()
     .int()
-    .default(3000)
+    .default(DEFAULT_HOST_PORT)
     .describe("Host port to publish the container on (default: 3000)"),
 
   keep: z.boolean().default(false).describe("Keep the container after the run (debugging)"),

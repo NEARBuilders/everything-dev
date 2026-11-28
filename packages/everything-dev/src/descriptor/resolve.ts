@@ -64,7 +64,7 @@ export const SLOT_INPUT_FIELDS = ["development", "extends", "integrity"] as cons
 /** Fields a config-entry may carry that map onto an attachment's slot-free set. */
 const ENTRY_ONLY_FIELDS = ["name", "extends"] as const;
 
-const LOCAL_PREFIX = "local:";
+export const LOCAL_PREFIX = "local:";
 
 function stripLocal(development: string | undefined): string | undefined {
   return development?.startsWith(LOCAL_PREFIX) ? development.slice(LOCAL_PREFIX.length) : undefined;

@@ -8,10 +8,8 @@ A consolidated product package for building Module Federation apps with oRPC API
 - `everything-dev/config` - Config loading and resolution
 - `everything-dev/shared` - Shared dependency policy generation
 - `everything-dev/federation` - Module Federation runtime utilities
-- `everything-dev/plugin` - Plugin authoring (re-exports from every-plugin)
 - `everything-dev/api` - API plugin loading and router stitching
 - `everything-dev/host` - Host server orchestration
-- `everything-dev/cli` - CLI entry point and plugin workspace commands
 
 ### Plugin commands
 

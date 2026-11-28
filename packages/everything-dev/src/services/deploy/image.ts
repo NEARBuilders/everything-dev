@@ -4,6 +4,9 @@ import { fetchResponse } from "../../utils/http-client";
 import { run } from "../../utils/run";
 import { colors, icons } from "../../utils/theme";
 
+export const IMAGE_SKIP_REASON =
+  "set BOS_IMAGE (or repository in bos.config.json) to build and push the runtime image";
+
 export interface ResolvedImageRef {
   image: string;
   source: "env" | "repository";
@@ -277,8 +280,7 @@ export function resolveDeployImagePlan(input: {
   if (!input.imageRef) {
     return {
       kind: "skip",
-      reason:
-        "set BOS_IMAGE (or repository in bos.config.json) to build and push the runtime image",
+      reason: IMAGE_SKIP_REASON,
     };
   }
   if (input.imageDigest) {
