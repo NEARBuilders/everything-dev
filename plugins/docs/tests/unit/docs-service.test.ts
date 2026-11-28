@@ -111,6 +111,16 @@ describe("DocsService.list", () => {
 });
 
 describe("DocsService.getBySlug", () => {
+  it("resolves a directory to its README index page", async () => {
+    const withReadme = new DocsService([
+      doc({ slug: "adr/README", title: "Architecture Decision Records", order: 5 }),
+      doc({ slug: "adr/0001-first", title: "First ADR", order: 10 }),
+    ]);
+    const index = await Effect.runPromise(withReadme.getBySlug("adr"));
+    expect(index.title).toBe("Architecture Decision Records");
+    expect(index.slug).toBe("adr/README");
+  });
+
   it("returns the full record including raw markdown", async () => {
     const found = await Effect.runPromise(service().getBySlug("self-deploy"));
     expect(found.raw).toBe("# self-deploy");
@@ -159,6 +169,14 @@ describe("DocsService.getNav", () => {
       "agents/domain",
       "self-deploy",
     ]);
+  });
+
+  it("records each directory's qualified path for ancestor expansion", async () => {
+    const nav = await Effect.runPromise(service().getNav());
+    const plugins = nav.find((node) => node.label === "Plugins");
+    expect(plugins?.path).toBe("plugins");
+    expect(plugins?.children[0]?.path).toBe("plugins/auth");
+    expect(plugins?.children[0]?.children[0]?.path).toBe("");
   });
 });
 

@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
+import { dedupeLeadingTitle } from "@/components/docs/doc-links";
 import { extractToc, MarkdownRenderer } from "@/components/docs/markdown-renderer";
+import { NavTree } from "@/components/docs/nav-tree";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { resolveDocsClient } from "@/lib/api";
@@ -124,6 +126,16 @@ function DocPage() {
   return (
     <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_15rem]">
       <div className="min-w-0">
+        {nav && (
+          <details className="mb-4 lg:hidden" data-testid="docs.mobile-tree">
+            <summary className="cursor-pointer list-none px-2 py-1 text-xs font-bold tracking-wider text-muted-foreground uppercase select-none hover:text-foreground">
+              Browse docs
+            </summary>
+            <div className="mt-2">
+              <NavTree nodes={nav} currentSlug={doc.slug} />
+            </div>
+          </details>
+        )}
         {crumbs.length > 0 && (
           <nav
             aria-label="Breadcrumb"
@@ -165,7 +177,9 @@ function DocPage() {
               </div>
             )}
           </header>
-          <MarkdownRenderer content={doc.raw} />
+          <div className="max-w-[48rem]">
+            <MarkdownRenderer content={dedupeLeadingTitle(doc.raw, doc.title)} slug={doc.slug} />
+          </div>
           {(prev || next) && (
             <nav
               className="mt-10 flex justify-between gap-4 border-t border-border/40 pt-5"

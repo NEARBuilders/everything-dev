@@ -9,7 +9,7 @@
 
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientServiceConfig } from "everything-dev/ui/api";
-import { createPluginApiClient } from "everything-dev/ui/api";
+import { createApiClient, createPluginApiClient } from "everything-dev/ui/api";
 import type { contract } from "../../../src/contract";
 
 export type DocsApiClient = ContractRouterClient<typeof contract>;
@@ -37,5 +37,8 @@ type DocsClientContext = {
 export function resolveDocsClient(context: DocsClientContext): DocsApiClient {
   const shared = (context.apiClient as { docs?: DocsApiClient } | undefined)?.docs;
   if (shared) return shared;
-  return createDocsApiClient(resolveClientConfig(context.runtimeConfig));
+  // Standalone fallback (the dev overlay's own preview): the every-plugin
+  // dev server serves the plugin's procedures un-namespaced under
+  // /api/rpc — the base oRPC client, not the host-composed namespaced one.
+  return createApiClient<typeof contract>(resolveClientConfig(context.runtimeConfig));
 }

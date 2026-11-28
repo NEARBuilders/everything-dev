@@ -39,6 +39,7 @@ export const NavNodeSchema = z.object({
   slug: z.string().nullable().describe("Qualified slug when a page exists at this path"),
   title: z.string().nullable(),
   order: z.number(),
+  path: z.string().describe("The directory's qualified path; empty string for page leaves"),
   get children() {
     return z.array(NavNodeSchema).describe("Child nodes, sorted by order then label");
   },
@@ -49,6 +50,7 @@ export interface NavNodeShape {
   slug: string | null;
   title: string | null;
   order: number;
+  path: string;
   children: NavNodeShape[];
 }
 

@@ -7,10 +7,16 @@ interface NavTreeProps {
   depth?: number;
 }
 
+const isAncestor = (dirPath: string, currentSlug?: string): boolean =>
+  Boolean(
+    dirPath && currentSlug && (currentSlug === dirPath || currentSlug.startsWith(`${dirPath}/`)),
+  );
+
 /**
  * The docs navigation tree — one collapsible directory per slug path
  * segment, page links at the leaves, mirroring the content's filesystem
- * structure. Depth-0 directories start open.
+ * structure. Depth-0 directories start open; ancestors of the current page
+ * are always open so the current page is visible in the tree on first load.
  */
 export function NavTree({ nodes, currentSlug, depth = 0 }: NavTreeProps) {
   return (
@@ -35,8 +41,11 @@ export function NavTree({ nodes, currentSlug, depth = 0 }: NavTreeProps) {
             </Link>
           </li>
         ) : (
-          <li key={`${node.label}-${node.children.length}`}>
-            <details open={depth === 0} data-testid="docs.tree-dir">
+          <li key={node.path || `${node.label}-${node.children.length}`}>
+            <details
+              open={depth === 0 || isAncestor(node.path, currentSlug)}
+              data-testid="docs.tree-dir"
+            >
               <summary className="cursor-pointer list-none px-2 py-1 text-xs font-bold tracking-wider text-muted-foreground uppercase select-none hover:text-foreground">
                 {node.label}
               </summary>

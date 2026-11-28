@@ -37,6 +37,7 @@ export declare const NavNodeSchema: z.ZodObject<{
     slug: z.ZodNullable<z.ZodString>;
     title: z.ZodNullable<z.ZodString>;
     order: z.ZodNumber;
+    path: z.ZodString;
     children: z.ZodArray<z.ZodObject</*elided*/ any, z.core.$strip>>;
 }, z.core.$strip>;
 export interface NavNodeShape {
@@ -44,6 +45,7 @@ export interface NavNodeShape {
     slug: string | null;
     title: string | null;
     order: number;
+    path: string;
     children: NavNodeShape[];
 }
 export declare const contract: {
@@ -91,6 +93,7 @@ export declare const contract: {
             slug: z.ZodNullable<z.ZodString>;
             title: z.ZodNullable<z.ZodString>;
             order: z.ZodNumber;
+            path: z.ZodString;
             children: z.ZodArray<z.ZodObject</*elided*/ any, z.core.$strip>>;
         }, z.core.$strip>>;
     }, z.core.$strip>, Record<never, never>>;

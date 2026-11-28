@@ -87,6 +87,21 @@ test.describe("Docs", () => {
     ).toBeGreaterThan(1);
   });
 
+  test("a directory route resolves to its README index, and in-corpus links resolve", async ({
+    page,
+  }) => {
+    await page.goto("/docs/adr", { waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    await expect(page.getByTestId("docs.reader-title")).toBeVisible({ timeout: 15000 });
+
+    const indexLink = page.getByTestId("docs.markdown").locator('a[href^="/docs/adr/"]').first();
+    await expect(indexLink).toBeVisible({ timeout: 15000 });
+    await indexLink.click();
+    await expect(page).toHaveURL(/\/docs\/adr\/.+$/, { timeout: 10000, waitUntil: "commit" });
+    await expect(page.getByTestId("docs.reader-title")).toBeVisible({ timeout: 15000 });
+  });
+
   test("the reader shows prev/next navigation in tree order", async ({ page }) => {
     await page.goto("/docs", { waitUntil: "domcontentloaded" });
     await waitForApp(page);

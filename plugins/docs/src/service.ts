@@ -28,6 +28,8 @@ export interface NavNode {
   title: string | null;
   /** Sort weight — the page's frontmatter order, or the subtree minimum. */
   order: number;
+  /** The directory's qualified path — empty string for page leaves. */
+  path: string;
   children: NavNode[];
 }
 
@@ -91,17 +93,26 @@ const compareNodes = (a: NavNode, b: NavNode): number =>
   a.order - b.order || a.label.localeCompare(b.label);
 
 const buildNav = (docs: readonly DocRecord[]): NavNode[] => {
-  const root: NavNode = { label: "", slug: null, title: null, order: 0, children: [] };
+  const root: NavNode = { label: "", slug: null, title: null, order: 0, path: "", children: [] };
   for (const doc of docs) {
     const segments = doc.slug.split("/");
     let node = root;
+    let dirPath = "";
     for (let i = 0; i < segments.length - 1; i += 1) {
       const label = prettifySegment(segments[i] ?? "");
+      dirPath = dirPath ? `${dirPath}/${segments[i]}` : (segments[i] ?? "");
       let child = node.children.find(
         (candidate) => candidate.slug === null && candidate.label === label,
       );
       if (!child) {
-        child = { label, slug: null, title: null, order: Number.POSITIVE_INFINITY, children: [] };
+        child = {
+          label,
+          slug: null,
+          title: null,
+          order: Number.POSITIVE_INFINITY,
+          path: dirPath,
+          children: [],
+        };
         node.children.push(child);
       }
       node = child;
@@ -111,6 +122,7 @@ const buildNav = (docs: readonly DocRecord[]): NavNode[] => {
       slug: doc.slug,
       title: doc.title,
       order: doc.order,
+      path: "",
       children: [],
     });
   }
@@ -172,7 +184,10 @@ export class DocsService {
   getBySlug(slug: string): Effect.Effect<DocRecord, DocNotFoundError> {
     const bySlug = this.bySlug;
     return Effect.gen(function* () {
-      const doc = bySlug.get(slug);
+      // Directory URLs resolve to the directory's README — /docs/adr is the
+      // ADR index, /docs/plugins is the plugin-docs index. No page means a
+      // directory, and a directory is a destination, not a 404.
+      const doc = bySlug.get(slug) ?? bySlug.get(`${slug}/README`);
       if (!doc) return yield* new DocNotFoundError({ slug });
       return doc;
     });
