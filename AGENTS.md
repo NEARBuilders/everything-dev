@@ -655,6 +655,11 @@ function MyComponent() {
 }
 ```
 
+Query options are built only in `ui/src/lib/queries/*` modules (one per domain, keys on a
+domain query-keys object) — routes and components consume factories
+(`useQuery(thingsListQueryOptions(apiClient))`), never inline `useQuery({...})` literals.
+One-off `useMutation` calls may stay inline; shared ones get factories beside their queries.
+
 ### App Name in UI
 ```typescript
 import { getAppName } from "@/app";

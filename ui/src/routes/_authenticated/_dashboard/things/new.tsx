@@ -16,7 +16,7 @@ import {
 } from "@/components";
 import { FieldGroup } from "@/components/ui/field";
 import { pageTitle } from "@/lib/page-title";
-import { invalidateThingAfterProposal } from "./-thing-cache";
+import { invalidateThingAfterProposal } from "@/lib/queries/things";
 import {
   DEFAULT_THING_PAYLOAD,
   formatThingPayload,

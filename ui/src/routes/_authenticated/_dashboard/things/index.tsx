@@ -24,11 +24,8 @@ import {
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/page-title";
-import { thingQueryKeys } from "./-thing-cache";
+import { type Thing, thingsListQueryOptions, upvoteCountsQueryOptions } from "@/lib/queries/things";
 import { filterThings } from "./-thing-list";
-
-type ApiClient = ReturnType<typeof useApiClient>;
-type Thing = Awaited<ReturnType<ApiClient["template"]["listThings"]>>["data"][number];
 
 const EMPTY_THINGS: Thing[] = [];
 
@@ -49,22 +46,13 @@ function ThingsIndexPage() {
   const apiClient = useApiClient();
   const [query, setQuery] = useState("");
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: thingQueryKeys.list,
-    queryFn: () => apiClient.template.listThings({ limit: 50 }),
-    staleTime: 30 * 1000,
-  });
+  const { data, isLoading, error, refetch } = useQuery(thingsListQueryOptions(apiClient));
 
   const things = data?.data ?? EMPTY_THINGS;
   const thingIds = useMemo(() => things.map((thing) => thing.thingId), [things]);
   const visibleThings = useMemo(() => filterThings(things, query), [things, query]);
 
-  const upvoteCountsQuery = useQuery({
-    queryKey: [...thingQueryKeys.upvoteCounts, thingIds],
-    queryFn: () => apiClient.votes.getUpvoteCounts({ entityIds: thingIds }),
-    enabled: thingIds.length > 0,
-    staleTime: 30 * 1000,
-  });
+  const upvoteCountsQuery = useQuery(upvoteCountsQueryOptions(apiClient, thingIds));
 
   const newThingButton = (
     <Button nativeButton={false} render={<Link to="/things/new" />} data-testid="things-new">

@@ -1,11 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Badge, SectionHeader } from "@/components";
-
-interface VersionEndpointResponse {
-  deploymentDigest?: string;
-  remotes?: Record<string, string>;
-  watch?: { lastOutcome?: string };
-}
+import { deployedVersionQueryOptions } from "@/lib/queries/version";
 
 const OUTCOME_LABELS: Record<string, { label: string; tone: "info" | "success" | "danger" }> = {
   clean: { label: "clean", tone: "success" },
@@ -15,15 +10,7 @@ const OUTCOME_LABELS: Record<string, { label: string; tone: "info" | "success" |
 };
 
 export function VersionCard() {
-  const query = useQuery({
-    queryKey: ["deployed-version"],
-    queryFn: async (): Promise<VersionEndpointResponse> => {
-      const response = await fetch("/.well-known/version");
-      if (!response.ok) throw new Error(`version endpoint returned ${response.status}`);
-      return response.json();
-    },
-    refetchInterval: 30_000,
-  });
+  const query = useQuery(deployedVersionQueryOptions());
 
   const version = query.data;
   const outcome = version?.watch?.lastOutcome;

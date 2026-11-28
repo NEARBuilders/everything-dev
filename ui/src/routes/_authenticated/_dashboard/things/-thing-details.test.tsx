@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentType, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { thingQueryKeys } from "./-thing-cache";
+import { thingQueryKeys } from "@/lib/queries/things";
 import type { ThingProposal } from "./-thing-proposal-status";
 import { Route } from "./$thingId";
 

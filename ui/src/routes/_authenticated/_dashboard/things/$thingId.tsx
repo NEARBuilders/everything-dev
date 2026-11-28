@@ -6,7 +6,14 @@ import { useApiClient } from "@/app";
 import { Button, EmptyState, PageContainer } from "@/components";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/page-title";
-import { invalidateThingAfterDelete, thingQueryKeys } from "./-thing-cache";
+import {
+  invalidateThingAfterDelete,
+  thingDetailQueryOptions,
+  thingProposalQueryOptions,
+  thingQueryKeys,
+  upvoteCountQueryOptions,
+  userVoteQueryOptions,
+} from "@/lib/queries/things";
 import { ThingBackLink, ThingDetailsView } from "./-thing-details-view";
 import { optimisticUpvoteCount } from "./-thing-votes";
 
@@ -33,50 +40,23 @@ function ThingDetailsPage() {
   const { session } = Route.useRouteContext();
   const isAdmin = session?.user?.role === "admin";
 
-  const proposalQuery = useQuery({
-    queryKey: thingQueryKeys.proposal(thingId),
-    queryFn: async () => {
-      const result = await apiClient.proposals.getProposals({
-        pluginId: "template",
-        entityId: thingId,
-        limit: 1,
-      });
-      return result.data[0] ?? null;
-    },
-    refetchInterval: (query) => {
-      const proposal = query.state.data;
-      return proposal?.reviewStatus === "approved" && proposal.applyStatus === "applying"
-        ? 2_000
-        : false;
-    },
-  });
+  const proposalQuery = useQuery(thingProposalQueryOptions(apiClient, thingId));
 
-  const thingQuery = useQuery({
-    queryKey: thingQueryKeys.detail(thingId),
-    queryFn: () => apiClient.template.getThing({ thingId }),
-    enabled:
+  const thingQuery = useQuery(
+    thingDetailQueryOptions(
+      apiClient,
+      thingId,
       proposalQuery.isError ||
-      (proposalQuery.isSuccess &&
-        (!proposalQuery.data || proposalQuery.data.applyStatus === "applied")),
-    retry: false,
-  });
+        (proposalQuery.isSuccess &&
+          (!proposalQuery.data || proposalQuery.data.applyStatus === "applied")),
+    ),
+  );
 
   const upvoteCountQueryKey = thingQueryKeys.upvoteCount(thingId);
   const userVoteQueryKey = thingQueryKeys.userVote(thingId);
 
-  const upvoteCountQuery = useQuery({
-    queryKey: upvoteCountQueryKey,
-    queryFn: () => apiClient.votes.getUpvoteCount({ entityId: thingId }),
-    enabled: !!thingQuery.data,
-    staleTime: 15 * 1000,
-  });
-
-  const userVoteQuery = useQuery({
-    queryKey: userVoteQueryKey,
-    queryFn: () => apiClient.votes.getUserVote({ entityId: thingId }),
-    enabled: !!thingQuery.data,
-    staleTime: 15 * 1000,
-  });
+  const upvoteCountQuery = useQuery(upvoteCountQueryOptions(apiClient, thingId, !!thingQuery.data));
+  const userVoteQuery = useQuery(userVoteQueryOptions(apiClient, thingId, !!thingQuery.data));
 
   const voteMutation = useMutation({
     mutationFn: (nextHasUpvote: boolean) =>

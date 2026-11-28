@@ -6,20 +6,14 @@ import { useAuthClient } from "@/app";
 import { Avatar, AvatarFallback, AvatarImage, Button, PageContainer } from "@/components";
 import { getNearInitials, resolveNearImageUrl } from "@/lib/near-profile";
 import { pageTitle } from "@/lib/page-title";
+import { nearProfileQueryOptions } from "@/lib/queries/near-profile";
 
 export const Route = createFileRoute("/_public/$accountId")({
   loader: async ({ params, context }) => {
     const { queryClient, authClient } = context;
     const accountId = params.accountId;
 
-    await queryClient.prefetchQuery({
-      queryKey: ["near-profile", accountId],
-      queryFn: async () => {
-        const { data } = await authClient.near.getProfile(accountId);
-        return data ?? null;
-      },
-      staleTime: 5 * 60 * 1000,
-    });
+    await queryClient.prefetchQuery(nearProfileQueryOptions(authClient, accountId));
 
     return { accountId };
   },
@@ -53,14 +47,7 @@ function AccountProfileLayout() {
   const { accountId } = Route.useLoaderData();
   const authClient = useAuthClient();
 
-  const { data: profile, isPending } = useQuery({
-    queryKey: ["near-profile", accountId],
-    queryFn: async () => {
-      const { data } = await authClient.near.getProfile(accountId);
-      return data ?? null;
-    },
-    staleTime: 5 * 60 * 1000,
-  });
+  const { data: profile, isPending } = useQuery(nearProfileQueryOptions(authClient, accountId));
 
   const backgroundUrl = resolveNearImageUrl(profile?.backgroundImage);
   const avatarUrl = resolveNearImageUrl(profile?.image);
