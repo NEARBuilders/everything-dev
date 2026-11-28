@@ -808,7 +808,7 @@ The MCP server (`host/src/services/mcp.ts`) generates tools from the API's OpenA
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/<feature>/`; published to GitHub (repo read fresh from the authored config's `repository`) once ready. See `docs/agents/issue-tracker.md`.
+Issues live as local markdown files under `.scratch/<feature>/`; published to GitHub (repo read fresh from the authored config's `repository`) once ready. See `docs/agents/issue-tracker.md`. Before spawning an agent stream for an issue, run the spawn gate there (verify it still reproduces, scan recent merged PRs for its fix, re-check blockers, narrow partial fixes first).
 
 ### Triage labels
 
