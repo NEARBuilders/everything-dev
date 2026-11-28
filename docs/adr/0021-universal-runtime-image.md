@@ -2,7 +2,8 @@
 
 Date: 2026-09-26
 Status: Accepted
-Complements: [ADR 0020](0020-child-bundle-storage-r2.md) (child bundle storage), [ADR 0011](0011-image-native-artifacts.md) (image-native boot)
+
+Amended 2026-11-27 (ADR 0048): the container's PID 1 is the boot session supervising exactly one `host-module` unit (the in-process MF host); the container's exit code is the boot verdict — a production boot that cannot bring a unit up exits non-zero, which is the contract the deploy smoke's exit watch consumes.Complements: [ADR 0020](0020-child-bundle-storage-r2.md) (child bundle storage), [ADR 0011](0011-image-native-artifacts.md) (image-native boot)
 
 ## Context
 

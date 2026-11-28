@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { OrchestratorError, spawnRemoteHost } from "../../src/services/boot/host-module";
 import { pinnedManifestDocumentUrl } from "../../src/services/deploy/version-manifest";
-import { OrchestratorError, spawnRemoteHost } from "../../src/services/dev/orchestrator";
-import { DevRuntimeConfigLive } from "../../src/services/dev/service-descriptor";
 import type { RuntimeConfig } from "../../src/types";
 
 const HOST_BASE = "http://cdn.example/bundles/dev.everything.near/everything.dev/host";

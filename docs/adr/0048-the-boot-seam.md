@@ -1,7 +1,7 @@
 # 0048 — The boot seam: one supervision core, policy as data
 
 Date: 2026-11-23
-Status: Draft (lands with the boot-seam migration; see docs/plans/boot-seam.md)
+Status: Accepted (2026-11-27 — the boot-seam migration, tickets 04–06 of `.scratch/deploy-hardening/`; plan: docs/plans/boot-seam.md)
 
 ## Context
 

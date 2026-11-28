@@ -1,9 +1,11 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit, Layer, Queue, Stream } from "effect";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellEnvLive } from "../../src/env/project-env";
+import { probeOk } from "../../src/services/boot/readiness";
 import { BootFailure } from "../../src/services/boot/types";
 import {
   Supervisor,
@@ -80,6 +82,9 @@ const makeDescriptor = (name: string): ServiceDescriptor => ({
   url: `http://localhost:300${name.length}`,
   entry: "unused",
   name,
+  localPath: mocks.tmpRoot,
+  command: process.execPath,
+  args: ["-e", "setInterval(() => {}, 1000)"],
   port: 3000,
   readinessPath: "/",
   defaultPort: 3000,
@@ -110,7 +115,6 @@ const orchestrator = {
   packages: ["api", "host"],
   description: "test session",
   env: {},
-  interactive: false,
 };
 
 const runSession = (deps: DevSessionDeps = {}, runtimeConfig: unknown = fakeRuntimeConfig) => {
@@ -354,6 +358,62 @@ describe("runDevSession quit correctness", () => {
     expect(mocks.kills).toContain("api");
   });
 
+  it("dev restarts a crashed unit with bounded backoff, then fails it loud", async () => {
+    // real HTTP endpoints so the readiness probes pass and units reach ready
+    const servers: ReturnType<typeof createServer>[] = [];
+    const listen = (port: number) =>
+      new Promise<void>((resolve) => {
+        const server = createServer((_req, res) => {
+          res.writeHead(200);
+          res.end("ok");
+        });
+        server.listen(port, "127.0.0.1", () => resolve());
+        servers.push(server);
+      });
+    await Promise.all([listen(3000), listen(3001)]);
+
+    const { program, getHandle } = runSession(
+      { restartBackoffMs: 10, readinessDeadlineMs: 1500 },
+      { ...fakeRuntimeConfig, env: "development" },
+    );
+    const exitPromise = Effect.runPromiseExit(program);
+
+    await vi.waitFor(
+      async () => {
+        const direct = await Effect.runPromise(
+          probeOk(["http://127.0.0.1:3000/", "http://127.0.0.1:3001/"]),
+        );
+        expect(direct, "direct probe against the test servers").toBe(true);
+        expect(mocks.view.updateProcess).toHaveBeenCalledWith("api", "ready", undefined);
+      },
+      { timeout: 4000 },
+    );
+
+    const crash = () => {
+      void Effect.runPromise(
+        Queue.offer(mocks.queues.api!, { type: "exited", code: 1 }).pipe(Effect.ignore),
+      );
+    };
+
+    crash();
+    await vi.waitFor(() => expect(mocks.fakeUnits.length).toBe(3), { timeout: 4000 }); // initial 2 + restart 1
+    crash();
+    await vi.waitFor(() => expect(mocks.fakeUnits.length).toBe(4), { timeout: 4000 });
+    crash();
+    await vi.waitFor(() => expect(mocks.fakeUnits.length).toBe(5), { timeout: 4000 });
+    crash(); // restart limit reached — no new unit, loud failure
+    await vi.waitFor(() => {
+      expect(mocks.view.updateProcess).toHaveBeenCalledWith("api", "error", "restart limit");
+    });
+    expect(mocks.fakeUnits.length).toBe(5);
+
+    getHandle().shutdown("graceful");
+    const exit = await exitPromise;
+    expect(Exit.isSuccess(exit)).toBe(true);
+
+    for (const server of servers) server.close();
+  });
+
   it("a unit that exits before ready fails a production boot fast", async () => {
     const { program } = runSession({}, { ...fakeRuntimeConfig, env: "production" });
     const resultPromise = Effect.runPromise(
@@ -362,7 +422,7 @@ describe("runDevSession quit correctness", () => {
     await waitForSpawns(1);
     emitLog("api", "Process exiting");
     void Effect.runPromise(
-      Queue.offer(mocks.queues["api"]!, { type: "exited", code: 1 }).pipe(Effect.ignore),
+      Queue.offer(mocks.queues.api!, { type: "exited", code: 1 }).pipe(Effect.ignore),
     );
     const result = await resultPromise;
     expect(result).toBeInstanceOf(BootFailure);

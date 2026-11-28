@@ -296,8 +296,6 @@ export interface AppOrchestrator {
   description: string;
   env: Record<string, string>;
   port?: number;
-  interactive?: boolean;
-  noLogs?: boolean;
 }
 
 export const ServiceDescriptorMapLive = (map: Map<string, ServiceDescriptor>) =>
