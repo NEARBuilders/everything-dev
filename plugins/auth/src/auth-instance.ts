@@ -368,7 +368,12 @@ export function createAuthInstance(
       organization({
         ac: orgAc,
         roles: orgRoles,
-        membershipLimit: membershipPolicy.limit,
+        // KEEP: better-auth turns membershipLimit into a SQL LIMIT, and its
+        // `membershipLimit || 100` fallback would silently re-cap at 100 if it
+        // were omitted — so an unlimited policy must pass a finite value.
+        membershipLimit: Number.isFinite(membershipPolicy.limit)
+          ? membershipPolicy.limit
+          : Number.MAX_SAFE_INTEGER,
         requireEmailVerificationOnInvitation: true,
         teams: {
           enabled: true,

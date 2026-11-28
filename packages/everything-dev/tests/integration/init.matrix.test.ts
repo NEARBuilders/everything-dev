@@ -155,7 +155,7 @@ describe.each(LEVELS)("init %s — structure matrix", (level: Level) => {
             join("api", "src", "global.d.ts"),
             join("api", "drizzle.config.ts"),
             join("api", "package.json"),
-            join("api", "plugin.dev.ts"),
+            join("api", "bos.dev.ts"),
             join("api", "tests", "setup.ts"),
           ],
           true,
@@ -213,7 +213,7 @@ describe.each(LEVELS)("init %s — structure matrix", (level: Level) => {
           [
             join("plugins", "_template", "src", "index.ts"),
             join("plugins", "_template", "src", "contract.ts"),
-            join("plugins", "_template", "plugin.dev.ts"),
+            join("plugins", "_template", "bos.dev.ts"),
           ],
           true,
         );

@@ -196,6 +196,11 @@ jobs:
       - name: Build template plugin (contract types + manifest pipeline)
         run: pnpm run build template
 
+      # Runs after the builds on purpose — the guard's job is to catch a
+      # build step regenerating artifacts into src/ trees (#923).
+      - name: Check for stray build artifacts
+        run: node scripts/stray-artifacts-guard.mjs
+
   workflows-lint:
     name: Workflow lint
     runs-on: ubuntu-24.04

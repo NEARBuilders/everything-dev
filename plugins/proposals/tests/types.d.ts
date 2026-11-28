@@ -5,10 +5,10 @@
  * issue: https://github.com/NEARBuilders/everything-dev/issues
  */
 import Plugin from "@/index";
-import pluginDevConfig from "../plugin.dev";
+import bosDevConfig from "../bos.dev";
 
 declare module "every-plugin" {
   interface RegisteredPlugins {
-    [pluginDevConfig.pluginId]: typeof Plugin;
+    [bosDevConfig.pluginId]: typeof Plugin;
   }
 }

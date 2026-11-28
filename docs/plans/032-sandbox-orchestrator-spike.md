@@ -19,6 +19,7 @@
 - **Depends on**: done/029-platform-cdn.md, 031-resource-provisioner-seam.md
 - **Category**: direction / spike
 - **Planned at**: commit `00d162cb`, 2026-09-18
+- **Deferred** (#922, 2026-11-23): re-entry when a tenant actually needs Tier-2 instances (this plan's own framing). Spike stays unwritten; the lease/lifecycle questions live on in the plan body.
 
 ## Why this matters
 

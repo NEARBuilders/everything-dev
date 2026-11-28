@@ -64,6 +64,19 @@ Both markers are greppable contracts: `KEEP` means *this comment was argued
 for*, `TODO` means *this debt has a ticket*. Any other comment in a diff is a
 removal candidate.
 
+## Rethrows forward `cause`, always
+
+`throw new Error(msg)` without `{ cause: original }` severs the chain: undici
+wraps every socket failure as `TypeError: fetch failed`, and the real reason
+(ECONNRESET, ENOTFOUND, timeout) lives only in the cause. Downstream logic
+keyed on causes — retry predicates, failure classification — silently starves
+when a boundary strips it. Every rethrow passes the original error through;
+sanitizing the message and preserving the chain are independent decisions.
+Tagged errors (`Data.TaggedError`) carry `cause` by construction — prefer them
+on designed failure paths. The regression pattern: fault-inject at the
+boundary, assert the cause survives to the consumer
+(`tests/unit/version-manifest-deploy.test.ts` is the reference).
+
 ## Unnecessary tests
 
 A test earns its place by pinning a behavior the type system or a framework

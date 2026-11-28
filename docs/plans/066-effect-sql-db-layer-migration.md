@@ -13,6 +13,7 @@
 - **Depends on**: none
 - **Category**: tech-debt / migration
 - **Planned at**: commit `1e435601`, 2026-10-28
+- **Deferred** (#922, 2026-11-23): re-entry before the first new DB-layer feature — the approvals plugin's schema work (#925) is the named trigger. The go/no-go spike (per-connection `search_path` gate) runs then.
 - **Issue**: https://github.com/NEARBuilders/everything-dev/issues/647
 
 ## Why this matters

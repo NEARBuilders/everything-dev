@@ -226,6 +226,7 @@ export async function resolveRegistryDigest(input: {
     } catch (cause) {
       throw new Error(
         `Registry ${parsed.registry} unreachable while resolving ${input.ref}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        { cause },
       );
     }
   };
