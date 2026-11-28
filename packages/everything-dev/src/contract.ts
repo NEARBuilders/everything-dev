@@ -902,8 +902,8 @@ export const UpgradeResultSchema = z.object({
       source: z.string(),
       fromCache: z.boolean(),
       /** version = the immutable version record (an exact authored release's
-       * target); pointer = the moving platform.json tag (latest resolution) —
-       * #574. */
+       * target); pointer = the moving manifest.json thin tag (latest
+       * resolution) — #574. */
       provenance: z.enum(["record", "pointer"]).optional(),
     })
     .optional(),

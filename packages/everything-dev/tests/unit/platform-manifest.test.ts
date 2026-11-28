@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   checkPlatformCompat,
-  composePlatformReleaseManifest,
+  composePlatformManifest,
   computeTemplateInventory,
   ManifestSchema,
-  serializePlatformReleaseManifest,
+  serializePlatformManifest,
 } from "../../src/services/platform/manifest";
 import { getManifestKey } from "../../src/services/registry/pointer";
 
@@ -25,9 +25,9 @@ const baseInputs = {
   compatMinChild: "1.53.0",
 };
 
-describe("composePlatformReleaseManifest", () => {
+describe("composePlatformManifest", () => {
   it("composes the release contract: schema, kind, versions, image tags, compat floor", () => {
-    const manifest = composePlatformReleaseManifest(baseInputs);
+    const manifest = composePlatformManifest(baseInputs);
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.kind).toBe("everything-dev/platform-manifest");
     expect(manifest.frameworkVersion).toBe("2.0.0-rc.14");
@@ -40,23 +40,21 @@ describe("composePlatformReleaseManifest", () => {
   });
 
   it("carries the serving build's git sha when the compose context has one (#537) and drops the field when it does not", () => {
-    const withSha = composePlatformReleaseManifest({ ...baseInputs, gitSha: "a".repeat(40) });
+    const withSha = composePlatformManifest({ ...baseInputs, gitSha: "a".repeat(40) });
     expect(withSha.gitSha).toBe("a".repeat(40));
-    expect(ManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(withSha)))).toEqual(
-      withSha,
-    );
-    const withoutSha = composePlatformReleaseManifest(baseInputs);
+    expect(ManifestSchema.parse(JSON.parse(serializePlatformManifest(withSha)))).toEqual(withSha);
+    const withoutSha = composePlatformManifest(baseInputs);
     expect("gitSha" in withoutSha).toBe(false);
   });
 
   it("serializes deterministically — same inputs, byte-identical manifest", () => {
-    const a = serializePlatformReleaseManifest(composePlatformReleaseManifest(baseInputs));
-    const b = serializePlatformReleaseManifest(composePlatformReleaseManifest({ ...baseInputs }));
+    const a = serializePlatformManifest(composePlatformManifest(baseInputs));
+    const b = serializePlatformManifest(composePlatformManifest({ ...baseInputs }));
     expect(a).toBe(b);
   });
 
   it("composes sharedDeps from the release catalog — critical deps pin exact versions, non-critical stay ranged", () => {
-    const manifest = composePlatformReleaseManifest(baseInputs);
+    const manifest = composePlatformManifest(baseInputs);
     // effect is effect-critical → exact-version pin with strictVersion (shared-deps-spec)
     expect(manifest.sharedDeps.effect).toMatchObject({
       version: "4.0.0-rc.112",
@@ -79,10 +77,8 @@ describe("composePlatformReleaseManifest", () => {
   });
 
   it("parses back through the published schema", () => {
-    const manifest = composePlatformReleaseManifest(baseInputs);
-    expect(ManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(manifest)))).toEqual(
-      manifest,
-    );
+    const manifest = composePlatformManifest(baseInputs);
+    expect(ManifestSchema.parse(JSON.parse(serializePlatformManifest(manifest)))).toEqual(manifest);
   });
 });
 
@@ -117,7 +113,7 @@ describe("computeTemplateInventory", () => {
 });
 
 describe("checkPlatformCompat", () => {
-  const manifest = composePlatformReleaseManifest(baseInputs);
+  const manifest = composePlatformManifest(baseInputs);
 
   it("accepts a child inside the compat window with matching singleton versions", () => {
     const violations = checkPlatformCompat(manifest, {

@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  composePlatformReleaseManifest,
+  composePlatformManifest,
   type Manifest,
   resolvePlatformManifest,
-  serializePlatformReleaseManifest,
+  serializePlatformManifest,
 } from "../../src/services/platform/manifest";
 import { manifestTagOf } from "../../src/services/platform/manifest-schema";
 
@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function makeManifest(frameworkVersion: string): Manifest {
-  return composePlatformReleaseManifest({
+  return composePlatformManifest({
     frameworkVersion,
     everyPluginVersion: "3.0.0-rc.9",
     imageRef: "ghcr.io/nearbuilders/everything-dev",
@@ -28,7 +28,7 @@ function makeManifest(frameworkVersion: string): Manifest {
 }
 
 function makeTag(manifest: Manifest) {
-  return manifestTagOf(manifest, serializePlatformReleaseManifest(manifest));
+  return manifestTagOf(manifest, serializePlatformManifest(manifest));
 }
 
 function harness(opts: {

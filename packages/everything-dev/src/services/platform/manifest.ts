@@ -110,7 +110,7 @@ export function composeSharedDepsFromCatalog(
   return deps;
 }
 
-export interface ComposePlatformReleaseManifestInputs {
+export interface ComposePlatformManifestInputs {
   frameworkVersion: string;
   everyPluginVersion: string;
   gitSha?: string;
@@ -124,9 +124,7 @@ export interface ComposePlatformReleaseManifestInputs {
   remotes?: Record<string, RemoteRecord>;
 }
 
-export function composePlatformReleaseManifest(
-  inputs: ComposePlatformReleaseManifestInputs,
-): Manifest {
+export function composePlatformManifest(inputs: ComposePlatformManifestInputs): Manifest {
   // The manifest carries only the derivable tag — the exact version tag the
   // tag scheme pushes for semver releases (ADR 0021). Sha-tags are git facts
   // an image build cannot see; derivation (`ref@v<version>` → digest) keys off
@@ -157,7 +155,7 @@ export function composePlatformReleaseManifest(
 }
 
 /** The one serializer for both publish homes — byte-identical by construction. */
-export function serializePlatformReleaseManifest(manifest: Manifest): string {
+export function serializePlatformManifest(manifest: Manifest): string {
   return JSON.stringify(manifest);
 }
 
@@ -284,7 +282,7 @@ export class ManifestService extends Context.Service<
   ManifestService,
   {
     resolvePlatformManifest: typeof resolvePlatformManifest;
-    composePlatformReleaseManifest: typeof composePlatformReleaseManifest;
+    composePlatformManifest: typeof composePlatformManifest;
     checkPlatformCompat: typeof checkPlatformCompat;
     readInImagePlatformManifest: typeof readInImagePlatformManifest;
   }
@@ -293,7 +291,7 @@ export class ManifestService extends Context.Service<
     this,
     this.of({
       resolvePlatformManifest,
-      composePlatformReleaseManifest,
+      composePlatformManifest,
       checkPlatformCompat,
       readInImagePlatformManifest,
     }),

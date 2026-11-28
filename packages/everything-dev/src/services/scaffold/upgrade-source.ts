@@ -56,7 +56,7 @@ function unresolvableError(outcome: Extract<ResolutionOutcome, { state: "Unresol
     );
   }
   return new Error(
-    `No platform release manifest resolves in the extends chain (${chain || "empty"}) — publish the platform manifest (bos publish on the parent) or run \`bos platform manifest --check\` to diagnose` +
+    `No platform release manifest resolves in the extends chain (${chain || "empty"}) — publish the platform manifest (bos publish on the parent) or run \`bos manifest --check\` to diagnose` +
       (outcome.context.deadEnd
         ? `; the chain terminates at ${outcome.context.deadEnd.ref}${
             outcome.context.deadEnd.lastWrite
