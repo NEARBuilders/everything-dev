@@ -250,7 +250,7 @@ describe("passkey sign-up", () => {
     expect(accounts.accounts).toEqual([]);
   });
 
-  it("mints no session when a registration begun while signed in is verified without the session", async () => {
+  it("refuses a registration begun while signed in when it is verified without the session", async () => {
     const member = await createTestUser(services);
     const jar = new CookieJar(member.cookie);
     const authenticator = createSoftwareAuthenticator();
@@ -272,8 +272,7 @@ describe("passkey sign-up", () => {
       }),
     );
 
-    expect(verifyRes.status).toBe(200);
+    expect(verifyRes.status).toBe(401);
     expect(setsSessionCookie(verifyRes)).toBe(false);
-    expect(await verifyRes.json()).not.toHaveProperty("passkeyWallet");
   });
 });
