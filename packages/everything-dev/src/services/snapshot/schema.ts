@@ -67,7 +67,7 @@ export const BootSnapshotSchema = z
   .strict();
 export type BootSnapshot = z.infer<typeof BootSnapshotSchema>;
 
-export function snapshotRoot(input?: { dir?: string }): string {
+function snapshotRoot(input?: { dir?: string }): string {
   return path.resolve(
     input?.dir ?? process.env.BOS_SNAPSHOT_DIR ?? path.join(process.cwd(), ".bos", "snapshot"),
   );
@@ -160,7 +160,7 @@ export async function readBootSnapshot(
   return parseBootSnapshot(bytes);
 }
 
-export function serializeBootSnapshot(snapshot: BootSnapshot): string {
+function serializeBootSnapshot(snapshot: BootSnapshot): string {
   return `${JSON.stringify(snapshot, null, 2)}\n`;
 }
 

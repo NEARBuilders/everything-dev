@@ -106,7 +106,7 @@ export function resolveEntryUrl(url: string): string {
   return `${url.replace(MANIFEST_DOCUMENT_PATTERN, "").replace(/\/$/, "")}/remoteEntry.js`;
 }
 
-export class SriVerificationError extends Data.TaggedError("SriVerificationError")<{
+class SriVerificationError extends Data.TaggedError("SriVerificationError")<{
   readonly detail: string;
 }> {
   constructor(message: string) {

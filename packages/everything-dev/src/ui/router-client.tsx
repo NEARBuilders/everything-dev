@@ -16,7 +16,7 @@ import { defaultNotFoundComponent, defaultPendingComponent } from "./router-defa
 import { RouterError } from "./router-error";
 import type { CreateRouterOptions, RouterContextWithApi } from "./types";
 
-export interface CoreRouterOptions<TApiClient = unknown, TSession = unknown>
+interface CoreRouterOptions<TApiClient = unknown, TSession = unknown>
   extends CreateRouterOptions<TApiClient, TSession> {
   /** The app's generated route tree — the core-only fallback when no composed tree is passed. */
   defaultRouteTree?: unknown;

@@ -1,13 +1,13 @@
 import { ComposePayloadSchema } from "every-plugin/ui/manifest";
 import * as z from "zod";
 
-export type JsonPrimitive = string | number | boolean | null;
+type JsonPrimitive = string | number | boolean | null;
 export interface JsonObject {
   [key: string]: JsonValue;
 }
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 
-export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
     z.string(),
     z.number(),
@@ -19,7 +19,7 @@ export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 );
 export const JsonObjectSchema = z.record(z.string(), JsonValueSchema);
 
-export const ExtendsSchema = z.union([
+const ExtendsSchema = z.union([
   z.string(),
   z.object({
     development: z.string().optional(),
@@ -33,7 +33,7 @@ export type ExtendsConfig = Extract<Extends, Record<string, string | undefined>>
 export const SourceModeSchema = z.enum(["local", "remote"]);
 export type SourceMode = z.infer<typeof SourceModeSchema>;
 
-export const SharedConfigSchema = z.object({
+const SharedConfigSchema = z.object({
   version: z.string(),
   requiredVersion: z.string().optional(),
   singleton: z.boolean().optional(),
@@ -43,7 +43,6 @@ export const SharedConfigSchema = z.object({
 });
 export type SharedConfig = z.infer<typeof SharedConfigSchema>;
 export type SharedDepConfig = SharedConfig;
-export const SharedDepConfigSchema = SharedConfigSchema;
 export const SharedDepMapSchema = z.record(z.string(), SharedConfigSchema);
 
 /**
@@ -80,9 +79,8 @@ export const FederationEntrySchema = z.object({
    * coordinates (ADR 0046 ticket 04). */
   digest: RemoteDigestSchema.optional(),
 });
-export type FederationEntry = z.infer<typeof FederationEntrySchema>;
 
-export const PluginUiConfigSchema = z.object({
+const PluginUiConfigSchema = z.object({
   // Optional (#800): the release-scoped stamper canonicalizes inherited
   // remotes to the digest-bearing descriptor `{ production, digest }` — no
   // name. Resolution derives the runtime container name from the plugin
@@ -101,9 +99,8 @@ export const PluginUiConfigSchema = z.object({
   ssrIntegrity: z.string().optional(),
   digest: RemoteDigestSchema.optional(),
 });
-export type PluginUiConfig = z.infer<typeof PluginUiConfigSchema>;
 
-export const ComposableAppEntrySchema = z.object({
+const ComposableAppEntrySchema = z.object({
   extends: ExtendsSchema.optional(),
   name: z.string().optional(),
   development: z.string().optional(),
@@ -119,14 +116,12 @@ export const ComposableAppEntrySchema = z.object({
   ui: z.union([PluginUiConfigSchema, z.literal(false)]).optional(),
   digest: RemoteDigestSchema.optional(),
 });
-export type ComposableAppEntry = z.infer<typeof ComposableAppEntrySchema>;
 
-export const ApiPluginConfigSchema = ComposableAppEntrySchema.extend({
+const ApiPluginConfigSchema = ComposableAppEntrySchema.extend({
   dependsOn: z.array(z.string()).optional(),
 });
-export type ApiPluginConfig = z.infer<typeof ApiPluginConfigSchema>;
 
-export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
+const BosPluginRefSchema = ComposableAppEntrySchema.extend({
   version: z.string().optional(),
   app: z.record(z.string(), z.unknown()).optional(),
   plugins: z.record(z.string(), z.unknown()).optional(),
@@ -137,7 +132,6 @@ export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
 });
 export type BosPluginRef = z.infer<typeof BosPluginRefSchema>;
 export type PluginEntryValue = string | BosPluginRef;
-export type PluginEntries = Record<string, PluginEntryValue>;
 
 const PluginRuntimeUiSchema = z.object({
   name: z.string(),
@@ -177,9 +171,8 @@ const PluginRuntimeUiSchema = z.object({
   sharedVersions: z.record(z.string(), z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
 });
-export type PluginRuntimeUi = z.infer<typeof PluginRuntimeUiSchema>;
 
-export const RuntimePluginConfigSchema = z.object({
+const RuntimePluginConfigSchema = z.object({
   name: z.string(),
   url: z.string(),
   entry: z.string(),
@@ -211,10 +204,9 @@ export const RuntimePluginConfigSchema = z.object({
 });
 export type RuntimePluginConfig = z.infer<typeof RuntimePluginConfigSchema>;
 
-export const DependencyNodeKindSchema = z.enum(["api", "auth", "ui", "plugin"]);
-export type DependencyNodeKind = z.infer<typeof DependencyNodeKindSchema>;
+const DependencyNodeKindSchema = z.enum(["api", "auth", "ui", "plugin"]);
 
-export const RuntimeDependencyNodeSchema = z.object({
+const RuntimeDependencyNodeSchema = z.object({
   key: z.string(),
   kind: DependencyNodeKindSchema,
   name: z.string(),
@@ -248,7 +240,7 @@ export const RuntimeDependencyNodeSchema = z.object({
 });
 export type RuntimeDependencyNode = z.infer<typeof RuntimeDependencyNodeSchema>;
 
-export const UiConfigSchema = z
+const UiConfigSchema = z
   .object({
     name: z.string().optional(),
     development: z.string().optional(),
@@ -262,7 +254,6 @@ export const UiConfigSchema = z
     digest: RemoteDigestSchema.optional(),
   })
   .strict();
-export type UiConfig = z.infer<typeof UiConfigSchema>;
 
 export const HostConfigSchema = z.object({
   /** The host slot is local to the running image — published configs strip
@@ -276,9 +267,8 @@ export const HostConfigSchema = z.object({
   secrets: z.array(z.string()).optional(),
   digest: RemoteDigestSchema.optional(),
 });
-export type HostConfig = z.infer<typeof HostConfigSchema>;
 
-export const ClientRuntimeInfoSchema = z.object({
+const ClientRuntimeInfoSchema = z.object({
   accountId: z.string(),
   gatewayId: z.string(),
   runtimeBasePath: z.string(),
@@ -288,22 +278,14 @@ export const ClientRuntimeInfoSchema = z.object({
 });
 export type ClientRuntimeInfo = z.infer<typeof ClientRuntimeInfoSchema>;
 
-export const RuntimeLineageSchema = z.object({
-  parent: z.string().nullable(),
-  root: z.string().nullable(),
-  depth: z.number().int().nonnegative(),
-  extendsChain: z.array(z.string()),
-});
-export type RuntimeLineage = z.infer<typeof RuntimeLineageSchema>;
-
-export const BosStagingSchema = z.object({
+const BosStagingSchema = z.object({
   domain: z.string(),
   account: z.string().optional(),
 });
-export type BosStaging = z.infer<typeof BosStagingSchema>;
+type BosStaging = z.infer<typeof BosStagingSchema>;
 
 const BosConfigInputAppEntrySchema = z.record(z.string(), z.unknown());
-export type BosConfigInputAppEntry = z.infer<typeof BosConfigInputAppEntrySchema>;
+type BosConfigInputAppEntry = z.infer<typeof BosConfigInputAppEntrySchema>;
 
 export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
   z.object({
@@ -357,12 +339,12 @@ export type StarterLevel = "simple" | "advanced";
 
 export const StarterLevelSchema = z.enum(["simple", "advanced"]);
 
-export interface StarterLevelConfig {
+interface StarterLevelConfig {
   include?: string[];
   exclude?: string[];
 }
 
-export const StarterLevelConfigSchema = z.object({
+const StarterLevelConfigSchema = z.object({
   include: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
 });
@@ -373,7 +355,7 @@ export interface ParentStarterConfig {
   exclude?: string[];
 }
 
-export const ParentStarterConfigSchema = z.object({
+const ParentStarterConfigSchema = z.object({
   levels: z.record(z.string(), StarterLevelConfigSchema).optional(),
   exclude: z.array(z.string()).optional(),
 });
@@ -417,32 +399,31 @@ export interface BosConfigInput {
   starter?: ParentStarterConfig | StarterLevel;
 }
 
-export const RailwayCiSchema = z.object({
+const RailwayCiSchema = z.object({
   service: z.string(),
 });
-export type RailwayCi = z.infer<typeof RailwayCiSchema>;
 
-export const CiConfigSchema = z.object({
+const CiConfigSchema = z.object({
   railway: RailwayCiSchema.optional(),
 });
-export type CiConfig = z.infer<typeof CiConfigSchema>;
+type CiConfig = z.infer<typeof CiConfigSchema>;
 
 /** Where this runtime's built bundles are served from (`origin`) and uploaded
  * to (`upload` — the bundle-write control plane, ADR 0027). Inherited via
  * extends; the env vars (`BOS_BUNDLE_CDN_ORIGIN` / `BOS_STORAGE_ORIGIN`) are
  * the overrides. */
-export const CdnConfigSchema = z.object({
+const CdnConfigSchema = z.object({
   origin: z.string().optional(),
   upload: z.string().optional(),
 });
-export type CdnConfig = z.infer<typeof CdnConfigSchema>;
+type CdnConfig = z.infer<typeof CdnConfigSchema>;
 
 /**
  * The `seed.auth.ownerAdmin` identity (#865): `true` derives the NEAR account
  * from the app's top-level `account`; an object names it explicitly (NEAR
  * account and/or email).
  */
-export const SeedOwnerAdminSchema = z.union([
+const SeedOwnerAdminSchema = z.union([
   z.literal(true),
   z
     .object({
@@ -479,10 +460,9 @@ export type SeedConfig = z.infer<typeof SeedConfigSchema>;
  * `NEAR_PRIVATE_KEY` or `~/.near-credentials`), or "custody" (an OutLayer
  * custody wallet whose implicit hex account is the config's `account`).
  * Absent: an available key wins, else the login session. */
-export const PublishAuthSchema = z.enum(["session", "key", "custody"]);
-export type PublishAuth = z.infer<typeof PublishAuthSchema>;
+const PublishAuthSchema = z.enum(["session", "key", "custody"]);
 
-export const PublishConfigSchema = z.object({
+const PublishConfigSchema = z.object({
   auth: PublishAuthSchema.optional(),
   /** Publish per-workspace source archives beside the dists (#406). */
   sourcePublish: z.boolean().optional(),

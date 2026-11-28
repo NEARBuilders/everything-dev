@@ -39,7 +39,7 @@ import { stampInheritedRemotes } from "./release-composition";
 import { buildRuntimeConfig, buildRuntimePluginsForConfig } from "./runtime";
 import { collectUnknownKeys } from "./unknown-keys";
 
-export interface ResolutionRequest {
+interface ResolutionRequest {
   cwd?: string;
   path?: string;
   bosUrl?: string;
@@ -63,7 +63,7 @@ export interface ResolutionIo {
   importModule?: (path: string) => Promise<Record<string, unknown>>;
 }
 
-export interface RuntimeSources {
+interface RuntimeSources {
   uiSource?: "local" | "remote";
   apiSource?: "local" | "remote";
   authSource?: "local" | "remote";

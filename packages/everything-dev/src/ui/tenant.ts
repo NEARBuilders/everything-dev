@@ -114,9 +114,9 @@ export interface TenantUiOverride {
   ssrIntegrity?: string;
 }
 
-export const INTEGRITY_PATTERN = /^sha384-[A-Za-z0-9+/=]+$/;
+const INTEGRITY_PATTERN = /^sha384-[A-Za-z0-9+/=]+$/;
 
-export const defaultTenantConfigDraftMessages = {
+const defaultTenantConfigDraftMessages = {
   url: "must be a valid URL",
   integrity: "must look like sha384-… (base64)",
   manifest: "must look like versions/<version-id>.json",
@@ -228,7 +228,7 @@ export function buildDraftFromResolvedConfig(
   };
 }
 
-export interface DraftDiffEntry {
+interface DraftDiffEntry {
   field: string;
   from: string;
   to: string;
