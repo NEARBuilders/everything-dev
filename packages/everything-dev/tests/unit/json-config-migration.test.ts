@@ -57,12 +57,14 @@ describe("convertLegacyJsonConfig (#920)", () => {
     expect(existsSync(join(dir, ".bos", "sync-backup", "bos.config.json"))).toBe(true);
 
     const source = readFileSync(join(dir, "bos.app.ts"), "utf-8");
-    expect(source).toContain('extends: "bos://dev.everything.near/everything.dev"');
-    expect(source).toContain('extends: "bos://dev.everything.near/everything.dev#plugins.remote"');
-    expect(source).toContain('extends: "bos://dev.everything.near/everything.dev#plugins.mixed"');
-    expect(source).toContain('path: "plugins/local"');
-    expect(source).toContain('path: "api"');
-    expect(source).not.toContain("production");
+    expect(source).toContain('"extends": "bos://dev.everything.near/everything.dev"');
+    expect(source).toContain(
+      '"extends": "bos://dev.everything.near/everything.dev#plugins.remote"',
+    );
+    expect(source).toContain('"extends": "bos://dev.everything.near/everything.dev#plugins.mixed"');
+    expect(source).toContain('"path": "plugins/local"');
+    expect(source).toContain('"path": "api"');
+    expect(source).not.toContain('"production"');
   });
 
   it("is a no-op without the legacy file and when a descriptor already exists", async () => {

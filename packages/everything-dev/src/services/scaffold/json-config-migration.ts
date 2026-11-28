@@ -5,7 +5,6 @@ import {
   configInputToDescriptor,
   PLUGIN_ATTACHMENT_FIELDS,
 } from "../../descriptor/resolve";
-import { serializeAppDescriptorSource } from "../../descriptor/serialize";
 import {
   LEGACY_JSON_CONFIG_MESSAGE,
   loadAppDescriptorConfig,
@@ -185,7 +184,8 @@ export async function readAuthoredOrLegacyJsonConfig(
 /**
  * The upgrade migration leg retiring the JSON authored-config form: converts
  * a committed `bos.config.json` into the canonical `bos.app.ts` descriptor
- * (serializeAppDescriptorSource — the same emitter `bos init` uses), with the
+ * (a plain-object default export — no package imports, so the converted file
+ * loads even before the child's node_modules exists), with the
  * original preserved under `.bos/sync-backup/`. Field accounting runs before
  * any write: entries the descriptor form cannot express (authored production
  * URLs without an extends target, gateway, unknown slots) abort the conversion
@@ -203,8 +203,8 @@ export async function convertLegacyJsonConfig(
 
   const source = JSON.parse(readFileSync(jsonPath, "utf-8")) as Record<string, unknown>;
   const translated = translateForDescriptor(source);
-  const descriptorSource = serializeAppDescriptorSource(translated);
-  configInputToDescriptor(translated);
+  const descriptor = configInputToDescriptor(translated);
+  const descriptorSource = `export default ${JSON.stringify(descriptor, null, 2)};\n`;
 
   const backupDir = join(projectDir, ".bos", "sync-backup");
   mkdirSync(backupDir, { recursive: true });
