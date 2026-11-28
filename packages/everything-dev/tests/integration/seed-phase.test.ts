@@ -161,6 +161,73 @@ describe("runSeedPhase — owner admin bootstrap", () => {
     ).toBe(0);
   });
 
+  it("the email-match repair links the NEAR account — /near/verify resolves the admin", async () => {
+    await runSeedPhase(seedInput({ seed: { version: 1, steps: [] } }));
+    const driver = await createDatabaseDriver(authDbUrl, {});
+    try {
+      await driver.db.execute(
+        sql`INSERT INTO "user" (id, name, email, role, created_at, updated_at) VALUES ('existing-user', 'Existing', 'owner@near.email', 'user', now(), now())`,
+      );
+    } finally {
+      await driver.close();
+    }
+
+    await runSeedPhase(
+      seedInput({
+        seed: { version: 2, auth: { ownerAdmin: { nearAccount: "owner.near" } }, steps: [] },
+      }),
+    );
+
+    expect(
+      await rows(authDbUrl, `SELECT id, role FROM "user" WHERE email = 'owner@near.email'`),
+    ).toEqual([{ id: "existing-user", role: "admin" }]);
+    expect(
+      await rows(
+        authDbUrl,
+        `SELECT account_id, network, user_id FROM near_account WHERE account_id = 'owner.near'`,
+      ),
+    ).toEqual([{ account_id: "owner.near", network: "testnet", user_id: "existing-user" }]);
+    expect(
+      await rows(
+        authDbUrl,
+        `SELECT provider_id, account_id FROM "account" WHERE user_id = 'existing-user'`,
+      ),
+    ).toEqual([{ provider_id: "siwn", account_id: "owner.near:testnet" }]);
+  });
+
+  it("a write failing mid-provision rolls the owner back — a re-run provisions exactly one", async () => {
+    await runSeedPhase(seedInput({ seed: { version: 1, steps: [] } }));
+    const driver = await createDatabaseDriver(authDbUrl, {});
+    try {
+      await driver.db.execute(
+        sql`ALTER TABLE "account" ADD CONSTRAINT reject_seed_owner CHECK (account_id <> 'owner.near:testnet')`,
+      );
+    } finally {
+      await driver.close();
+    }
+
+    await expect(runSeedPhase(seedInput({ seed: { ...ownerSeed, version: 2 } }))).rejects.toThrow();
+
+    expect(await scalar(authDbUrl, `SELECT count(*) AS count FROM "user"`)).toBe(0);
+    expect(await scalar(authDbUrl, `SELECT count(*) AS count FROM near_account`)).toBe(0);
+
+    const repair = await createDatabaseDriver(authDbUrl, {});
+    try {
+      await repair.db.execute(sql`ALTER TABLE "account" DROP CONSTRAINT reject_seed_owner`);
+    } finally {
+      await repair.close();
+    }
+    await runSeedPhase(seedInput({ seed: { ...ownerSeed, version: 3 } }));
+
+    expect(await scalar(authDbUrl, `SELECT count(*) AS count FROM "user"`)).toBe(1);
+    expect(
+      await scalar(
+        authDbUrl,
+        `SELECT count(*) AS count FROM "account" WHERE provider_id = 'siwn' AND account_id = 'owner.near:testnet'`,
+      ),
+    ).toBe(1);
+  });
+
   it("multi-segment accounts get the deterministic temp- synthetic email", async () => {
     await runSeedPhase(
       seedInput({
