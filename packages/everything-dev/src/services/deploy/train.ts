@@ -1006,8 +1006,18 @@ export async function runPublishTrain(
             publishedSharedDeps = record
               ? (record as { sharedDeps?: Record<string, { version: string }> }).sharedDeps
               : undefined;
-          } catch {
-            publishedSharedDeps = undefined;
+          } catch (error) {
+            // An unreadable window is not an empty one — skipping the gate
+            // here would publish a chain the pinned window may not serve.
+            const recordKey = getVersionKey(account, gateway, pointerVersion);
+            throw new PublishTrainError({
+              kind: "compat-window",
+              registryUrl,
+              built,
+              skipped,
+              deployResults,
+              error: `the compat gate could not read the published version record (${recordKey}): ${error instanceof Error ? error.message : String(error)}`,
+            });
           }
         }
         const windowViolations = compatWindowViolations(publishedSharedDeps, sharedByWorkspace);

@@ -1,10 +1,20 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyDeployResults } from "../../src/services/deploy/integrity";
 import { mergeAuthoredOverPublished } from "../../src/services/resolution/merge";
 import type { BosConfig } from "../../src/types";
+
+const REPO_ROOT = resolve(import.meta.dirname, "../../../..");
 
 const {
   buildWorkspaceTargetsMock,
@@ -21,6 +31,7 @@ const {
   submitRegistryWriteMock,
   probeStorageOriginMock,
   checkPublishKeyHealthMock,
+  fetchRegistryKeyMock,
 } = vi.hoisted(() => ({
   buildWorkspaceTargetsMock: vi.fn(),
   generateCodeArtifactsMock: vi.fn(),
@@ -36,6 +47,9 @@ const {
   submitRegistryWriteMock: vi.fn(),
   probeStorageOriginMock: vi.fn(),
   checkPublishKeyHealthMock: vi.fn(),
+  // the pointer read is strict since #969 — a failure throws instead of
+  // reading as "nothing published"; these trains publish onto an empty registry
+  fetchRegistryKeyMock: vi.fn(async () => null),
 }));
 
 vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
@@ -57,6 +71,7 @@ vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
     ...actual,
     fetchBosConfigFromFastKv: canonical,
     fetchPublishedConfigFromFastKv: canonical,
+    fetchRegistryKey: fetchRegistryKeyMock,
   };
 });
 
@@ -99,6 +114,7 @@ vi.mock("../../src/services/deploy/cdn", async (importOriginal) => {
 
 import { writeSessionHandle } from "../../src/services/auth/session";
 import { publishToFastKv } from "../../src/services/deploy/train";
+import { RegistryError } from "../../src/services/registry/client";
 import { stripLocalDevelopmentTargets } from "../../src/services/resolution/merge";
 
 const bosConfig = {
@@ -197,6 +213,8 @@ describe("publishToFastKv preflight ordering", () => {
       source: "provided",
     });
     checkPublishKeyHealthMock.mockResolvedValue({ ok: true });
+    fetchRegistryKeyMock.mockReset();
+    fetchRegistryKeyMock.mockResolvedValue(null);
     openResolutionMock.mockResolvedValue({ config: bosConfig, rawConfig: bosConfig } as never);
     writeFileSync(join(configDir, "bos.config.json"), JSON.stringify(bosConfig, null, 2));
   }, 120_000);
@@ -209,6 +227,34 @@ describe("publishToFastKv preflight ordering", () => {
     }
     vi.restoreAllMocks();
   }, 120_000);
+
+  /** Everything a train needs to get past preflight, the build and the
+   * upload — so a test can aim at the release / compat legs that follow. */
+  const stubBuildAndUpload = () => {
+    process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
+    process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+    process.env.BOS_STORAGE_ORIGIN = "upload.example.test";
+    buildWorkspaceTargetsMock.mockResolvedValue({
+      built: ["host"],
+      skipped: [],
+      deployResults: [{ key: "host", kind: "app", success: true }],
+    });
+    collectDistFilesMock.mockResolvedValue([HOST_DIST_FILE]);
+    uploadWorkspaceDistMock.mockResolvedValue({
+      stored: 1,
+      totalBytes: 3,
+      integrity: { "remoteEntry.8f3ac1d2.js": "sha384-entry" },
+      storage: "s3",
+    });
+    readBuildReportMock.mockReturnValue({ entry: "remoteEntry.8f3ac1d2.js" });
+    uploadBundleMock.mockImplementation(async (input: { files: Array<{ path: string }> }) => ({
+      stored: 1,
+      totalBytes: 3,
+      integrity: { [input.files[0]!.path]: "sha384-manifest" },
+      storage: "s3",
+    }));
+    fetchBosConfigFromFastKvMock.mockResolvedValue(bosConfig);
+  };
 
   it("aborts before the build train when CDN storage credentials are missing", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
@@ -296,6 +342,48 @@ describe("publishToFastKv preflight ordering", () => {
     expect(fetchBosConfigFromFastKvMock.mock.invocationCallOrder[0]).toBeLessThan(
       buildWorkspaceTargetsMock.mock.invocationCallOrder[0]!,
     );
+  }, 120_000);
+
+  it("an unreachable registry at the release classifier fails the train — never a guessed non-release", async () => {
+    stubBuildAndUpload();
+    fetchRegistryKeyMock.mockRejectedValue(
+      new RegistryError({
+        key: "apps/dev.everything.near/everything.dev/manifest.json",
+        kind: "unreachable",
+        cause: new Error("ECONNRESET"),
+      }),
+    );
+
+    const result = await publishToFastKv({ ...baseInput, configDir, packages: "all" });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("could not read the published platform release");
+    expect(submitRegistryWriteMock).not.toHaveBeenCalled();
+  }, 120_000);
+
+  it("an unreachable version record fails the compat gate instead of skipping it", async () => {
+    stubBuildAndUpload();
+    // the manifest legs only compose against a real framework checkout
+    symlinkSync(join(REPO_ROOT, "packages"), join(configDir, "packages"), "dir");
+    copyFileSync(join(REPO_ROOT, "pnpm-workspace.yaml"), join(configDir, "pnpm-workspace.yaml"));
+    const pointerVersion = "2.0.0-rc.46";
+    fetchRegistryKeyMock.mockImplementation(async (_accountId, _gatewayId, keyPath: string) => {
+      if (keyPath === "manifest.json") {
+        return { schemaVersion: 1, version: pointerVersion, digest: "a".repeat(64) };
+      }
+      throw new RegistryError({
+        key: `apps/dev.everything.near/everything.dev/${keyPath}`,
+        kind: "unreachable",
+        cause: new Error("ECONNRESET"),
+      });
+    });
+
+    const result = await publishToFastKv({ ...baseInput, configDir, packages: "all" });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("the compat gate could not read the published version record");
+    expect(result.error).toContain(`versions/${pointerVersion}.json`);
+    expect(submitRegistryWriteMock).not.toHaveBeenCalled();
   }, 120_000);
 
   it("uploads workspace dists with the resolved storage credentials", async () => {
