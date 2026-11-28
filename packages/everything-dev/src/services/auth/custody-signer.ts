@@ -1,10 +1,11 @@
 import { OutlayerClient, OutlayerError, PolicyDeniedError, WalletFrozenError } from "@outlayer/sdk";
 import type { NetworkId } from "../registry/fastkv";
 import type { RelayResult } from "./delegate-signer";
+import { parseYocto } from "./near-amounts";
 import type { CustodyWalletRecord } from "./session";
 
 const PUBLISH_GAS = "30000000000000";
-const MIN_GAS_BALANCE = "50000000000000000000000";
+const MIN_GAS_BALANCE = 50_000_000_000_000_000_000_000n;
 
 const OUTLAYER_HOSTS: Record<NetworkId, string> = {
   mainnet: "https://api.outlayer.ai",
@@ -31,11 +32,65 @@ export function custodyFundUrl(custodyWallet: CustodyWalletRecord): string {
   return `https://app.outlayer.ai/wallet/fund?to=${custodyWallet.nearAccountId}&amount=0.05&token=near`;
 }
 
+export interface CustodyBalanceStatus {
+  /** false = the wallet needs funding before a publish can settle */
+  ok: boolean;
+  /** the funding instruction (balance below minimum) or the network failure detail */
+  message: string;
+  /** true = the check itself could not run (OutLayer unreachable) — informative only */
+  unreachable: boolean;
+}
+
+/** Non-throwing balance probe for preflight: a funding gap fails the deploy
+ * before the build train; an OutLayer outage only warns (the submit-time
+ * check remains the authoritative gate). */
+export async function checkCustodyBalance(
+  custodyWallet: CustodyWalletRecord,
+): Promise<CustodyBalanceStatus> {
+  const client = custodyClient(custodyWallet);
+  try {
+    const { balance } = await client.getBalance({ chain: "near" });
+    const balanceYocto = parseYocto(String(balance));
+    if (balanceYocto === undefined) {
+      return {
+        ok: true,
+        unreachable: false,
+        message:
+          `custody balance unreadable (${balance}) — treating as funded; ` +
+          `the submit-time check remains the authoritative gate`,
+      };
+    }
+    if (balanceYocto < MIN_GAS_BALANCE) {
+      return {
+        ok: false,
+        unreachable: false,
+        message:
+          `The custody wallet ${custodyWallet.nearAccountId} holds ${balance} yoctoNEAR on ` +
+          `${custodyWallet.network}, below the gas minimum. Fund it at ${custodyFundUrl(custodyWallet)}`,
+      };
+    }
+    return { ok: true, unreachable: false, message: balance };
+  } catch (error) {
+    return {
+      ok: true,
+      unreachable: true,
+      message: `custody balance check skipped (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
+}
+
 export async function ensureCustodyBalance(custodyWallet: CustodyWalletRecord): Promise<void> {
   const client = custodyClient(custodyWallet);
   try {
     const { balance } = await client.getBalance({ chain: "near" });
-    if (BigInt(balance) < BigInt(MIN_GAS_BALANCE)) {
+    const balanceYocto = parseYocto(String(balance));
+    if (balanceYocto === undefined) {
+      throw new Error(
+        `The custody wallet balance is unreadable (${balance}) — cannot verify the gas minimum; ` +
+          `check the OutLayer response or fund ${custodyWallet.nearAccountId} at ${custodyFundUrl(custodyWallet)}`,
+      );
+    }
+    if (balanceYocto < MIN_GAS_BALANCE) {
       throw new Error(
         `The custody wallet ${custodyWallet.nearAccountId} holds ${balance} yoctoNEAR on ` +
           `${custodyWallet.network}, below the gas minimum. Fund it at ${custodyFundUrl(custodyWallet)}`,
@@ -114,21 +169,23 @@ function custodyPublishError(error: unknown, custodyWallet: CustodyWalletRecord)
     ? ` Manage the wallet at ${custodyWallet.handoffUrl}.`
     : "";
   if (error instanceof PolicyDeniedError) {
-    return new Error(`The custody wallet policy refused the publish.${context}`);
+    return new Error(`The custody wallet policy refused the publish.${context}`, { cause: error });
   }
   if (error instanceof WalletFrozenError) {
-    return new Error(`The custody wallet is frozen.${context}`);
+    return new Error(`The custody wallet is frozen.${context}`, { cause: error });
   }
   if (code === "insufficient_balance" || code === "wallet_underfunded") {
     const detail = error.message ? ` (${error.message})` : "";
     return new Error(
       `The custody wallet ran out of gas for the publish${detail}. Fund it at ${custodyFundUrl(custodyWallet)}`,
+      { cause: error },
     );
   }
   if (code === "invalid_api_key" || code === "missing_auth") {
     return new Error(
       `The stored custody wallet key was rejected. Re-run \`bos login --custody\` to re-register.`,
+      { cause: error },
     );
   }
-  return new Error(`Custody publish failed (${code}): ${error.message}`);
+  return new Error(`Custody publish failed (${code}): ${error.message}`, { cause: error });
 }

@@ -398,6 +398,28 @@ describe("normalizeAuthConfig", () => {
     expect(authConfig.organizationMembershipLimit).toBe(1000);
   });
 
+  it("parses null and false as an organization membership limit turned off", () => {
+    for (const value of [null, false] as const) {
+      const parsed = authVariablesSchema.shape.organizationMembershipLimit.safeParse(value);
+      expect(parsed.success, `${value} should parse as "no limit"`).toBe(true);
+    }
+  });
+
+  it("still rejects non-positive and non-integer organization membership limits", () => {
+    for (const value of [0, -1, Infinity, "unlimited"]) {
+      const parsed = authVariablesSchema.shape.organizationMembershipLimit.safeParse(value);
+      expect(parsed.success, `${String(value)} should be rejected`).toBe(false);
+    }
+  });
+
+  it("carries an organization membership limit turned off through normalizeAuthConfig", () => {
+    const { authConfig } = normalizeAuthConfig(
+      { ...baseVariables, organizationMembershipLimit: null },
+      baseSecrets,
+    );
+    expect(authConfig.organizationMembershipLimit).toBeNull();
+  });
+
   it("carries the rateLimit variables through (#688)", () => {
     const { authConfig } = normalizeAuthConfig(
       {

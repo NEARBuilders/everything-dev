@@ -183,6 +183,39 @@ try {
 
 Branch on `error.code`, never on `error.message` — oRPC v2 does not transport undefined-error messages, so copy is not reliable across client and server.
 
+### Query Options Seam
+
+Query options are built only in `ui/src/lib/queries/*` modules — one per domain,
+keys on a domain query-keys object (ADR 0050):
+
+```ts
+// ui/src/lib/queries/projects.ts
+import { queryOptions } from "@tanstack/react-query";
+import type { ApiClient } from "@/app";
+
+export const projectQueryKeys = {
+  list: ["projects-list"] as const,
+};
+
+export function projectsListQueryOptions(apiClient: ApiClient) {
+  return queryOptions({
+    queryKey: projectQueryKeys.list,
+    queryFn: () => apiClient.projects.listProjects(),
+    staleTime: 30 * 1000,
+  });
+}
+```
+
+Routes and components consume the factories — never inline `useQuery({...})`
+literals:
+
+```ts
+const { data } = useQuery(projectsListQueryOptions(apiClient));
+```
+
+One-off `useMutation` calls may stay inline; shared ones get factories beside
+their queries. `useOrpc()` remains the ergonomic for quick one-off cached reads.
+
 ## Auth Client
 
 ### Creation
@@ -453,7 +486,7 @@ function Component() {
 
 **"Add an auth-only page."** Nest under `_layout/_authenticated/` — the guard's `beforeLoad` already redirects to `/login?redirect=<path>`; return `{ auth: … }` from `beforeLoad` to type the context downstream.
 
-**"Call the API in a component."** `const apiClient = useApiClient()` for one-shot calls; `const orpc = useOrpc()` when you want `useQuery`/`useMutation` caching.
+**"Call the API in a component."** `const apiClient = useApiClient()` for one-shot calls; for cached reads, build options in `ui/src/lib/queries/<domain>.ts` and consume the factory (see Query Options Seam); `const orpc = useOrpc()` for quick one-off cached reads.
 
 ## What comes back when it fails
 

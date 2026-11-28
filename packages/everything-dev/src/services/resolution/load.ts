@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Schema } from "effect";
 import { resolveApp, toConfigInput } from "../../descriptor/resolve";
@@ -645,6 +645,9 @@ export async function resolveComposableReference(
   };
 }
 
+export const LEGACY_JSON_CONFIG_MESSAGE =
+  "bos.config.json is no longer a supported authored-config form. Run `bos upgrade` to convert it to bos.app.ts (the original is preserved under .bos/sync-backup/), or author bos.app.ts manually.";
+
 async function readConfigInput(configPath: string, baseDir: string): Promise<BosConfigInput> {
   if (configPath.startsWith("bos://")) {
     return fetchBosConfigFromFastKv<BosConfigInput>(configPath);
@@ -653,6 +656,12 @@ async function readConfigInput(configPath: string, baseDir: string): Promise<Bos
   const resolvedPath = isAbsolute(configPath) ? configPath : resolve(baseDir, configPath);
   if (isAppDescriptorPath(resolvedPath)) {
     return loadAppDescriptorConfig(resolvedPath);
+  }
+  if (basename(resolvedPath) === "bos.config.json") {
+    throw new ConfigLoadError({
+      path: resolvedPath,
+      message: LEGACY_JSON_CONFIG_MESSAGE,
+    });
   }
   return JSON.parse(readFileSync(resolvedPath, "utf-8")) as BosConfigInput;
 }

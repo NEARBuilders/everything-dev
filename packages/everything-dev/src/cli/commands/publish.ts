@@ -1,7 +1,7 @@
 import * as p from "@clack/prompts";
 import { colors, frames, gradients, icons } from "../../utils/theme";
 import { exitCodeFor } from "../exit-codes";
-import { failedDeployLegs, renderDeployLegs } from "../render/deploy";
+import { failedDeployLegs, renderDeployLegs, renderTrainFailure } from "../render/deploy";
 import { renderBuildWarnings } from "../render/deploy-train";
 import type { CommandContext, ResultRenderer } from "./context";
 
@@ -133,22 +133,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     }
 
     if (exitCodeFor(result) === 1) {
-      console.log();
-      console.log(colors.error(`${icons.err} Publish failed`));
-      if (result.error) {
-        console.log(`  ${colors.dim("Error:")} ${result.error}`);
-      }
-      if (result.deployResults && result.deployResults.length > 0) {
-        const failures = result.deployResults.filter((r: any) => !r.success);
-        if (failures.length > 0) {
-          console.log();
-          for (const f of failures) {
-            const errorLine = (f.error ?? "Failed").split("\n")[0];
-            console.log(`  ${colors.error(icons.err)} ${f.key}: ${errorLine}`);
-          }
-        }
-      }
-      console.log();
+      renderTrainFailure(result);
       process.exit(1);
     }
 
@@ -156,7 +141,9 @@ export const publishRenderers: Record<string, ResultRenderer> = {
       console.log();
       console.log(colors.green(`${icons.ok} Published successfully`));
       console.log(`  ${colors.dim("Registry URL:")} ${result.registryUrl}`);
-      if (result.txHash) {
+      if (result.txUrl) {
+        console.log(`  ${colors.dim("Transaction:")} ${result.txUrl}`);
+      } else if (result.txHash) {
         console.log(`  ${colors.dim("Transaction:")} ${result.txHash}`);
       }
       if (result.built && result.built.length > 0) {
@@ -282,48 +269,35 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     }
 
     if (deployResult.status === "error") {
-      console.log();
-      console.log(colors.error(`${icons.err} Deploy failed`));
-      if (deployResult.error) {
-        console.log(`  ${colors.dim("Error:")} ${deployResult.error}`);
-      }
-      if (deployResult.deployResults && deployResult.deployResults.length > 0) {
-        const failures = deployResult.deployResults.filter((r: any) => !r.success);
-        if (failures.length > 0) {
-          console.log();
-          for (const f of failures) {
-            const errorLine = (f.error ?? "Failed").split("\n")[0];
-            console.log(`  ${colors.error(icons.err)} ${f.key}: ${errorLine}`);
-          }
-        }
-      }
-      console.log();
+      renderTrainFailure(deployResult);
       process.exit(1);
     }
 
     if (deployResult.status === "deployed") {
       console.log();
-      console.log(colors.green(`${icons.ok} Deployed successfully`));
-      console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
-      if (deployResult.txHash) {
-        console.log(`  ${colors.dim("Transaction:")} ${deployResult.txHash}`);
+      console.log(colors.green(`${icons.ok} Deploy complete`));
+      console.log(`  ${colors.dim("live config:")} ${deployResult.registryUrl}`);
+      if (deployResult.txUrl) {
+        console.log(`  ${colors.dim("transaction:")} ${deployResult.txUrl}`);
+      } else if (deployResult.txHash) {
+        console.log(`  ${colors.dim("transaction:")} ${deployResult.txHash}`);
+      }
+      if (deployResult.image) {
+        console.log(`  ${colors.dim("image:")} ${deployResult.image}`);
+      }
+      if (deployResult.service) {
+        console.log(`  ${colors.dim("railway:")} redeployed ${deployResult.service}`);
       }
       if (deployResult.built && deployResult.built.length > 0) {
-        console.log(`  ${colors.dim("Built:")} ${deployResult.built.join(", ")}`);
+        console.log(`  ${colors.dim("built:")} ${deployResult.built.join(", ")}`);
       }
       if (deployResult.skipped && deployResult.skipped.length > 0) {
-        console.log(`  ${colors.dim("Skipped:")} ${deployResult.skipped.join(", ")}`);
+        console.log(`  ${colors.dim("skipped:")} ${deployResult.skipped.join(", ")}`);
       }
       if (deployResult.deployResults) {
         renderBuildWarnings(
           deployResult.deployResults as Array<{ key: string; warnings?: string[] }>,
         );
-      }
-      if (deployResult.image) {
-        console.log(`  ${colors.dim("Image:")} ${deployResult.image}`);
-      }
-      if (deployResult.service) {
-        console.log(`  ${colors.dim("Railway:")} deployed ${deployResult.service}`);
       }
       renderDeployLegs(deployResult.legs);
       console.log();
@@ -341,8 +315,8 @@ export const publishRenderers: Record<string, ResultRenderer> = {
         ),
       );
       console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
-      if (deployResult.txHash) {
-        console.log(`  ${colors.dim("Transaction:")} ${deployResult.txHash}`);
+      if (deployResult.txUrl ?? deployResult.txHash) {
+        console.log(`  ${colors.dim("Transaction:")} ${deployResult.txUrl ?? deployResult.txHash}`);
       }
       if (deployResult.error) {
         console.log(`  ${colors.dim("Error:")} ${deployResult.error}`);

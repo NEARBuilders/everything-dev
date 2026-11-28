@@ -97,14 +97,19 @@ function makeProjectDir(catalog: Record<string, string>, release?: string): stri
   mkdirSync(join(dir, "ui"), { recursive: true });
 
   writeFileSync(
-    join(dir, "bos.config.json"),
-    `${JSON.stringify({
-      extends: "bos://dev.everything.near/everything.dev",
-      account: "test.near",
-      domain: "test.dev",
-      ...(release ? { release } : {}),
-      app: { ui: { development: "local:ui" } },
-    })}\n`,
+    join(dir, "bos.app.ts"),
+    `export default ${JSON.stringify(
+      {
+        name: "test-app",
+        extends: "bos://dev.everything.near/everything.dev",
+        account: "test.near",
+        domain: "test.dev",
+        ...(release ? { release } : {}),
+        ui: { path: "ui" },
+      },
+      null,
+      2,
+    )};\n`,
   );
 
   writeFileSync(
@@ -184,7 +189,7 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     expect(syncTemplateSpy).toHaveBeenCalledTimes(2);
     expect(syncTemplateSpy.mock.calls[0]?.[1]?.dryRun).toBe(true);
     expect(syncTemplateSpy.mock.calls[1]?.[1]?.dryRun).toBe(false);
-    expect(result.migrated).toContain("bos.config.json");
+    expect(result.migrated).toContain("bos.app.ts");
   });
 
   it("framework version change → preflight dry-run then the re-exec'd migration reconciles", async () => {
@@ -380,6 +385,7 @@ describe("upgradeTemplate install-drift guard", () => {
   }
 
   it("fails loud when the installed framework version escapes the exact release target", async () => {
+    mockSyncTemplate();
     mockRelease(makeManifest("3.0.0", { "everything-dev": "3.0.0", "every-plugin": "2.0.0" }));
     const projectDir = makeProjectDir({ "everything-dev": "^3.0.0", "every-plugin": "^2.0.0" });
     installFixture(projectDir, "3.0.0-rc.1");

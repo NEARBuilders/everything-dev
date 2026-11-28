@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository is the base everything.dev runtime — the source of truth for the published framework packages (`everything-dev`, `every-plugin`, `better-near-auth`), the universal runtime image, and the everything.dev app itself. The reusable child-repo workflows (`consumer-*.yml`) live here too.
+This repository is the base everything.dev runtime — the source of truth for the published framework packages (`everything-dev`, `every-plugin`, `better-near-auth`), the universal runtime image, and the everything.dev app itself. The reusable child-repo workflows (`consumer-*.yml`) live here too. The end-to-end story — merge → `bos deploy` → how the new generation reaches users, and what each deploy failure means — is [`docs/agents/deploy-flow.md`](../../docs/agents/deploy-flow.md).
 
 Workflows:
 

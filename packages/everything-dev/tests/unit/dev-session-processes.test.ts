@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Effect, Exit, Layer } from "effect";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { ShellEnvLive } from "../../src/env/project-env";
+import { SupervisorLive } from "../../src/services/boot/adapters";
 import { DevRenderer } from "../../src/services/dev/render";
 import {
   DevGeneratedEnvLive,
@@ -114,7 +115,6 @@ const startSession = (
     packages: ["service-a", "service-b"],
     description: "process-death contract",
     env: {},
-    noLogs: true,
   };
   let handle: DevSessionHandle | null = null;
   const program = Effect.scoped(
@@ -124,7 +124,7 @@ const startSession = (
       (sessionHandle) => {
         handle = sessionHandle;
       },
-      deps,
+      { readinessDeadlineMs: 500, ...deps },
     ),
   ).pipe(
     Effect.provide(
@@ -134,6 +134,11 @@ const startSession = (
         DevGeneratedEnvLive({}),
         ShellEnvLive({}),
         Layer.succeed(DevRenderer, DevRenderer.of({ create: () => noopHandle() })),
+        SupervisorLive({
+          generatedEnv: {},
+          shellTier: {},
+          runtimeConfig: makeRuntimeConfig(ports[0], ports[1], ports[2]),
+        }),
       ),
     ),
   );

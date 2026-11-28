@@ -84,6 +84,34 @@ describe("composeRuntimeMap — the static model of constructTree (#594)", () =>
       composeRuntimeMap([source("votes", [{ id: "orphan", type: "route", path: "/x" }])]),
     ).toThrow(/must live under a mount/);
   });
+
+  it("an inherited plugin mounting into an undeclared mount is omitted with a shadowed entry (#935)", () => {
+    const map = composeRuntimeMap([
+      source("ui", [
+        { id: "_public", type: "layout", mount: "public" },
+        { id: "_public/index", type: "route", path: "/" },
+      ]),
+      // the real shape: the plugin references the mount via its route-id
+      // prefix without declaring the layout (issue #935)
+      source("ai", [{ id: "_authenticated/chat", type: "route", path: "/chat" }]),
+    ]);
+    // the plugin's routes cannot render in this runtime — omitted, not fatal
+    expect(map.routes.every((route) => route.owner !== "ai")).toBe(true);
+    expect(map.shadowed.some((entry) => entry.owner === "ai")).toBe(true);
+    // the core's routes still compose
+    expect(map.routes.some((route) => route.owner === "ui")).toBe(true);
+  });
+
+  it("a core source mounting into an undeclared mount still throws", () => {
+    expect(() =>
+      composeRuntimeMap([
+        source("ui", [
+          { id: "_public", type: "layout", mount: "public" },
+          { id: "_authenticated/x", type: "route", path: "/x" },
+        ]),
+      ]),
+    ).toThrow(/not declared by any source/);
+  });
 });
 
 describe("engine parity — composeRuntimeMap matches the real constructTree", () => {
@@ -190,6 +218,64 @@ describe("engine parity — composeRuntimeMap matches the real constructTree", (
     expect(extra).toEqual([]);
     // and the shadow accounting agrees: proposals' shadowed login-class claim
     expect(map.shadowed.some((entry) => entry.owner === "proposals")).toBe(true);
+  });
+
+  it("engine and model both omit an inherited plugin's routes into an undeclared mount (#935)", async () => {
+    const sources = [
+      {
+        key: "ui",
+        kind: "core" as const,
+        source: "local" as const,
+        location: "ui",
+        manifest: {
+          manifestVersion: 2,
+          routes: [
+            { id: "_public", type: "layout", mount: "public" },
+            { id: "_public/index", type: "route", path: "/" },
+          ],
+        } as PluginManifest,
+      },
+      {
+        key: "ai",
+        kind: "plugin-ui" as const,
+        source: "local" as const,
+        location: "ai",
+        manifest: {
+          manifestVersion: 2,
+          routes: [{ id: "_authenticated/chat", type: "route", path: "/chat" }],
+        } as PluginManifest,
+      },
+    ];
+
+    const map = composeRuntimeMap(sources);
+    expect(map.routes.every((route) => route.owner !== "ai")).toBe(true);
+    expect(map.shadowed.some((entry) => entry.owner === "ai")).toBe(true);
+
+    const tree = await constructTree({
+      name: "parity-omit",
+      plugins: sources.map((s) => ({ key: s.key, mfName: s.key })),
+      guards: {
+        public: async () => undefined,
+        authenticated: async () => undefined,
+        admin: async () => undefined,
+      },
+      resolve: async (ref) => {
+        const manifest = sources.find((s) => s.key === ref.key)!.manifest;
+        return { key: ref.key, manifest, routeConfig: { routeConfigLoaders: loaders(manifest) } };
+      },
+    });
+    const paths = new Set<string>();
+    const walk = (route: never, parentPath: string): void => {
+      const segment = (route as { options?: { path?: string } }).options?.path;
+      const fullPath = segment === undefined ? parentPath : joinPath(parentPath, segment);
+      if (segment !== undefined) paths.add(fullPath);
+      for (const child of (route as { children?: never[] }).children ?? []) {
+        walk(child, fullPath);
+      }
+    };
+    walk(tree.routeTree, "");
+    expect(paths.has("/chat")).toBe(false);
+    expect(paths.has("/")).toBe(true);
   });
 });
 

@@ -7,17 +7,25 @@
  */
 
 export interface DeployedVersionStatus {
-  publishedDigest: string;
+  /** undefined when the published config itself was not readable — the
+   * split-brain comparison never ran (`error` says why) */
+  publishedDigest?: string;
   servedDigest?: string;
   inSync: boolean;
   error?: string;
 }
 
 export function computeDeployedVersionStatus(input: {
-  publishedDigest: string;
+  publishedDigest?: string | null;
   servedDigest?: string | null;
   servedError?: string;
 }): DeployedVersionStatus {
+  if (input.publishedDigest === null || input.publishedDigest === undefined) {
+    return {
+      inSync: false,
+      ...(input.servedError ? { error: input.servedError } : {}),
+    };
+  }
   if (input.servedDigest === null || input.servedDigest === undefined) {
     return {
       publishedDigest: input.publishedDigest,

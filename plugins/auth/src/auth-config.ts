@@ -10,6 +10,7 @@ export type AuthNetwork = "mainnet" | "testnet";
 
 export interface AuthPermissionStatements {
   statements: Record<string, string[]>;
+  areas?: string[];
   roles: Record<string, Record<string, string[]>>;
 }
 
@@ -83,7 +84,7 @@ export interface AuthConfig {
   secret: string;
   baseUrl: string;
   network?: AuthNetwork;
-  organizationMembershipLimit?: number;
+  organizationMembershipLimit?: number | null | false;
   abuseControl?: { rateLimits?: RateRules };
   trustedOrigins?: string[];
   isProduction?: boolean;

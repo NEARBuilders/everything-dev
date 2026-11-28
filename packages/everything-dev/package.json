@@ -1,6 +1,6 @@
 {
   "name": "everything-dev",
-  "version": "2.0.0-rc.44",
+  "version": "2.0.0-rc.46",
   "type": "module",
   "engines": {
     "node": ">=20.11"
@@ -144,6 +144,24 @@
       "import": "./dist/services/registry/digest.mjs",
       "require": "./dist/services/registry/digest.cjs"
     },
+    "./deploy/rollback": {
+      "development": {
+        "types": "./src/services/deploy/rollback.ts",
+        "import": "./src/services/deploy/rollback.ts"
+      },
+      "types": "./dist/services/deploy/rollback.d.mts",
+      "import": "./dist/services/deploy/rollback.mjs",
+      "require": "./dist/services/deploy/rollback.cjs"
+    },
+    "./auth/near-signer": {
+      "development": {
+        "types": "./src/services/auth/near-signer.ts",
+        "import": "./src/services/auth/near-signer.ts"
+      },
+      "types": "./dist/services/auth/near-signer.d.mts",
+      "import": "./dist/services/auth/near-signer.mjs",
+      "require": "./dist/services/auth/near-signer.cjs"
+    },
     "./version-manifest-resolve": {
       "development": {
         "types": "./src/services/deploy/version-manifest.ts",
@@ -170,6 +188,15 @@
       "types": "./dist/contract.meta.d.mts",
       "import": "./dist/contract.meta.mjs",
       "require": "./dist/contract.meta.cjs"
+    },
+    "./dev-log-pipeline": {
+      "development": {
+        "types": "./src/services/dev/logs.ts",
+        "import": "./src/services/dev/logs.ts"
+      },
+      "types": "./dist/services/dev/logs.d.mts",
+      "import": "./dist/services/dev/logs.mjs",
+      "require": "./dist/services/dev/logs.cjs"
     },
     "./federation": {
       "development": {
@@ -465,28 +492,30 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
-    "@effect/platform-node": "4.0.0-rc.118",
-    "@effect/platform-node-shared": "4.0.0-rc.118",
+    "@effect/platform-node": "4.1.4",
+    "@effect/platform-node-shared": "4.1.4",
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
+    "@outlayer/sdk": "catalog:",
+    "@simplewebauthn/browser": "catalog:",
     "better-near-auth": "workspace:^",
     "chalk": "^5.6.2",
     "defu": "^6.1.7",
     "dotenv": "^17.3.1",
-    "effect": "4.0.0-rc.118",
+    "drizzle-orm": "catalog:",
+    "effect": "4.1.4",
     "every-plugin": "workspace:^",
     "execa": "^9.5.2",
     "glob": "^13.0.6",
     "near-kit": "catalog:",
-    "@outlayer/sdk": "catalog:",
-    "@simplewebauthn/browser": "catalog:",
     "pg": "catalog:",
     "tar": "^7.4.3",
     "yaml": "catalog:",
     "zod": "catalog:"
   },
   "peerDependencies": {
+    "@alchemy.run/docker": ">=2.0.0-beta.85 <3.0.0",
     "@better-auth/api-key": "catalog:",
     "@better-auth/passkey": "catalog:",
     "@lingui/core": "catalog:",
@@ -496,7 +525,7 @@
     "@orpc/tanstack-query": "catalog:",
     "@tanstack/react-query": ">=5.0.0",
     "@tanstack/react-router": ">=1.0.0",
-    "alchemy": ">=2.0.0-beta.79 <3.0.0",
+    "alchemy": ">=2.0.0-beta.85 <3.0.0",
     "better-auth": "catalog:",
     "better-near-auth": "workspace:^",
     "effect": "catalog:",
@@ -506,6 +535,9 @@
     "zod": "catalog:"
   },
   "peerDependenciesMeta": {
+    "@alchemy.run/docker": {
+      "optional": true
+    },
     "@lingui/core": {
       "optional": true
     },
@@ -547,6 +579,7 @@
     }
   },
   "devDependencies": {
+    "@alchemy.run/docker": "catalog:",
     "@better-auth/api-key": "catalog:",
     "@better-auth/passkey": "catalog:",
     "@everything-dev/upload-app": "workspace:^",
@@ -566,8 +599,9 @@
     "@tanstack/router-plugin": "catalog:",
     "@types/node": "catalog:",
     "@types/tar": "^7.0.0",
-    "alchemy": "2.0.0-beta.83",
+    "alchemy": "catalog:",
     "better-auth": "catalog:",
+    "fast-check": "^4.10.3",
     "jsdom": "^30.0.1",
     "react": "catalog:",
     "react-dom": "catalog:",

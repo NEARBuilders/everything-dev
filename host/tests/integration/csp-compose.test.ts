@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 import type { ComposePayload } from "everything-dev/ui/manifest";
 import { Hono } from "hono";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SecurityMiddleware } from "../../src/middleware/security";
 import { renderClientShellHtml } from "../../src/routes/html";
 import {
@@ -99,6 +99,9 @@ describe("CSP compose regression", () => {
     let cspHeader: (requestPath: string) => Promise<string | null>;
 
     beforeAll(async () => {
+      // strict CSP requires !isDev — vitest forces NODE_ENV=test, which would
+      // lock the middleware into the permissive policy before this runs.
+      vi.stubEnv("NODE_ENV", "production");
       const middleware = await Effect.runPromise(
         SecurityMiddleware.pipe(
           Effect.provide(
@@ -113,6 +116,10 @@ describe("CSP compose regression", () => {
         const response = await app.request(`http://localhost${requestPath}`);
         return response.headers.get("content-security-policy");
       };
+    });
+
+    afterAll(() => {
+      vi.unstubAllEnvs();
     });
 
     it("strict script-src pins scripts to nonce + strict-dynamic (the nonce'd plugin tag path)", async () => {

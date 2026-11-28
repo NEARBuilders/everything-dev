@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   mirror:
+    timeout-minutes: 60
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -45,13 +46,19 @@ jobs:
           sources=("${{ matrix.source }}" "${{ matrix.fallback }}")
           for src in "${sources[@]}"; do
             for attempt in 1 2 3 4 5; do
+              echo "::group::mirror $TARGET ← $src (attempt $attempt)"
               if docker buildx imagetools create --tag "$TARGET" "$src"; then
+                echo "::endgroup::"
+                echo "::group::mirrored manifest — $TARGET"
                 docker buildx imagetools inspect "$TARGET" | head -8
+                echo "::endgroup::"
                 exit 0
               fi
+              echo "::endgroup::"
               echo "::warning::attempt $attempt from $src failed — retrying"
               sleep $((attempt * 30))
             done
             echo "::warning::$src exhausted — falling back to next source"
           done
+          echo "::error::Failed to mirror $TARGET from ECR and Docker Hub — the GHCR mirror is now stale"
           exit 1

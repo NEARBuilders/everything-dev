@@ -13,6 +13,7 @@
 - **Depends on**: none
 - **Category**: direction (spike)
 - **Planned at**: commit `1e435601`, 2026-10-28
+- **Deferred** (#922, 2026-11-23): rides 064's eventual call — both are browser-composition planes; no need to prototype two futures at once.
 - **Issue**: https://github.com/NEARBuilders/everything-dev/issues/644
 
 ## Why this matters

@@ -155,7 +155,7 @@ Resolution order: the in-image manifest first (the booted host self-describes fr
 
 Publish the resolved config to the FastKV on-chain registry. Optionally build and deploy workspaces first.
 
-**Flags:** `--deploy` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--wallet` `--env <production|staging>` `--packages <list|all|local>`
+**Flags:** `--deploy` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--env <production|staging>` `--packages <list|all|local>`
 
 ```bash
 bos publish                          # publish current config snapshot
@@ -163,7 +163,7 @@ bos publish --deploy                 # build all + deploy + publish
 bos publish --deploy --packages local   # build/deploy only the workspaces owned by this repo (CI default)
 bos publish --dry-run                # preview what would be published
 bos publish --network testnet        # publish to testnet registry
-bos publish --wallet                 # gasless: sign in a browser, relayed delegate write — no local key needed
+bos publish                          # after `bos login`: gasless relayed delegate write — no local key needed
 ```
 
 → [`publish-sync`](.) skill for config sections, SRI integrity, rollback, and FastKV troubleshooting.
@@ -199,13 +199,14 @@ bos deploy --service my-railway         # override Railway service name
 
 ### `bos login` / `bos logout`
 
-Establish publish/CLI identity without a seed phrase or private key. `bos login` opens a browser (one approval), persists a device-named API key in `.bos/session.json` (gitignored), and works for both the publish path and API access (`x-api-key` on `/api/*`, `/api/rpc/*`, `/api/mcp`).
+Establish publish/CLI identity without a seed phrase or private key. `bos login` opens a browser (one approval), persists a device-named scoped deploy key (`bundles:write` for the config's account/gateway) in `.bos/session.json` (gitignored), and works for both the publish path (the same approval installs a publish-scoped delegate key, so `bos deploy` publishes through the gasless NEP-366 relay — no keychain, no env vars) and API access (`x-api-key` on `/api/*`, `/api/rpc/*`, `/api/mcp`).
 
-**Flags (login):** `--key` (additionally mint and export a publish-scoped function-call key to `~/.near-credentials`)
+**Flags (login):** `--key` (additionally mint and export a publish-scoped function-call key to `~/.near-credentials` for CI key signing) · `--custody` (also register an OutLayer custody wallet) · `--site <url>` (override the login site; defaults to the extends chain's root)
 
 ```bash
-bos login          # browser approval → API key in .bos/session.json
-bos login --key    # also export a scoped publish key (near-CLI format)
+bos login          # browser approval → scoped deploy key in .bos/session.json
+bos login --key    # also export a publish key (near-CLI format) for headless/CI signing
+bos login --custody # also register the OutLayer custody wallet (agent-owned publish identity)
 bos logout         # revoke the API key (best-effort) + delete the handle and exported key
 ```
 

@@ -83,7 +83,8 @@ function DeviceApproveContent() {
   const addDelegateKey = useMutation({
     mutationFn: async () => {
       if (!pubKey || !contract) throw new Error("Missing delegate-key parameters");
-      if (!signedInAccountId) throw new Error("Connect a NEAR account first");
+      if (!signedInAccountId) return false;
+      if (account && signedInAccountId !== account) return false;
       const client = auth.near.getNearClient();
       await client
         .transaction(signedInAccountId)
@@ -290,7 +291,7 @@ function DeviceApproveContent() {
             size="lg"
             className="w-full"
             onClick={() => void handleApprove()}
-            disabled={pending}
+            disabled={pending || (isDelegateMode && nearAccountsQuery.isLoading)}
             data-testid="device.approve-button"
           >
             {pending && <Spinner data-icon="inline-start" />}

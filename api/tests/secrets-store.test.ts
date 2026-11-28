@@ -7,7 +7,7 @@ import {
   isValidSecretName,
   SecretsStoreError,
 } from "@/lib/secrets-store";
-import { devAuthSecret } from "../plugin.dev";
+import { devAuthSecret } from "../bos.dev";
 import { authedContext, getPluginClient, getTestEffectContext } from "./setup";
 
 describe("secrets routes", () => {

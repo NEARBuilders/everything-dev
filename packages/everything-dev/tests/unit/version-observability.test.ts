@@ -76,4 +76,20 @@ describe("computeDeployedVersionStatus", () => {
     expect(delta?.servedDigest).toBeUndefined();
     expect(delta?.error).toBe("fetch failed");
   });
+
+  it("reports the check as not-run when the published config itself is unreachable", () => {
+    const delta = computeDeployedVersionStatus({
+      servedError: "published config unreachable — fetch failed",
+    });
+    expect(delta?.inSync).toBe(false);
+    expect(delta?.publishedDigest).toBeUndefined();
+    expect(delta?.error).toBe("published config unreachable — fetch failed");
+  });
+
+  it("reports nothing published when the registry has no config for the runtime", () => {
+    const delta = computeDeployedVersionStatus({ servedError: "nothing published yet" });
+    expect(delta?.inSync).toBe(false);
+    expect(delta?.publishedDigest).toBeUndefined();
+    expect(delta?.error).toBe("nothing published yet");
+  });
 });

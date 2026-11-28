@@ -10,6 +10,20 @@ import { type AuthFailure, DeployKeyAccountNotLinked } from "./domain-errors";
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
 
+const DEPLOY_KEY_NAME_MAX = 64;
+
+// auth-instance wires the better-auth api-key plugin with maximumNameLength: 64
+// ("user-keys"), so the derived name must stay inside that cap — a custody
+// publish's implicit hex account alone is 64 characters. The full
+// account/gateway coordinates live in the key's metadata; the name is display
+// only.
+function deriveDeployKeyName(account: string, gateway: string): string {
+  const natural = `deploy key — ${account}/${gateway}`;
+  if (natural.length <= DEPLOY_KEY_NAME_MAX) return natural;
+  const budget = DEPLOY_KEY_NAME_MAX - `deploy key — /${gateway}`.length - 1;
+  return `deploy key — ${account.slice(0, Math.max(budget, 1))}…/${gateway}`;
+}
+
 export interface ApiKeyRateLimitInput {
   enabled?: boolean;
   max?: number;
@@ -122,6 +136,11 @@ export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
 
     createDeployKey: (userId, input) =>
       Effect.gen(function* () {
+        // The publish account must belong to the logged-in user. A custody
+        // publish's account is the custody wallet's implicit hex address —
+        // never linked through the nearAccount table — so the ownership check
+        // falls back to the custodyWallet record for that network-less
+        // identity before refusing.
         const linked = yield* attemptDb(() =>
           db.query.nearAccount.findFirst({
             where: and(
@@ -130,7 +149,17 @@ export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
             ),
           }),
         );
-        if (!linked) {
+        const custodyOwned = linked
+          ? null
+          : yield* attemptDb(() =>
+              db.query.custodyWallet.findFirst({
+                where: and(
+                  eq(schema.custodyWallet.userId, userId),
+                  eq(schema.custodyWallet.nearAccountId, input.account),
+                ),
+              }),
+            );
+        if (!linked && !custodyOwned) {
           return yield* new DeployKeyAccountNotLinked({
             message: `Deploy keys can only be minted for NEAR accounts linked to your login — link ${input.account} first`,
             action: `deploy-key ${input.account}/${input.gateway}`,
@@ -141,7 +170,7 @@ export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
             body: {
               userId,
               configId: "user-keys",
-              name: input.name ?? `deploy key — ${input.account}/${input.gateway}`,
+              name: input.name ?? deriveDeployKeyName(input.account, input.gateway),
               expiresIn: input.expiresIn,
               permissions: DEPLOY_KEY_PERMISSIONS,
               metadata: { account: input.account, gateway: input.gateway },

@@ -12,32 +12,57 @@ const createInstanceMock = vi.fn((options?: { name?: string; remotes?: unknown[]
   moduleCache: new Map(),
   options: { name: options?.name ?? "host-ssr-compose", remotes: options?.remotes ?? [] },
 }));
-const fetchVerifiedMock = vi.fn();
+const verifySriForUrlMock = vi.fn();
 
 vi.mock("@module-federation/enhanced/runtime", () => ({
   createInstance: createInstanceMock,
 }));
 
-vi.mock("everything-dev/verify", () => ({
-  asDigest: (sri: string) => sri,
-  fetchVerified: fetchVerifiedMock,
+vi.mock("everything-dev/integrity", () => ({
+  verifySriForUrl: verifySriForUrlMock,
 }));
 
 const {
-  FederationLifecycle,
   loadCoreUiRouteConfig,
   loadRouterModule,
   loadUiComposeModule,
   loadUiRouteConfig,
-} = await import("../../src/services/federation.server");
+  FederationLoader,
+} = await import("../../src/services/federation/loader");
 
+const { FederationLifecycle } = await import("../../src/services/federation/lifecycle");
+
+import type { CompositionSession } from "../../src/services/federation/instance";
+import type { FederationLoader as FederationLoaderTag } from "../../src/services/federation/loader";
+
+let lifecycle: ManagedRuntime.ManagedRuntime<FederationLoaderTag, never> | undefined;
 let disposeLifecycle: (() => Promise<void>) | undefined;
 
 async function startFederationLifecycle() {
   const runtime = ManagedRuntime.make(FederationLifecycle.layer);
   await runtime.runPromise(FederationLifecycle);
+  lifecycle = runtime as unknown as ManagedRuntime.ManagedRuntime<FederationLoaderTag, never>;
   disposeLifecycle = () => runtime.dispose();
 }
+
+const runLoaded = <A, E>(effect: Effect.Effect<A, E, FederationLoaderTag>): Promise<A> => {
+  if (!lifecycle) throw new Error("federation lifecycle not started");
+  return (lifecycle as ManagedRuntime.ManagedRuntime<FederationLoaderTag, never>).runPromise(
+    effect as Effect.Effect<A, E, never>,
+  );
+};
+
+/** Open a composition session for the "ui" remote at one entry URL — the
+ * load-API entry point the compose flow uses. */
+const openSession = async (entryUrl: string): Promise<CompositionSession> => {
+  if (!lifecycle) throw new Error("federation lifecycle not started");
+  const loader = await lifecycle.runPromise(FederationLoader);
+  return loader.ensureSession([{ name: "ui", entry: entryUrl }]);
+};
+
+/** A session that never touches the MF instance — for loads that must fail
+ * before any session use (missing SSR entry URL). */
+const deadSession: CompositionSession = { mf: null as never, generation: 0 };
 
 afterEach(async () => {
   await disposeLifecycle?.();
@@ -82,7 +107,7 @@ describe("loadRouterModule cache", () => {
   beforeEach(async () => {
     await startFederationLifecycle();
     vi.clearAllMocks();
-    fetchVerifiedMock.mockResolvedValue(undefined);
+    verifySriForUrlMock.mockResolvedValue(undefined);
   });
 
   it("reloads the router module when the deployed SSR coordinates change", async () => {
@@ -94,41 +119,56 @@ describe("loadRouterModule cache", () => {
     };
     loadRemoteMock.mockResolvedValueOnce(routerOne).mockResolvedValueOnce(routerTwo);
 
-    const first = await Effect.runPromise(
+    const firstSession = await openSession(
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+    );
+    const first = await runLoaded(
       loadRouterModule(
         createRuntimeConfig({
           ssrIntegrity: "sha384-ssr-a",
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
         }),
+        undefined,
+        firstSession,
       ),
     );
-    const second = await Effect.runPromise(
+    // A changed entry retires the generation — a fresh instance carries the
+    // new coordinates; the old generation's cached module can never serve.
+    const secondSession = await openSession(
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
+    );
+    const second = await runLoaded(
       loadRouterModule(
         createRuntimeConfig({
           ssrIntegrity: "sha384-ssr-b",
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
         }),
+        undefined,
+        secondSession,
       ),
     );
 
     expect(first).toBe(routerOne.default);
     expect(second).toBe(routerTwo.default);
-    expect(createInstanceMock).toHaveBeenCalledTimes(1);
-    expect(registerRemotesMock).toHaveBeenCalledWith([
-      {
-        name: "ui",
-        entry: "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
-        alias: "ui",
-      },
-    ]);
-    expect(fetchVerifiedMock).toHaveBeenNthCalledWith(1, {
-      url: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
-      expected: "sha384-ssr-a",
-    });
-    expect(fetchVerifiedMock).toHaveBeenNthCalledWith(2, {
-      url: "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
-      expected: "sha384-ssr-b",
-    });
+    expect(createInstanceMock).toHaveBeenCalledTimes(2);
+    const secondInstance = createInstanceMock.mock.calls[1]?.[0] as
+      | { remotes?: Array<{ entry?: string }> }
+      | undefined;
+    expect(secondInstance?.remotes?.[0]?.entry).toBe(
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
+    );
+    expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
+      1,
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+      "sha384-ssr-a",
+      { resolveEntryUrl: false },
+    );
+    expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
+      2,
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
+      "sha384-ssr-b",
+      { resolveEntryUrl: false },
+    );
   });
 
   it("reuses the router module when remote SSR integrity stays the same", async () => {
@@ -141,26 +181,29 @@ describe("loadRouterModule cache", () => {
       ssrIntegrity: "sha384-ssr-a",
       ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
     });
-    const first = await Effect.runPromise(loadRouterModule(config));
-    const second = await Effect.runPromise(
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
+    const first = await runLoaded(loadRouterModule(config, undefined, session));
+    const second = await runLoaded(
       loadRouterModule(
         createRuntimeConfig({
           ssrIntegrity: "sha384-ssr-a",
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
         }),
+        undefined,
+        session,
       ),
     );
 
     expect(first).toBe(router.default);
     expect(second).toBe(router.default);
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
-    expect(fetchVerifiedMock).toHaveBeenCalledTimes(1);
+    expect(verifySriForUrlMock).toHaveBeenCalledTimes(1);
   });
 
   it("fails loudly for local ui without an SSR entry — source composition owns that path", async () => {
     const localConfig = createRuntimeConfig({ source: "local" });
     (localConfig.ui as { ssrUrl?: string }).ssrUrl = undefined;
-    await expect(Effect.runPromise(loadRouterModule(localConfig))).rejects.toThrow(
+    await expect(runLoaded(loadRouterModule(localConfig, undefined, deadSession))).rejects.toThrow(
       /no SSR entry URL/,
     );
     expect(createInstanceMock).not.toHaveBeenCalled();
@@ -175,18 +218,23 @@ describe("loadRouterModule cache", () => {
     };
     loadRemoteMock.mockResolvedValueOnce(routerOne).mockResolvedValueOnce(routerTwo);
 
-    const first = await Effect.runPromise(
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
+    const first = await runLoaded(
       loadRouterModule(
         createRuntimeConfig({
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
         }),
+        undefined,
+        session,
       ),
     );
-    const second = await Effect.runPromise(
+    const second = await runLoaded(
       loadRouterModule(
         createRuntimeConfig({
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
         }),
+        undefined,
+        session,
       ),
     );
 
@@ -194,7 +242,7 @@ describe("loadRouterModule cache", () => {
     expect(second).toBe(routerTwo.default);
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
     expect(loadRemoteMock).toHaveBeenCalledTimes(2);
-    expect(fetchVerifiedMock).not.toHaveBeenCalled();
+    expect(verifySriForUrlMock).not.toHaveBeenCalled();
   });
 
   it("reuses the MF instance across cached reloads of the same remote", async () => {
@@ -207,10 +255,15 @@ describe("loadRouterModule cache", () => {
       ssrIntegrity: "sha384-ssr-a",
       ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
     });
-    await Effect.runPromise(loadRouterModule(config));
-    await Effect.runPromise(loadRouterModule({ ...config }));
-    await Effect.runPromise(
-      loadRouterModule({ ...config, account: "other.near" } as unknown as RuntimeConfig),
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
+    await runLoaded(loadRouterModule(config, undefined, session));
+    await runLoaded(loadRouterModule({ ...config }, undefined, session));
+    await runLoaded(
+      loadRouterModule(
+        { ...config, account: "other.near" } as unknown as RuntimeConfig,
+        undefined,
+        session,
+      ),
     );
 
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
@@ -225,16 +278,48 @@ describe("loadRouterModule cache", () => {
       ssrIntegrity: "sha384-ssr-a",
       ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
     });
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
 
-    await expect(Effect.runPromise(loadRouterModule(config))).rejects.toThrow();
+    await expect(runLoaded(loadRouterModule(config, undefined, session))).rejects.toThrow();
 
     const callsAfterFirstFailure = loadRemoteMock.mock.calls.length;
     expect(callsAfterFirstFailure).toBeGreaterThan(0);
 
-    await expect(Effect.runPromise(loadRouterModule(config))).rejects.toThrow();
+    await expect(runLoaded(loadRouterModule(config, undefined, session))).rejects.toThrow();
 
     expect(loadRemoteMock.mock.calls.length).toBe(callsAfterFirstFailure);
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-verifies SSR integrity after a failed verification — the cache entry is evicted, not poisoned", async () => {
+    const router = {
+      default: { renderToStream: vi.fn(), getRouteHead: vi.fn(), createRouter: vi.fn() },
+    };
+    loadRemoteMock.mockResolvedValue(router);
+
+    const config = createRuntimeConfig({
+      ssrIntegrity: "sha384-ssr-a",
+      ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+    });
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
+
+    verifySriForUrlMock.mockRejectedValueOnce(new Error("integrity mismatch"));
+    await expect(runLoaded(loadRouterModule(config, undefined, session))).rejects.toThrow(
+      /integrity mismatch/,
+    );
+    expect(loadRemoteMock).not.toHaveBeenCalled();
+
+    verifySriForUrlMock.mockResolvedValue(undefined);
+    const second = await runLoaded(loadRouterModule(config, undefined, session));
+
+    expect(second).toBe(router.default);
+    expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
+    expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
+      2,
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+      "sha384-ssr-a",
+      { resolveEntryUrl: false },
+    );
   });
 });
 
@@ -242,7 +327,7 @@ describe("ui expose loads (routeConfig / compose)", () => {
   beforeEach(async () => {
     await startFederationLifecycle();
     vi.clearAllMocks();
-    fetchVerifiedMock.mockResolvedValue(undefined);
+    verifySriForUrlMock.mockResolvedValue(undefined);
   });
 
   function uiEntry(options?: { ssrUrl?: string; localPath?: string }) {
@@ -258,8 +343,9 @@ describe("ui expose loads (routeConfig / compose)", () => {
     const routeConfig = { routeConfigLoaders: {} };
     loadRemoteMock.mockResolvedValue(routeConfig);
 
-    const loaded = await Effect.runPromise(
-      loadUiRouteConfig(uiEntry({ ssrUrl: "http://localhost:4113" }), "development"),
+    const session = await openSession("http://localhost:4113/remoteEntry.server.js");
+    const loaded = await runLoaded(
+      loadUiRouteConfig(uiEntry({ ssrUrl: "http://localhost:4113" }), "development", session),
     );
 
     expect(loaded).toBe(routeConfig);
@@ -270,15 +356,16 @@ describe("ui expose loads (routeConfig / compose)", () => {
     expect(instanceOptions?.remotes?.[0]?.entry).toBe(
       "http://localhost:4113/remoteEntry.server.js",
     );
-    expect(fetchVerifiedMock).not.toHaveBeenCalled();
+    expect(verifySriForUrlMock).not.toHaveBeenCalled();
   });
 
   it("loads the core compose module without default-unwrap (named constructTree)", async () => {
     const composeModule = { constructTree: vi.fn() };
     loadRemoteMock.mockResolvedValue(composeModule);
 
-    const loaded = await Effect.runPromise(
-      loadUiComposeModule(uiEntry({ ssrUrl: "http://localhost:4113" }), "development"),
+    const session = await openSession("http://localhost:4113/remoteEntry.server.js");
+    const loaded = await runLoaded(
+      loadUiComposeModule(uiEntry({ ssrUrl: "http://localhost:4113" }), "development", session),
     );
 
     expect(loaded).toBe(composeModule);
@@ -287,7 +374,9 @@ describe("ui expose loads (routeConfig / compose)", () => {
 
   it("rejects a ui surface without an SSR entry URL with an actionable error", async () => {
     await expect(
-      Effect.runPromise(loadUiRouteConfig(uiEntry({ localPath: "/x/plugins/y" }), "development")),
+      runLoaded(
+        loadUiRouteConfig(uiEntry({ localPath: "/x/plugins/y" }), "development", deadSession),
+      ),
     ).rejects.toThrow(/no SSR entry URL/);
     expect(createInstanceMock).not.toHaveBeenCalled();
   });
@@ -295,12 +384,62 @@ describe("ui expose loads (routeConfig / compose)", () => {
   it("rejects a routeConfig expose that is missing routeConfigLoaders, for plugin and core ui", async () => {
     loadRemoteMock.mockResolvedValue({ meta: true });
     const entry = uiEntry({ ssrUrl: "http://localhost:4113" });
+    const session = await openSession("http://localhost:4113/remoteEntry.server.js");
 
-    await expect(Effect.runPromise(loadUiRouteConfig(entry, "development"))).rejects.toThrow(
+    await expect(runLoaded(loadUiRouteConfig(entry, "development", session))).rejects.toThrow(
       /routeConfigLoaders/,
     );
-    await expect(Effect.runPromise(loadCoreUiRouteConfig(entry, "development"))).rejects.toThrow(
+    await expect(runLoaded(loadCoreUiRouteConfig(entry, "development", session))).rejects.toThrow(
       /routeConfigLoaders/,
     );
+  });
+});
+
+describe("waitForLocalContainer", () => {
+  it("polls a pending local container until it appears, then succeeds", async () => {
+    const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const nodePath = await import("node:path");
+    const { FederationContainers, waitForLocalContainer } = await import(
+      "../../src/services/federation/containers"
+    );
+
+    const localRoot = await mkdtemp(nodePath.join(tmpdir(), "wait-container-"));
+    try {
+      await mkdir(nodePath.join(localRoot, "dist", "ssr"), { recursive: true });
+      const runtime = ManagedRuntime.make(FederationContainers.layer);
+      const containers = await runtime.runPromise(FederationContainers);
+      const slot = await runtime.runPromise(
+        containers.localUiRemoteEntry({ name: "ui", localRoot }),
+      );
+      expect(slot.containerVersion).toBe("pending");
+
+      // the container "compiles" 700ms in — past two poll intervals
+      const timer = setTimeout(() => {
+        void writeFile(
+          nodePath.join(localRoot, "dist", "ssr", "remoteEntry.server.js"),
+          "export {};",
+        );
+      }, 700);
+      timer.unref?.();
+
+      const exit = await Effect.runPromise(waitForLocalContainer(slot, "development"));
+      expect(exit).toBeUndefined();
+      await runtime.dispose();
+    } finally {
+      await rm(localRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails with an actionable error when the slot has no SSR entry URL", async () => {
+    const { waitForLocalContainer } = await import("../../src/services/federation/containers");
+    await expect(
+      Effect.runPromise(
+        waitForLocalContainer(
+          { name: "ui", url: "https://cdn.example.com/ui", ssrUrl: "" },
+          "development",
+        ),
+      ),
+    ).rejects.toThrow(/no entry URL/);
   });
 });

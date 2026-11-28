@@ -360,11 +360,8 @@ plugins/docs/.velite/
 # vendored Effect source (local clone restored by `bun run prepare`; see AGENTS.md)
 repos/
 
-# tsdown dts side-emissions beside sources (root fix pending in every-plugin tsdown config)
-packages/every-plugin/src/**/*.d.ts
-packages/every-plugin/src/**/*.d.ts.map
-
 .claude/
 
 Dockerfile.railway
 infra/.alchemy/
+.neon

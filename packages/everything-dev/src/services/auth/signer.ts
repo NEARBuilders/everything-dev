@@ -31,7 +31,7 @@ export type SubmitMode =
       idempotencyKey: string;
     }
   | {
-      mode: "wallet";
+      mode: "session";
       account: string;
       contract: string;
       network: NetworkId;
@@ -69,7 +69,7 @@ export const dispatchSubmit = (input: SubmitMode): Promise<SubmitOutcome> =>
           idempotencyKey: input.idempotencyKey,
         });
       })()
-    : input.mode === "wallet"
+    : input.mode === "session"
       ? (async () => {
           const record = await ensureDelegateKey({
             configDir: input.configDir,

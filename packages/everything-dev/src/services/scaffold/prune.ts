@@ -178,9 +178,26 @@ export function pruneUnusedUiFiles(
   const reachable = new Set<string>();
   const queue: string[] = [];
 
+  // The barrel's wanted names accumulate across every importer — routes are
+  // scanned in directory order, so the first importer's names must not bound
+  // what later routes keep (the advanced tree's later routes were losing
+  // Badge/InfoRow/SectionHeader to exactly this).
+  const barrelWanted = new Set<string>();
+  const barrelVisitedExports = new Set<string>();
+
   const saturateBarrel = (): void => {
     for (const exp of barrelExports) {
       if (exp.source) visit(exp.source, null);
+    }
+  };
+
+  const visitWantedExports = (): void => {
+    for (const exp of barrelExports) {
+      if (!exp.source) continue;
+      if (!barrelWanted.has(exp.name)) continue;
+      if (barrelVisitedExports.has(exp.name)) continue;
+      barrelVisitedExports.add(exp.name);
+      visit(exp.source, null);
     }
   };
 
@@ -188,19 +205,12 @@ export function pruneUnusedUiFiles(
     if (file === barrelPath) {
       if (wantedNames === null) {
         barrelSaturated = true;
-      }
-      if (reachable.has(file)) {
-        if (wantedNames === null) saturateBarrel();
-        return;
-      }
-      reachable.add(file);
-      if (wantedNames === null) {
-        saturateBarrel();
       } else {
-        for (const exp of barrelExports) {
-          if (exp.source && wantedNames.includes(exp.name)) visit(exp.source, null);
-        }
+        for (const name of wantedNames) barrelWanted.add(name);
       }
+      if (!reachable.has(file)) reachable.add(file);
+      if (barrelSaturated) saturateBarrel();
+      else visitWantedExports();
       return;
     }
     if (reachable.has(file)) return;

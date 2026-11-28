@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import type { CleanResult } from "../contract";
 import { executeClean } from "../services/clean";
 import type { BosBuilder } from "./shared";
 

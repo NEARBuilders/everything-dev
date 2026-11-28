@@ -11,7 +11,7 @@ const {
   nearCliInstalled,
   getTransactionStatusMock,
   getAccessKeyMock,
-  getBalanceMock,
+  rpcGetAccountMock,
   rpcCallMock,
 } = vi.hoisted(() => {
   const nearCalls: Array<Record<string, unknown>> = [];
@@ -29,14 +29,13 @@ const {
   const transaction = vi.fn(() => builderInstance);
   const getTransactionStatusMock = vi.fn();
   const getAccessKeyMock = vi.fn();
-  const getBalanceMock = vi.fn();
+  const rpcGetAccountMock = vi.fn();
   const rpcCallMock = vi.fn();
   class NearMock {
     transaction = transaction;
     getTransactionStatus = getTransactionStatusMock;
     getAccessKey = getAccessKeyMock;
-    getBalance = getBalanceMock;
-    rpc = { call: rpcCallMock };
+    rpc = { call: rpcCallMock, getAccount: rpcGetAccountMock };
     constructor(config: Record<string, unknown>) {
       nearCalls.push(config);
     }
@@ -49,7 +48,7 @@ const {
     nearCliInstalled: vi.fn(),
     getTransactionStatusMock,
     getAccessKeyMock,
-    getBalanceMock,
+    rpcGetAccountMock,
     rpcCallMock,
   };
 });
@@ -249,7 +248,8 @@ describe("resolveSigningStrategy", () => {
     });
 
     await expect(promise).rejects.toThrow(/NEAR_PRIVATE_KEY/);
-    await expect(promise).rejects.toThrow(/near-cli-rs keychain/);
+    await expect(promise).rejects.toThrow(/near-credentials/);
+    await expect(promise).rejects.toThrow(/bos login/);
   });
 });
 
@@ -732,13 +732,17 @@ describe("checkPublishBalance — the preflight balance probe", () => {
   const input = { account: "dev.everything.near", network: "mainnet" as const };
 
   beforeEach(() => {
-    getBalanceMock.mockReset();
+    rpcGetAccountMock.mockReset();
     rpcCallMock.mockReset();
     rpcCallMock.mockResolvedValue({ min_gas_price: "1000000000" });
   });
 
+  // KEEP: the mock returns the RAW WIRE shape (AccountView.amount — yoctoNEAR
+  // integer text), not near-kit getBalance's lossy human-NEAR string. Feeding
+  // a getBalance-shaped "1.28" here is the regression case: the check must
+  // soft-skip as an unexpected format, never parse it as a yocto balance.
   it("a funded account passes without a warning", async () => {
-    getBalanceMock.mockResolvedValue("2000000000000000000000000");
+    rpcGetAccountMock.mockResolvedValue({ amount: "2000000000000000000000000" });
     const health = await checkPublishBalance(input);
     expect(health.ok).toBe(true);
     expect(health.warning).toBeUndefined();
@@ -746,7 +750,7 @@ describe("checkPublishBalance — the preflight balance probe", () => {
   });
 
   it("a balance under the prepayment lock fails with the exact numbers", async () => {
-    getBalanceMock.mockResolvedValue("50000000000000000000000");
+    rpcGetAccountMock.mockResolvedValue({ amount: "50000000000000000000000" });
     const health = await checkPublishBalance(input);
     expect(health.ok).toBe(false);
     expect(health.error).toContain("holds 0.05 NEAR");
@@ -755,15 +759,23 @@ describe("checkPublishBalance — the preflight balance probe", () => {
   });
 
   it("thin headroom above the lock warns without blocking", async () => {
-    getBalanceMock.mockResolvedValue("100000000000000000000000");
+    rpcGetAccountMock.mockResolvedValue({ amount: "100000000000000000000000" });
     const health = await checkPublishBalance(input);
     expect(health.ok).toBe(true);
     expect(health.warning).toContain("is low");
     expect(health.warning).toContain("top up soon");
   });
 
+  it("a human-NEAR balance string reads as an unexpected format, never as yocto", async () => {
+    rpcGetAccountMock.mockResolvedValue({ amount: "1.28" });
+    const health = await checkPublishBalance(input);
+    expect(health.ok).toBe(true);
+    expect(health.warning).toContain("unexpected format");
+    expect(health.warning).toContain("1.28");
+  });
+
   it("an unreachable registry RPC is a soft skip, never a block", async () => {
-    getBalanceMock.mockRejectedValue(nearError("TimeoutError", "request timed out"));
+    rpcGetAccountMock.mockRejectedValue(nearError("TimeoutError", "request timed out"));
     const health = await checkPublishBalance(input);
     expect(health.ok).toBe(true);
     expect(health.warning).toContain("skipped");

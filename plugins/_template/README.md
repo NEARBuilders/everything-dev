@@ -12,7 +12,7 @@ src/
 ├── service.ts
 ├── index.ts
 └── LLM.txt
-plugin.dev.ts
+bos.dev.ts
 tests/
 ```
 
@@ -26,7 +26,7 @@ pnpm install
 pnpm dev
 ```
 
-The plugin dev server prefers `PORT` from the environment. If none is provided, `plugin.dev.ts` supplies a local default.
+The plugin dev server prefers `PORT` from the environment. If none is provided, `bos.dev.ts` supplies a local default.
 
 ## Composed Dev With `bos dev`
 
@@ -112,7 +112,7 @@ await client.ping();
 2. Update `src/service.ts`
 3. Update `src/index.ts`
 4. Update `package.json` name
-5. Update `plugin.dev.ts` config
+5. Update `bos.dev.ts` config
 6. Add the plugin to the authored descriptor (`bos.app.ts`) if you want composed dev
 
 ## Docs

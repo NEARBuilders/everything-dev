@@ -42,7 +42,7 @@ The matrix runs exactly where a decision is made — never everywhere:
 | Tier | Where | What runs | Wall time |
 |---|---|---|---|
 | **T0 local** | lefthook hooks (`lefthook.yml`, installed by `pnpm run prepare`) | pre-commit: Biome on staged files · pre-push: `typecheck` + `lint:effect` | seconds |
-| **T1 PR** | `ci.yml` on pull requests | lint/typecheck, path-gated unit suites, ui-only app-load smoke; slow stack suites skip | ~4 min |
+| **T1 PR** | `ci.yml` on pull requests | lint/typecheck, path-gated unit suites, ui-only app-load smoke; init scaffold matrix + boot gate (`ui-api` changes); slow stack suites skip | ~5–10 min |
 | **T2 gate** | `release.yml` before every npm publish | unit + start regression (parallel planes — `tier: release`) | ~15–20 min |
 | **T2 nightly** | nightly on the main tip (`backcompat-nightly.yml`) via `regression-full.yml` (`tier: nightly`) | the full matrix: unit + dev + start + backcompat + framework, parallel planes (backcompat mode currently broken at boot — see AGENTS.md) | ~25 min |
 
@@ -62,7 +62,46 @@ Choose the lowest layer that pins the behavior. Escalate when the failure you
 are preventing only materializes one layer up (cookie handling, hydration,
 loading states, module loading are things jsdom cannot even reproduce).
 
+## Test shape — which layer asserts what
+
+A renderer swap deletes exactly one test layer; prefer the two that survive it
+([ADR 0050](../adr/0050-renderer-agnostic-ui-readiness.md)):
+
+| Layer | Survives a renderer swap? | Why |
+|---|---|---|
+| Node tests of pure logic (`*.logic.ts`, `lib/queries/*.test.ts`) | ✅ | no renderer in the test at all |
+| Behavioral browser specs (`data-testid` journeys) | ✅ | any DOM host renders the same testids |
+| jsdom component tests (`*.test.tsx`, `@testing-library/*`) | ❌ | bound to React rendering specifics |
+
+Default new assertions to the bottom or top layer; a mid-layer jsdom test needs
+a stated React-specific reason (hook wiring, portal behavior). Extract the logic
+first: state transitions and derived computations belong in renderer-free
+modules with zero React imports (ADR 0050 §3) — that is what makes the bottom
+layer possible. Don't mass-delete existing `*.test.tsx` files; migrate them
+opportunistically as their features are touched.
+
 ## What to assume the parent covers — and what to cover here
+
+### The born-healthy contract (init scaffold)
+
+Every gate that `bos init` claims for a newborn child lives in one ordered
+sequence, and the scaffold matrix (`packages/everything-dev/tests/integration/init.matrix.test.ts`,
+`init.boot.test.ts`) is its only enforcer. The contract, in order:
+
+1. `bos init` exits 0 — snapshot, `bos.app.ts`, `bos.dev.ts`, `.env` exist; no stray lockfiles
+2. `pnpm install` exits 0; nothing awaiting pnpm approval
+3. `bos types gen` exits 0; generated types non-stub
+4. `pnpm run typecheck` exits 0 per workspace
+5. `bos build` exits 0, zero warnings (allowlist empty; entries need owner + issue)
+6. `bos dev` boots: ui + api answer 200; boot log free of known failure classes
+7. Browser: scaffolded routes render + hydrate, zero console errors, rendered anchors resolve
+8. `bos upgrade --check` is well-formed (exit 0/1, resolved semver)
+
+The fixture (`tests/helpers/child-fixture.ts`) drives the **real**
+`InitFlowService` — structure comes from the type graph (state tokens:
+`Scaffolded → Installed → Typed`), lanes are `Effect.gen` compositions, and the
+report array is data vitest asserts. When changing what init delivers, the
+matrix is the contract: update the expected rows there, not a per-file copy.
 
 **Assume covered upstream** (framework suite in `NEARBuilders/everything-dev`,
 tagged with your `platform:` pin; published npm packages carry no tests — don't

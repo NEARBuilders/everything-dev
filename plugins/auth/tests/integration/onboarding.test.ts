@@ -884,4 +884,36 @@ describe("onboarding into a full organization", () => {
       await full.driver.close();
     }
   }, 30000);
+
+  it.each([
+    null,
+    false,
+  ] as const)("lets attendees join past the old limit when the limit is off (%p)", async (offValue) => {
+    const unlimited = await createTestServices({ organizationMembershipLimit: offValue });
+    try {
+      expect(unlimited.services.membershipPolicy.hasCapacity(5000)).toBe(true);
+      const owner = await createTestUser(unlimited.services);
+      const org = await createTestOrg(unlimited.services, owner.userId);
+      const handlers = createTestHandlers(unlimited.services);
+      const code = await handlers.onboarding.createOnboardingCode({
+        input: { ...eventOf("Open Gate"), organizationId: org.id },
+        context: { reqHeaders: owner.reqHeaders },
+      });
+
+      for (let i = 0; i < 3; i += 1) {
+        const attendee = await createTestUser(unlimited.services, { email: undefined });
+        await handlers.onboarding.redeemOnboardingCode({
+          input: { code: code.code },
+          context: { reqHeaders: attendee.reqHeaders },
+        });
+      }
+
+      const memberCount = await unlimited.services.db.query.member.findMany({
+        where: eq(schema.member.organizationId, org.id),
+      });
+      expect(memberCount).toHaveLength(4);
+    } finally {
+      await unlimited.driver.close();
+    }
+  }, 30000);
 });

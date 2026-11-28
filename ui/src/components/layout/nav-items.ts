@@ -69,6 +69,13 @@ const ADMIN_CHILDREN: SidebarItem[] = [
     roleRequired: "admin",
   },
   {
+    icon: BankIcon,
+    label: "Organizations",
+    slug: "admin-orgs",
+    to: "/admin/orgs",
+    roleRequired: "admin",
+  },
+  {
     icon: WrenchIcon,
     label: "System",
     slug: "admin-system",

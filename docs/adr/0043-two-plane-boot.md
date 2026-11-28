@@ -3,6 +3,8 @@
 Date: 2026-11-04
 Status: Accepted (the crossroads design; the staging leg ships in the lockfile sprint's final slice)
 
+Amended 2026-11-27 (ADR 0048): the application runtime consumes exactly one input — a verified composition (`BootSpec.config`). Registry resolution and pin verification stay in the control plane (`startBootstrap`); byte-level verification (SRI, chain walk) stays inside the runtime's host-module adapter.
+
 Lineage: [ADR 0041](./0041-boot-snapshot.md) (the approved boot snapshot — restarts never resolve), [ADR 0042](./0042-composition-lockfile.md) (the composition lockfile — the frozen exact composition), [ADR 0040](./0040-registry-wire-cutover.md) (the wire the control plane writes), [ADR 0021](./0021-universal-runtime-image.md) (identity-driven boot), [ADR 0035](./0035-deploy-console-hosting-adapter.md) (the hosting adapter — where remote-tier staging lands), plan 043 (the bundle cache is a resilience artifact, never a deployment).
 
 ## Context

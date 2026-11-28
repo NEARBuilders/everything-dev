@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+Born-healthy init contract: the scaffold matrix drives the real `InitFlowService` hermetically (`parentConfig` seam skips the FastKV fetch for `--source`-style runs) and enforces install → types → typecheck → build → boot gates per starter level and composition. First run caught and fixes four consumer-facing defects: `generateDatabaseMigrations` resolved `--dir <ws>` from inside the workspace (every api-bearing `bos init` failed at the migrations leg); the ui pruner kept only the first barrel importer's names (later routes lost `Badge`/`InfoRow`/`SectionHeader` and advanced children failed typecheck); the slim api template never exported `ContractType` (generated ui types didn't compile); `drizzle-orm` was undeclared in the framework package, killing `bos` for ui-only children. Starter exclusions now also strip the parent-coupled `deploys` and `things` routes, and stale product-route exclusion globs (explore/stake/nodes/admin-surfaces) are pruned with a coherence test pinning list ↔ tree.

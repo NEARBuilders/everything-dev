@@ -2,7 +2,7 @@
 name: plugin-development
 description: Build, register, and deploy plugins within everything.dev. Covers the _template scaffold, contract/service/index pattern, database setup with Drizzle, authored-config registration, plugin UI/sidebar, and CLI workflow. Use when creating new plugins, adding database-backed routes, or deploying plugins to production.
 metadata:
-  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,packages/every-plugin/src/build/rspack,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/layer.ts,packages/everything-dev/src/db/layer.ts,packages/everything-dev/src/db/run-migrations.ts,packages/everything-dev/src/db/driver.ts,packages/every-plugin/src/plugin.ts,packages/everything-dev/src/cli.ts"
+  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,packages/every-plugin/src/build/rspack,plugins/_template/bos.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/layer.ts,packages/everything-dev/src/db/layer.ts,packages/everything-dev/src/db/run-migrations.ts,packages/everything-dev/src/db/driver.ts,packages/every-plugin/src/plugin.ts,packages/everything-dev/src/cli.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -26,7 +26,7 @@ plugins/your-plugin/
 │   └── __tests__/            # Tests
 ├── package.json
 ├── rspack.config.js          # Build config
-├── plugin.dev.ts             # Dev server (port, variables, secrets)
+├── bos.dev.ts             # Dev server (port, variables, secrets)
 └── tsconfig.json
 ```
 
@@ -38,7 +38,7 @@ The quickest start is to copy the template:
 cp -r plugins/_template plugins/your-plugin
 ```
 
-Then rename in `package.json`, `plugin.dev.ts`, and `rspack.config.js`.
+Then rename in `package.json`, `bos.dev.ts`, and `rspack.config.js`.
 
 Or use the CLI (no automated command yet — copy template manually).
 
@@ -283,7 +283,7 @@ The CLI updates the authored config (`bos.app.ts`) automatically when you run `b
 
 **Remote-only plugins:** The `development` key is optional. A plugin can be remote-only (just a `production` URL) — the host/API consume it via `pluginsClient` and HTTP, and types resolve from the deployed manifest. Plugin source does not need to live in the consuming repo. This is how plugins maintained in other repos are mounted.
 
-## Step 6: `plugin.dev.ts`
+## Step 6: `bos.dev.ts`
 
 Dev server config for local development:
 

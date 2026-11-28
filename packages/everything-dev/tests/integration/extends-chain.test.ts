@@ -27,12 +27,25 @@ const BASE_CONFIG = {
 const CHILD_CONFIG = {
   account: "child.near",
   domain: "child.dev",
-  extends: "../parent/bos.config.json",
+  extends: "../parent/bos.app.ts",
   app: {
     host: { development: "http://localhost:3000", production: "https://host.child.dev" },
     ui: { name: "ui", development: "http://localhost:3003", production: "https://ui.child.dev" },
     api: { name: "api", development: "http://localhost:3001", production: "https://api.child.dev" },
   },
+};
+
+const toDescriptor = (config: Record<string, unknown>): string =>
+  `export default ${JSON.stringify({ name: "chain-app", ...config }, null, 2)};\n`;
+
+const toDescriptorEntry = (config: Record<string, unknown>): Record<string, unknown> => {
+  const { app, ...rest } = config as { app?: Record<string, Record<string, unknown>> };
+  const slots: Record<string, unknown> = {};
+  for (const [slot, entry] of Object.entries(app ?? {})) {
+    const { production: _p, name: _n, ...slotEntry } = entry;
+    slots[slot] = slotEntry;
+  }
+  return { ...rest, ...(Object.keys(slots).length > 0 ? slots : {}) };
 };
 
 describe("extends chain", () => {
@@ -51,52 +64,38 @@ describe("extends chain", () => {
     mkdirSync(childInheritDir, { recursive: true });
 
     writeFileSync(
-      join(parentDir, "bos.config.json"),
-      `${JSON.stringify(
-        rebuildOrderedConfig({
+      join(parentDir, "bos.app.ts"),
+      toDescriptor(
+        toDescriptorEntry({
           ...BASE_CONFIG,
           repository: "https://github.com/parent",
           plugins: {
             apps: { development: "local:plugins/apps" },
             example: { development: "local:plugins/example" },
           },
-          shared: {
-            ui: {
-              effect: { version: "3.20.0", singleton: true },
-            },
-          },
         }),
-        null,
-        2,
-      )}\n`,
+      ),
     );
 
     writeFileSync(
-      join(childDir, "bos.config.json"),
-      `${JSON.stringify(
-        rebuildOrderedConfig({
+      join(childDir, "bos.app.ts"),
+      toDescriptor(
+        toDescriptorEntry({
           ...CHILD_CONFIG,
           plugins: {
             apps: { variables: { namespace: "child.near" } },
           },
-          shared: {
-            ui: {
-              effect: { version: "3.21.0" },
-            },
-          },
         }),
-        null,
-        2,
-      )}\n`,
+      ),
     );
 
     writeFileSync(
-      join(childInheritDir, "bos.config.json"),
-      `${JSON.stringify(
-        rebuildOrderedConfig({
+      join(childInheritDir, "bos.app.ts"),
+      toDescriptor(
+        toDescriptorEntry({
           account: "inherit.near",
           domain: "inherit.dev",
-          extends: "../parent/bos.config.json",
+          extends: "../parent/bos.app.ts",
           app: {
             host: { development: "http://localhost:3000", production: "https://host.inherit.dev" },
             ui: {
@@ -111,9 +110,7 @@ describe("extends chain", () => {
             },
           },
         }),
-        null,
-        2,
-      )}\n`,
+      ),
     );
   });
 
@@ -199,9 +196,11 @@ describe("extends chain", () => {
 
   it("merges parent catalogs across the extends chain from root to leaf", async () => {
     const grandDir = join(testDir, "grand");
+    const chainParentDir = join(testDir, "chain-parent");
     mkdirSync(grandDir, { recursive: true });
+    mkdirSync(chainParentDir, { recursive: true });
     writeFileSync(
-      join(parentDir, "package.json"),
+      join(chainParentDir, "package.json"),
       `${JSON.stringify(
         {
           workspaces: {
@@ -216,16 +215,14 @@ describe("extends chain", () => {
       )}\n`,
     );
     writeFileSync(
-      join(parentDir, "bos.config.json"),
-      `${JSON.stringify(
-        rebuildOrderedConfig({
+      join(chainParentDir, "bos.app.ts"),
+      toDescriptor(
+        toDescriptorEntry({
           ...BASE_CONFIG,
           repository: "https://github.com/parent",
-          extends: "../grand/bos.config.json",
+          extends: "../grand/bos.app.ts",
         }),
-        null,
-        2,
-      )}\n`,
+      ),
     );
     writeFileSync(
       join(grandDir, "package.json"),
@@ -244,21 +241,19 @@ describe("extends chain", () => {
     );
 
     writeFileSync(
-      join(grandDir, "bos.config.json"),
-      `${JSON.stringify(
-        rebuildOrderedConfig({
+      join(grandDir, "bos.app.ts"),
+      toDescriptor(
+        toDescriptorEntry({
           ...BASE_CONFIG,
           repository: "https://github.com/root",
         }),
-        null,
-        2,
-      )}\n`,
+      ),
     );
 
     const source = await resolveCatalogChainSource({
       extendsAccount: "parent.near",
       extendsGateway: "parent.dev",
-      sourceDir: parentDir,
+      sourceDir: chainParentDir,
     });
 
     expect(source.catalog).toEqual({
@@ -269,7 +264,7 @@ describe("extends chain", () => {
     expect(source.repository).toBe("https://github.com/root");
     expect(source.extendsChain).toEqual([
       "bos://parent.near/parent.dev",
-      join(grandDir, "bos.config.json"),
+      join(grandDir, "bos.app.ts"),
     ]);
   });
 });
@@ -279,16 +274,15 @@ describe("circular extends detection", () => {
     const testDir = mkdtempSync(join(tmpdir(), "bos-circular-"));
     try {
       writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify({
+        join(testDir, "bos.app.ts"),
+        `export default ${JSON.stringify({
+          name: "circular",
           account: "test.near",
-          extends: "./bos.config.json",
-          app: {
-            host: { development: "http://localhost:3000", production: "https://h.com" },
-            ui: { name: "ui", development: "http://localhost:3003", production: "https://u.com" },
-            api: { name: "api", development: "http://localhost:3001", production: "https://a.com" },
-          },
-        })}\n`,
+          extends: "./bos.app.ts",
+          host: { development: "http://localhost:3000" },
+          ui: { development: "http://localhost:3003" },
+          api: { development: "http://localhost:3001" },
+        })};\n`,
       );
 
       resetConfigPathCache();

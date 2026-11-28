@@ -6,6 +6,7 @@ import {
   type CompositionAuditLine,
 } from "../services/resolution/composition-audit";
 import { ResolutionSessionService } from "../services/resolution/session";
+import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
 
 const renderAuditLines = (lines: readonly CompositionAuditLine[]): void => {
@@ -43,9 +44,17 @@ export function registerDev(builder: BosBuilder) {
         if (notice) console.log(`\n  ${notice}\n`);
         const audit = yield* Effect.tryPromise({
           try: () => auditSessionComposition(session),
-          catch: () => undefined,
+          catch: (error) => new Error(error instanceof Error ? error.message : String(error)),
         });
-        if (audit && audit.length > 0) renderAuditLines(audit);
+        if (audit instanceof Error) {
+          console.log(
+            colors.dim(
+              `  … composition audit skipped — ${audit.message} (the stack itself is unaffected)`,
+            ),
+          );
+        } else if (audit.length > 0) {
+          renderAuditLines(audit);
+        }
       }
       return result;
     }),

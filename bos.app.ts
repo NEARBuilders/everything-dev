@@ -17,7 +17,7 @@ export default App({
   staging: { domain: "dev.everything.dev" },
   repository: "https://github.com/nearbuilders/everything-dev",
   ci: { railway: { service: "app" } },
-  cdn: { origin: "https://cdn.everything.dev" },
+  cdn: { origin: "https://cdn.everything.dev", upload: "https://upload.everything.dev" },
   host: { path: "host" },
   ui: UI({ path: "ui" }),
   api: API({
@@ -74,6 +74,7 @@ export default App({
         // override per-statement. Transcribed from the pre-config behavior
         // so nothing changes for this runtime.
         permissions: {
+          areas: ["node-operations", "finance", "things", "stake", "events"],
           statements: {
             organization: ["update", "delete"],
             member: ["create", "update", "delete"],

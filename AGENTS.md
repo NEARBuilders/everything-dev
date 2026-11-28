@@ -291,7 +291,7 @@ pnpm run deploy         # bos deploy — the full deploy train (also runs on mer
 
 Two resolution rules keep this safe (ADR 0018): **bundler-configuration code resolves from source** — `every-plugin/build/ui` and `every-plugin/build/rspack` (the generated plugin configs' factories) resolve `src` in every condition, so the config chain cannot go stale; **shipped code resolves from dist** — runtime subpaths (`everything-dev/ui/auth`, `db`, …) resolve built dists, whose freshness the prerequisite train guarantees.
 
-**Dev overlays (`bos.dev.ts`):** authored config lives in `bos.app.ts` (published); dev-only overrides live in `bos.dev.ts` (optional, child-wins merged over the resolved config when the environment is development, **never published** — same role as `.env` vs `.env.example` at the config level). Each unit gets the pair; `plugin.dev.ts` is the legacy name being retired. The app root (the directory holding the `bos.app.ts`/`bos.dev.ts` pair) is distinct from the pnpm workspace root — see ADR 0022 for the two-roots model and which CLI concerns anchor to which root.
+**Dev overlays (`bos.dev.ts`):** authored config lives in `bos.app.ts` (published); dev-only overrides live in `bos.dev.ts` (optional, child-wins merged over the resolved config when the environment is development, **never published** — same role as `.env` vs `.env.example` at the config level). Each unit gets the pair; the legacy `plugin.dev.ts` name is **retired** — dev servers and config factories fail loud on it, and `bos upgrade` renames it with a backup under `.bos/sync-backup/` (#920). The app root (the directory holding the `bos.app.ts`/`bos.dev.ts` pair) is distinct from the pnpm workspace root — see ADR 0022 for the two-roots model and which CLI concerns anchor to which root.
 
 **Sync and Publish:**
 ```bash
@@ -304,6 +304,8 @@ bos manifest            # Show the resolved release manifest (--check adds the c
 bos publish              # Re-publish the resolved config to FastKV (config-only; authored hand-edits merge over what's live)
 bos deploy               # Deploy train: preflight → build → upload bundles → publish config + release manifest → image (pre-pushed digest or local docker build) → post-publish smoke (--smoke) → Railway
 ```
+
+**Publish → user:** what a deploy changes (hot UI bundles vs boot-frozen backends), how the banner reaches open tabs, and every failure mode above: [`docs/agents/deploy-flow.md`](docs/agents/deploy-flow.md).
 
 **One committed artifact (ADR 0047):** `bos.lock.json` at the repo root is the only committed runtime state — it freezes the composition (release pin, remote digests, SRI integrity, ADR 0042) and carries the sync baseline (`template.sync`) that `bos sync`'s conflict detection reads. Everything under `.bos/` is local-only; a locally-modified template file with no recorded baseline conflicts instead of losing to the template silently, and the upgrade migration absorbs any legacy `.bos/sync-snapshot.json` into the lock. The drift trio: `bos lock --check` (composition vs committed lock), `bos verify` (served bytes + attribution vs pins, ADR 0046), sync conflicts (local edits vs template via the baseline). `bos clean` is the local-only rule's exit valve — it removes the regenerable side (logs, bundle/regression staging, caches, backups) and refuses the truth: `db/`, `session.json`, `infra-state.json`, `deploy-state.json`.
 
@@ -358,7 +360,7 @@ Use these helpers from `@/app`:
 Important: fixed-core tenant runtime composition now lives primarily in:
 - `host/src/services/tenant-runtime.ts`
 - `host/src/program.ts`
-- `host/src/services/federation.server.ts`
+- `host/src/services/federation/`
 
 Tenant model:
 - `extends` is the lineage edge between runtimes
@@ -575,6 +577,7 @@ this repo must cover: [`docs/agents/testing.md`](docs/agents/testing.md).
 - **Never write tautology tests.** Don't assert a mock returns what it was configured to return, don't spy on trivial wrappers/loaders to assert call arguments, and don't render mocked data to assert it appears.
 - **Prefer E2E for user-observable behavior.** Add browser regression specs under `tests/regression/browser/` (data-testid selectors per the conventions above; end specs with a verifiable, repeatable artifact — a Playwright trace).
 - **Unit tests are reserved for what E2E can't reach:** crypto/protocol verification, pure state machines and calculation logic, fault injection, DB/migration behavior, CLI contracts. Before writing one, write down the failure modes first, then test exactly those.
+- **Keep assertions in the layers a renderer swap can't delete.** Node tests of extracted logic and behavioral browser specs survive a UI-renderer change; jsdom component tests don't (ADR 0050) — add one only with a stated React-specific reason.
 
 ## Effect DevTools
 
@@ -604,7 +607,7 @@ Parent-owned workspace tsconfigs (`host/`, `packages/*`) extend the root `tsconf
 - **`extends` does not merge arrays** — a child that declares its own `plugins` or `types` array replaces the base's entirely. Parent-owned tsconfigs must not redefine `plugins`; `types` is intentionally per-workspace (TS 7 no longer auto-includes `@types/*`, so every workspace that touches Node globals declares `"types": ["node"]` explicitly).
 - **`baseUrl` is removed in TS 7** — never use it; `paths` entries resolve relative to the tsconfig file.
 - **Emitting configs** (`outDir`/`emitDeclarationOnly`) must set an explicit `rootDir` — TS 7 no longer infers the common source directory — and an explicit `types`. Emitting configs must not use `paths` that point at sibling workspaces' **sources** (pulls files outside `rootDir`); resolve sibling packages through their `exports` map / built declarations instead. Source-mapped `paths` are only allowed in `noEmit` typecheck configs.
-- **Known local nuisance** — building `packages/every-plugin` regenerates stray `src/**/*.d.ts`(+`.map`) files beside the sources (tsdown outDir quirk). They are untracked build artifacts: never commit them; delete them (`git clean`-style) if `pnpm run lint` starts failing on them. Root fix tracked as a follow-up to the tsdown config.
+- **Stray build artifacts are guarded** — `scripts/stray-artifacts-guard.mjs` (CI, after the lint-and-typecheck builds) fails on untracked declaration/JS files appearing in any `src/` tree. The historical tsdown nuisance (pre-0.22.14) no longer reproduces; if the guard trips, fix the emitting build step, then `git clean` the files (#923).
 - `docs/plans/prototypes/*` pin their own TypeScript 5 and are exempt.
 
 ## Common Patterns
@@ -653,6 +656,11 @@ function MyComponent() {
 }
 ```
 
+Query options are built only in `ui/src/lib/queries/*` modules (one per domain, keys on a
+domain query-keys object) — routes and components consume factories
+(`useQuery(thingsListQueryOptions(apiClient))`), never inline `useQuery({...})` literals.
+One-off `useMutation` calls may stay inline; shared ones get factories beside their queries.
+
 ### App Name in UI
 ```typescript
 import { getAppName } from "@/app";
@@ -679,7 +687,7 @@ To switch to `RelayerExplicitConfig`, replace the rich-object shape with `relaye
 
 ### Custody publish (publish.auth = "custody")
 
-`bos login --custody` registers an OutLayer Agent Custody wallet (TEE-held keys, one per user and NEAR network, stored encrypted in the auth plugin's `custody_wallet` table and re-fetchable on every re-login). The wallet's implicit hex account is the deploy's **machine identity**: under `publish.auth = "custody"` the authored config's `account` must equal `custodyWallet.nearAccountId`, and the FastKV write is submitted through OutLayer's coordinator (`/wallet/v1/call` → `__fastdata_kv`). Same ADR 0001 semantics as every other signing path: the write is action-indexed, a chain-side execution revert (`onchain_tx_failed`) still counts as submitted, and the FastKV read-back stays the authoritative check. The coordinator charges prepaid gas against the wallet's own balance (`wallet_underfunded` at 402 carries the exact cost) — fund it via the OutLayer dashboard link surfaced at login and in publish errors. When the `outlayer` CLI is on PATH, `bos login --custody` also links the wallet into it (`outlayer login <network> --wallet-key`), so one login serves both toolchains; `bos logout` deliberately leaves outlayer credentials alone. The same `wk_` credential pays for agent compute (payment keys, connectors); no binding to the user's named account is ever created.
+`bos login --custody` registers an OutLayer Agent Custody wallet (TEE-held keys, one per user and NEAR network, stored encrypted in the auth plugin's `custody_wallet` table and re-fetchable on every re-login). The wallet's implicit hex account is the deploy's **machine identity**: under `publish.auth = "custody"` the authored config's `account` must equal `custodyWallet.nearAccountId`, and the FastKV write is submitted through OutLayer's coordinator (`/wallet/v1/call` → `__fastdata_kv`). Same ADR 0001 semantics as every other signing path: the write is action-indexed, a chain-side execution revert (`onchain_tx_failed`) still counts as submitted, and the FastKV read-back stays the authoritative check. The coordinator charges prepaid gas against the wallet's own balance (`wallet_underfunded` at 402 carries the exact cost) — fund it via the OutLayer dashboard link surfaced at login, in the deploy preflight (a non-throwing balance probe fails the deploy before the build train with the funding link), and in publish errors. When the `outlayer` CLI is on PATH, `bos login --custody` also links the wallet into it (`outlayer login <network> --wallet-key`), so one login serves both toolchains; `bos logout` deliberately leaves outlayer credentials alone. The same `wk_` credential pays for agent compute (payment keys, connectors); no binding to the user's named account is ever created.
 
 ## Security
 

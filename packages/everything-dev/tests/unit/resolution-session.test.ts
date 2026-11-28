@@ -108,7 +108,7 @@ describe("openResolution", () => {
   });
 
   it("opens a local leaf config over in-memory io", async () => {
-    const path = "/project/bos.config.json";
+    const path = "/project/authored.json";
     const session = await openResolution(
       { path },
       memoryIo({ [path]: JSON.stringify(leafConfig) }, {}),
@@ -125,7 +125,7 @@ describe("openResolution", () => {
   });
 
   it("surfaces the authored leaf's schema-stripped keys as unknownAuthoredKeys", async () => {
-    const path = "/project/bos.config.json";
+    const path = "/project/authored.json";
     const session = await openResolution(
       { path },
       memoryIo(
@@ -179,25 +179,25 @@ describe("openResolution", () => {
 
   it("throws a tagged CircularExtendsError carrying the full chain for a circular local extends", async () => {
     const files = {
-      "/chain/a/bos.config.json": JSON.stringify({
-        extends: "/chain/b/bos.config.json",
+      "/chain/a/chain-a.json": JSON.stringify({
+        extends: "/chain/b/chain-b.json",
         account: "a.near",
       }),
-      "/chain/b/bos.config.json": JSON.stringify({
-        extends: "/chain/a/bos.config.json",
+      "/chain/b/chain-b.json": JSON.stringify({
+        extends: "/chain/a/chain-a.json",
         account: "b.near",
       }),
     };
 
     const error = await openedOrError(
-      openResolution({ path: "/chain/a/bos.config.json" }, memoryIo(files, {})),
+      openResolution({ path: "/chain/a/chain-a.json" }, memoryIo(files, {})),
     );
 
     expect(error).toBeInstanceOf(CircularExtendsError);
     expect((error as CircularExtendsError).chain).toEqual([
-      "/chain/a/bos.config.json",
-      "/chain/b/bos.config.json",
-      "/chain/a/bos.config.json",
+      "/chain/a/chain-a.json",
+      "/chain/b/chain-b.json",
+      "/chain/a/chain-a.json",
     ]);
   });
 
@@ -220,7 +220,7 @@ describe("openResolution", () => {
   });
 
   it("maps the staging env onto production for the built runtime", async () => {
-    const path = "/stage/bos.config.json";
+    const path = "/stage/authored.json";
     const hostEntry = "remoteEntry.stage-host.js";
     const hostManifest = {
       version: "8f3ac1d2feedbeef",
@@ -268,7 +268,7 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
   };
 
   const overlayLeaf: BosConfigInput = {
-    extends: "/parent/bos.config.json",
+    extends: "/parent/parent.json",
     account: "local.near",
     app: {
       host: { development: "local:host", production: "" },
@@ -282,8 +282,8 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
   };
 
   const chainFiles = (extra: Record<string, string> = {}): Record<string, string> => ({
-    "/project/bos.config.json": JSON.stringify(overlayLeaf),
-    "/parent/bos.config.json": JSON.stringify(overlayParent),
+    "/project/authored.json": JSON.stringify(overlayLeaf),
+    "/parent/parent.json": JSON.stringify(overlayParent),
     ...extra,
   });
 
@@ -301,7 +301,7 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
 
   it("merges the overlay child-wins over the leaf, which wins over the parent chain, in development", async () => {
     const session = await openResolution(
-      { path: "/project/bos.config.json", env: "development" },
+      { path: "/project/authored.json", env: "development" },
       overlayIo(chainFiles({ "/project/bos.dev.ts": "export default {}" }), {
         "/project/bos.dev.ts": overlayModule,
       }),
@@ -312,12 +312,12 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
       variables: { SLOT: "overlay" },
     });
     expect(session?.config.app.host).toMatchObject({ development: "local:host" });
-    expect(session?.chain).toEqual(["/project/bos.config.json", "/parent/bos.config.json"]);
+    expect(session?.chain).toEqual(["/project/authored.json", "/parent/parent.json"]);
   });
 
   it("golden: without a bos.dev.ts the resolution is unchanged and no module import happens", async () => {
     const session = await openResolution(
-      { path: "/project/bos.config.json", env: "development" },
+      { path: "/project/authored.json", env: "development" },
       overlayIo(chainFiles(), {}),
     );
 
@@ -330,18 +330,29 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
 
   it("golden: a present bos.dev.ts defaulting to {} resolves identically to the no-overlay open", async () => {
     const withEmptyOverlay = await openResolution(
-      { path: "/project/bos.config.json", env: "development" },
+      { path: "/project/authored.json", env: "development" },
       overlayIo(chainFiles({ "/project/bos.dev.ts": "export default {}" }), {
         "/project/bos.dev.ts": { default: {} },
       }),
     );
     const withoutOverlay = await openResolution(
-      { path: "/project/bos.config.json", env: "development" },
+      { path: "/project/authored.json", env: "development" },
       overlayIo(chainFiles(), {}),
     );
 
     expect(JSON.stringify(withEmptyOverlay?.config)).toBe(JSON.stringify(withoutOverlay?.config));
     expect(withEmptyOverlay?.rawConfig).toEqual(withoutOverlay?.rawConfig);
+  });
+
+  it("a descriptor-form overlay (api/ui/auth keys) does not count as unknown authored keys", async () => {
+    const session = await openResolution(
+      { path: "/project/authored.json", env: "development" },
+      overlayIo(chainFiles({ "/project/bos.dev.ts": "export default {}" }), {
+        "/project/bos.dev.ts": overlayModule,
+      }),
+    );
+
+    expect(session?.unknownAuthoredKeys).toEqual([]);
   });
 
   it("never reads the overlay in production or staging", async () => {
@@ -375,11 +386,11 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
 
     for (const env of ["production", "staging"] as const) {
       const session = await openResolution(
-        { path: "/project/bos.config.json", env },
+        { path: "/project/authored.json", env },
         overlayIo(
           {
-            "/project/bos.config.json": JSON.stringify(pinnedLeaf),
-            "/parent/bos.config.json": JSON.stringify(overlayParent),
+            "/project/authored.json": JSON.stringify(pinnedLeaf),
+            "/parent/parent.json": JSON.stringify(overlayParent),
             "/project/bos.dev.ts": "export default {}",
           },
           { "/project/bos.dev.ts": overlayModule },
@@ -393,7 +404,7 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
   it("throws a loud DevOverlayError naming the file for a malformed overlay", async () => {
     const error = await openedOrError(
       openResolution(
-        { path: "/project/bos.config.json", env: "development" },
+        { path: "/project/authored.json", env: "development" },
         overlayIo(chainFiles({ "/project/bos.dev.ts": "export default 42" }), {
           "/project/bos.dev.ts": { default: 42 },
         }),
@@ -407,7 +418,7 @@ describe("openResolution × dev overlay (bos.dev.ts)", () => {
   it("throws a DevOverlayError when the overlay module has no default export", async () => {
     const error = await openedOrError(
       openResolution(
-        { path: "/project/bos.config.json", env: "development" },
+        { path: "/project/authored.json", env: "development" },
         overlayIo(chainFiles({ "/project/bos.dev.ts": "export const overlay = {}" }), {
           "/project/bos.dev.ts": { overlay: {} },
         }),
@@ -567,12 +578,12 @@ describe("walkExtendsChain × seedConfig", () => {
 describe("CircularExtendsError uniformity across walkers", () => {
   it("throws the same tagged error with a full chain payload for local file chains and remote bos:// chains", async () => {
     const localFiles = {
-      "/chain/a/bos.config.json": JSON.stringify({
-        extends: "/chain/b/bos.config.json",
+      "/chain/a/chain-a.json": JSON.stringify({
+        extends: "/chain/b/chain-b.json",
         account: "a.near",
       }),
-      "/chain/b/bos.config.json": JSON.stringify({
-        extends: "/chain/a/bos.config.json",
+      "/chain/b/chain-b.json": JSON.stringify({
+        extends: "/chain/a/chain-a.json",
         account: "b.near",
       }),
     };
@@ -582,7 +593,7 @@ describe("CircularExtendsError uniformity across walkers", () => {
     };
 
     const localError = (await openedOrError(
-      walkExtendsChain("/chain/a/bos.config.json", {
+      walkExtendsChain("/chain/a/chain-a.json", {
         io: memoryIo(localFiles, {}),
         visit: async () => {},
       }),
@@ -597,9 +608,9 @@ describe("CircularExtendsError uniformity across walkers", () => {
     expect(localError).toBeInstanceOf(CircularExtendsError);
     expect(remoteError).toBeInstanceOf(CircularExtendsError);
     expect(localError.chain).toEqual([
-      "/chain/a/bos.config.json",
-      "/chain/b/bos.config.json",
-      "/chain/a/bos.config.json",
+      "/chain/a/chain-a.json",
+      "/chain/b/chain-b.json",
+      "/chain/a/chain-a.json",
     ]);
     expect(remoteError.chain).toEqual([
       "bos://a.near/a.dev",

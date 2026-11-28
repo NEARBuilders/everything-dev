@@ -43,6 +43,7 @@ export const sessionGasKeyNetworkSchema = z.object({
 
 export const permissionsSchema = z.object({
   statements: z.record(z.string(), z.array(z.string())),
+  areas: z.array(z.string()).optional(),
   roles: z
     .record(z.string(), z.record(z.string(), z.array(z.string())))
     .refine((roles) => ["owner", "admin", "member"].every((name) => name in roles), {
@@ -94,7 +95,9 @@ export const authVariablesSchema = z.object({
   baseUrl: z.string().optional(),
   trustedOrigins: z.array(z.string()).optional(),
   apiKeyHeaders: z.array(z.string()).default(["x-api-key"]),
-  organizationMembershipLimit: z.number().int().positive().optional(),
+  organizationMembershipLimit: z
+    .union([z.number().int().positive(), z.null(), z.literal(false)])
+    .optional(),
   abuseControl: z
     .object({
       rateLimits: z

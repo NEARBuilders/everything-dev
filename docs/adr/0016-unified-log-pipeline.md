@@ -17,7 +17,7 @@ All output from every dev-session process flows through a single pure pipeline (
 
 The normalized stream **broadcasts to three sinks** so the views agree by construction: the on-screen tail and the export receive level-filtered events (identical by construction); the log file is a consumer that always receives every event — raw text preserved inside normalized events, no pattern suppression.
 
-Filtering is display-layer only: readiness detection in the orchestrator keeps matching raw lines, so service status flips are unaffected.
+Filtering is display-layer only: readiness is HTTP-only (probe on the descriptor's `readinessPath` — ADR 0048, amended 2026-11-27), so stdout classification never gates a boot; the stream is display and diagnostics.
 
 ## Consequences
 

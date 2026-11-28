@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Context } from "effect";
 import { applyDevOverlay } from "../../descriptor/resolve";
@@ -25,6 +25,7 @@ import {
   findConfigPath,
   getConfigBaseDir,
   isAppDescriptorPath,
+  LEGACY_JSON_CONFIG_MESSAGE,
   loadAppDescriptorConfig,
   parseAppDescriptorModule,
   parseDevOverlayModule,
@@ -166,6 +167,12 @@ async function loadNodeConfig(
     throw new ConfigLoadError({
       path: resolvedPath,
       message: `Config file not found: ${resolvedPath}`,
+    });
+  }
+  if (basename(resolvedPath) === "bos.config.json") {
+    throw new ConfigLoadError({
+      path: resolvedPath,
+      message: LEGACY_JSON_CONFIG_MESSAGE,
     });
   }
   return JSON.parse(content) as BosConfigInput;
@@ -489,10 +496,7 @@ export async function openResolution(
           }
         }
 
-        const unknownAuthoredKeys = [
-          ...collectUnknownKeys(rawConfig ?? null, BosConfigSchema),
-          ...(devOverlay ? collectUnknownKeys(devOverlay, BosConfigSchema) : []),
-        ];
+        const unknownAuthoredKeys = [...collectUnknownKeys(rawConfig ?? null, BosConfigSchema)];
         const config = await resolveConfigComposableEntries(
           BosConfigSchema.parse(overlayMerged),
           dispatch.baseDir,

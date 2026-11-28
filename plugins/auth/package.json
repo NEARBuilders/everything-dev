@@ -33,7 +33,9 @@
     "@orpc/tanstack-query": "catalog:",
     "@outlayer/sdk": "catalog:",
     "@phosphor-icons/react": "^2.1.10",
+    "@tanstack/react-form": "catalog:",
     "@tanstack/react-query": "catalog:",
+    "@tanstack/react-table": "catalog:",
     "@tanstack/react-router": "catalog:",
     "better-auth": "catalog:",
     "better-near-auth": "workspace:^",
@@ -100,5 +102,10 @@
     "test:ui": "vitest run --project ui",
     "test:ui:watch": "vitest --project ui",
     "typecheck:ui": "tsc --noEmit -p ui/tsconfig.json"
+  },
+  "every-plugin": {
+    "additionalExports": [
+      "src/auth-export.ts"
+    ]
   }
 }

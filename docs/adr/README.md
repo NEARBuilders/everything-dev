@@ -50,6 +50,9 @@ Format: context → decision → consequences, one file per decision.
 | [0045](./0045-per-workspace-migration-journals.md) | Per-workspace migration journals — journal identity follows workspace identity | Accepted |
 | [0046](./0046-manifest-attribution.md) | Manifest attribution — the deploy train signs version manifests; the key record lives in the on-chain config | Accepted |
 | [0047](./0047-one-committed-artifact.md) | One committed artifact — `bos.lock.json` absorbs the sync baseline; everything under `.bos/` is local-only | Accepted |
+| [0048](./0048-the-boot-seam.md) | The boot seam — one supervision core, policy as data | Accepted |
+| [0049](./0049-generation-scoped-ssr-composition.md) | Generation-scoped SSR composition — the generation is the unit of coherence; hot swap replaces TTL-as-invalidation in dev | Accepted |
+| [0050](./0050-renderer-agnostic-ui-readiness.md) | UI renderer-agnostic readiness — Standard Schema contracts, logic seams, no renderer abstraction | Accepted |
 
 
 Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were
@@ -61,7 +64,7 @@ split) was added on a side branch that never merged to main — do not reuse it.
 ## Number assignment discipline
 
 - Take the next free number (`ls docs/adr/ | sort -n | tail -1`, then +1 —
-  next free is **0047**). Never reuse a number, even for a rejected ADR.
+  next free is **0049**). Never reuse a number, even for a rejected ADR.
 - When citing an ADR in code, plans, changesets, or AGENTS.md, cite the
   number **with the filename** if the context could be ambiguous.
 - Superseded ADRs stay in place with a `Superseded by` status link to the

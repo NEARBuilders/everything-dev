@@ -2,6 +2,7 @@ import { isPrivateKey, Near, type PrivateKey, parseKey } from "near-kit";
 import { FileKeyStore } from "near-kit/keys/file";
 import type { TxStatus } from "../registry/confirm";
 import type { NetworkId } from "../registry/fastkv";
+import { parseYocto } from "./near-amounts";
 import { executeKeychainTransaction, isNearCliInstalled, NearTransactionError } from "./near-cli";
 
 export type SigningKeySource = "provided" | "credentials-file";
@@ -36,9 +37,22 @@ export interface NearTransactionResult {
  * endpoint served fresh nonce views, from CI runners and local machines
  * alike). NEAR_RPC_URL pins the signing stack to an endpoint with a real
  * transaction pool — set it to https://rpc.mainnet.near.org. Mirrors the
- * auth plugin's dev-wiring convention (plugins/auth/plugin.dev.ts). */
+ * auth plugin's dev-wiring convention (plugins/auth/bos.dev.ts). */
 export function resolveNearRpcUrl(): string | undefined {
   return process.env.NEAR_RPC_URL || undefined;
+}
+
+/** Read-only RPC for the publish preflight checks (key health, gas
+ * prepayment). The signing stack pins NEAR_RPC_URL because FastNEAR's free
+ * RPC silently drops broadcast transactions (2026-11-04) — but view calls
+ * are unaffected, and the free endpoint serves reads from CI runners more
+ * reliably than the rate-limited official RPC, so reads default to it.
+ * NEAR_READ_RPC_URL overrides. */
+export function resolveNearReadRpcUrl(network: NetworkId): string {
+  return (
+    process.env.NEAR_READ_RPC_URL ||
+    (network === "testnet" ? "https://rpc.testnet.near.org" : "https://free.rpc.fastnear.com")
+  );
 }
 
 function assertPrivateKey(key: string): PrivateKey {
@@ -70,6 +84,18 @@ export async function resolveSigningKey(opts: {
   throw new NearTransactionError("No signing key available");
 }
 
+export async function hasLocalSigningKey(opts: {
+  account: string;
+  network: NetworkId;
+}): Promise<boolean> {
+  try {
+    await resolveSigningKey(opts);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveSigningStrategy(opts: {
   privateKey?: string;
   account: string;
@@ -88,10 +114,10 @@ export async function resolveSigningStrategy(opts: {
 
   throw new NearTransactionError(
     `No signing key available for ${opts.account} on ${opts.network}. ` +
-      `Set NEAR_PRIVATE_KEY (or BOS_NEAR_PRIVATE_KEY), store credentials at ` +
-      `~/.near-credentials/${opts.network}/${opts.account}.json, or sign with the ` +
-      `near-cli-rs keychain (install it, then retry from an interactive terminal). ` +
-      `Generate a publish key with: bos login --key`,
+      `Run \`bos login\` to sign through your browser (no local key), or set NEAR_PRIVATE_KEY ` +
+      `(or BOS_NEAR_PRIVATE_KEY) / store credentials at ` +
+      `~/.near-credentials/${opts.network}/${opts.account}.json for direct key signing ` +
+      `(mint one with \`bos login --key\`).`,
   );
 }
 
@@ -261,7 +287,7 @@ export async function checkPublishKeyHealth(input: {
   const near = new Near({
     network: input.network,
     defaultSignerId: input.account,
-    rpcUrl: resolveNearRpcUrl(),
+    rpcUrl: resolveNearReadRpcUrl(input.network),
   });
   const publicKey = parseKey(input.privateKey).publicKey.toString();
   let view: Awaited<ReturnType<Near["getAccessKey"]>>;
@@ -269,7 +295,10 @@ export async function checkPublishKeyHealth(input: {
     view = await near.getAccessKey(input.account, publicKey);
   } catch (error) {
     if (!(error instanceof Error)) {
-      return { ok: true, warning: "key health check skipped (registry RPC unreachable)" };
+      return {
+        ok: true,
+        warning: `signing key check skipped — NEAR RPC unreachable (${resolveNearReadRpcUrl(input.network)})`,
+      };
     }
     if (error.name === "AccountDoesNotExistError") {
       return {
@@ -283,7 +312,10 @@ export async function checkPublishKeyHealth(input: {
         error: publishKeyRepairHint(input.account, input.contract, publicKey),
       };
     }
-    return { ok: true, warning: "key health check skipped (registry RPC unreachable)" };
+    return {
+      ok: true,
+      warning: `signing key check skipped — NEAR RPC unreachable (${resolveNearReadRpcUrl(input.network)}): ${error.message}`,
+    };
   }
   if (!view) {
     return { ok: false, error: publishKeyRepairHint(input.account, input.contract, publicKey) };
@@ -317,7 +349,9 @@ export async function checkPublishKeyHealth(input: {
     };
   }
   const capped = scoped.allowance ?? scoped.balance;
-  if (capped && BigInt(capped) < MIN_PUBLISH_ALLOWANCE_YOCTO) {
+  const cappedYocto =
+    capped === undefined || capped === null ? undefined : parseYocto(String(capped));
+  if (cappedYocto !== undefined && cappedYocto < MIN_PUBLISH_ALLOWANCE_YOCTO) {
     return {
       ok: false,
       error:
@@ -402,29 +436,53 @@ export interface PublishBalanceHealth {
  * train runs — a balance a hair under the prepayment lock surfaces only as a
  * silent broadcast drop otherwise (the 2026-11-04 outage: 0.30089 NEAR held,
  * 0.30092 NEAR required, every deploy dead for 14 hours). Soft-skips when the
- * registry RPC is unreachable, like the key health check. */
+ * read RPC is unreachable, like the key health check. */
 export async function checkPublishBalance(input: {
   account: string;
   network: NetworkId;
 }): Promise<PublishBalanceHealth> {
+  const rpcUrl = resolveNearReadRpcUrl(input.network);
   const near = new Near({
     network: input.network,
     defaultSignerId: input.account,
-    rpcUrl: resolveNearRpcUrl(),
+    rpcUrl,
   });
   let balance: bigint;
   let minGasPrice: bigint;
   try {
-    const [view, config] = await Promise.all([
-      near.getBalance(input.account),
+    // KEEP: the raw wire read, not near-kit's getBalance — that returns a
+    // lossy human-NEAR string ("1.28", 2 decimals), so parsing it as yocto
+    // soft-skipped every check and the prepayment-lock protection (the
+    // 2026-11-04 outage guard) has been dead since the near-kit migration.
+    // Found via the 2026-11-20 rc.46 preflight warning; the raw AccountView
+    // `amount` is the yoctoNEAR wire format the gas math needs.
+    const [account, config] = await Promise.all([
+      near.rpc.getAccount(input.account),
       near.rpc.call("EXPERIMENTAL_protocol_config", { finality: "final" }) as Promise<{
         min_gas_price: string;
       }>,
     ]);
-    balance = BigInt(view);
-    minGasPrice = BigInt(config.min_gas_price);
-  } catch {
-    return { ok: true, warning: "balance check skipped (registry RPC unreachable)" };
+    const balanceYocto = parseYocto(String(account.amount));
+    const minGasPriceYocto = parseYocto(String(config.min_gas_price));
+    if (balanceYocto === undefined || minGasPriceYocto === undefined) {
+      return {
+        ok: true,
+        warning:
+          `gas prepayment check skipped — NEAR RPC ${rpcUrl} returned an unexpected format ` +
+          `(balance ${String(account.amount)}, min gas price ${String(config.min_gas_price)}); ` +
+          `continuing without verifying the account can afford the gas prepayment lock`,
+      };
+    }
+    balance = balanceYocto;
+    minGasPrice = minGasPriceYocto;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      ok: true,
+      warning:
+        `gas prepayment check skipped — NEAR RPC ${rpcUrl} unreachable (${reason}); ` +
+        `continuing without verifying the account can afford the gas prepayment lock`,
+    };
   }
   const required = PUBLISH_ATTACHED_GAS_UNITS * minGasPrice * PUBLISH_BALANCE_SAFETY;
   const classified = classifyPublishBalance(balance, required);

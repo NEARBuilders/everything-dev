@@ -51,6 +51,24 @@ export interface ServerRouterModuleOptions<TRouteTree extends AnyRoute = AnyRout
   locale?: LocaleOptions;
 }
 
+const FORWARDED_AUTH_HEADERS = [
+  "cookie",
+  "authorization",
+  "x-api-key",
+  "user-agent",
+  "x-forwarded-for",
+  "x-real-ip",
+] as const;
+
+export function pickAuthForwardHeaders(source: Headers): Headers {
+  const forwarded = new Headers();
+  for (const name of FORWARDED_AUTH_HEADERS) {
+    const value = source.get(name);
+    if (value !== null) forwarded.set(name, value);
+  }
+  return forwarded;
+}
+
 type ServerRouterOptions<TRouteTree extends AnyRoute> = CreateRouterOptions & {
   context?: Partial<RouterContextWithApi> & { pluginNav?: unknown };
   routeTree?: TRouteTree;
@@ -85,6 +103,7 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
           context?.authClient ??
           createAuthClient({
             runtimeConfig: context?.runtimeConfig,
+            headers: context?.headers,
             cspNonce: context?.cspNonce,
           }),
         session: context?.session,
@@ -150,7 +169,12 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
           context?.apiClient ??
           createApiClient({ hostUrl: runtimeConfig.hostUrl, rpcBase: runtimeConfig.rpcBase }),
         authClient:
-          context?.authClient ?? createAuthClient({ runtimeConfig, cspNonce: context?.cspNonce }),
+          context?.authClient ??
+          createAuthClient({
+            runtimeConfig,
+            headers: context?.headers,
+            cspNonce: context?.cspNonce,
+          }),
         session: context?.session,
         locale: context?.locale,
       },
@@ -179,10 +203,11 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
           context: {
             queryClient: localQueryClient,
             runtimeConfig: renderOptions.runtimeConfig,
+            headers: request.headers,
             apiClient: renderOptions.apiClient,
             authClient: createAuthClient({
               runtimeConfig: renderOptions.runtimeConfig,
-              headers: request.headers,
+              headers: pickAuthForwardHeaders(request.headers),
               cspNonce: renderOptions.cspNonce,
             }),
             session: renderOptions.session,

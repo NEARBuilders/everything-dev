@@ -70,8 +70,33 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     if (result.parentReachable !== undefined) {
       const parentLabel = result.parentReachable
         ? colors.green("reachable")
-        : colors.error("unreachable");
+        : colors.error(
+            `unreachable${result.parentUnreachable ? ` — ${result.parentUnreachable}` : ""}`,
+          );
       console.log(`  ${colors.dim("Parent:")}      ${parentLabel}`);
+    }
+    if (result.deployedVersion) {
+      const dv = result.deployedVersion;
+      if (!dv.publishedDigest) {
+        console.log(
+          `  ${colors.dim("Deployed:")}    ${colors.yellow(`unknown — ${dv.error ?? "published config unreachable"}`)}`,
+        );
+      } else if (dv.inSync) {
+        console.log(
+          `  ${colors.dim("Deployed:")}    ${colors.green("in sync")} ${colors.dim(`${dv.publishedDigest.slice(0, 19)}…`)}`,
+        );
+      } else if (dv.error) {
+        console.log(
+          `  ${colors.dim("Deployed:")}    ${colors.yellow(`served version unknown — ${dv.error}`)}`,
+        );
+      } else {
+        console.log(
+          `  ${colors.dim("Deployed:")}    ${colors.error("OUT OF SYNC — the host serves a different pointer than published")}`,
+        );
+        console.log(
+          `      ${colors.dim(`published ${dv.publishedDigest.slice(0, 19)}… · served ${(dv.servedDigest ?? "?").slice(0, 19)}…`)}`,
+        );
+      }
     }
     const hasUpdates = result.packages.some(
       (p: { installed?: string; latest?: string }) =>

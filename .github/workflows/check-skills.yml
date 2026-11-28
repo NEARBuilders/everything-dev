@@ -34,6 +34,7 @@ concurrency:
 
 jobs:
   validate:
+    timeout-minutes: 60
     name: Validate intent skills
     # Changeset release PRs bump every package version at once, so `stale`
     # structurally reports version drift there — the library_version markers
@@ -84,6 +85,7 @@ jobs:
           done
 
   review:
+    timeout-minutes: 60
     name: Check intent skill coverage
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04

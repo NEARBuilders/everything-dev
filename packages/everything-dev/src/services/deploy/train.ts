@@ -81,6 +81,7 @@ import { formatNearError } from "./format";
 import { readFrameworkVersion } from "./image";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { assertSigningIdentityMatches, signManifestPayload } from "./manifest-signature";
+import { nearblocksUrl, phase, running, stepOk } from "./output";
 import { computeOwedWork } from "./owed";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
@@ -166,7 +167,6 @@ export interface DeployTrainInput {
   packages: string;
   network?: "mainnet" | "testnet";
   privateKey?: string;
-  wallet?: boolean;
   registry?: string;
   /** Skip the diff upload and re-upload every dist file (escape hatch). */
   fullUpload?: boolean;
@@ -211,20 +211,30 @@ export async function runPublishTrain(
     return { status: "dry-run", registryUrl: preflight.registryUrl };
   }
   const plan: PublishPreflightPlan = preflight.plan;
-  const {
-    isStaging,
-    account,
-    gateway,
-    network,
-    registryUrl,
-    registryNamespace,
-    targets,
-    useWallet,
-    useCustody,
-    strategy,
-  } = plan;
+  const { isStaging, account, gateway, network, registryUrl, registryNamespace, targets, signing } =
+    plan;
   const storageOrigin = plan.storageOrigin;
   const storageApiKey = plan.storageApiKey;
+
+  if (signing.mode === "session") {
+    // Any browser approval (a missing delegate key) happens here, up front —
+    // never after the build and upload have already run.
+    try {
+      await deps.signer.ensureDelegateKey({
+        configDir: input.configDir,
+        account,
+        contract: registryNamespace,
+        network,
+        siteUrl: signing.credential.siteUrl,
+      });
+    } catch (error) {
+      throw new PublishTrainError({
+        kind: "preflight",
+        registryUrl,
+        error: `Could not obtain a delegate key for ${account}: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
 
   const { configDir } = input;
   const render = deps.render;
@@ -251,8 +261,8 @@ export async function runPublishTrain(
   })();
   let signManifest: ((payload: string) => Promise<ManifestSignature>) | undefined;
   if (verificationPublicKey) {
-    if (useCustody && plan.custodyWallet) {
-      const custodyWallet = plan.custodyWallet;
+    if (signing.mode === "custody") {
+      const { custodyWallet } = signing;
       signManifest = async (payload) => {
         const signed = await signManifestPayloadCustody(custodyWallet, payload, account);
         assertSigningIdentityMatches(signed.publicKey, verificationPublicKey);
@@ -532,6 +542,7 @@ export async function runPublishTrain(
   };
 
   if (input.build) {
+    phase("Build");
     await generateCodeArtifacts(configDir, bosConfig, {
       env: "production",
       runtimeConfig: runtimeConfig ?? undefined,
@@ -959,12 +970,15 @@ export async function runPublishTrain(
       localFrameworkVersion: readFrameworkVersion(configDir),
     });
     const releaseLeg = owed.release;
-    console.log(
+    phase(
+      "Release",
       releaseLeg
-        ? colors.cyan(
-            `  Release leg: the platform tag (${owed.detail.pointerFrameworkVersion ?? "unset"}) trails the repo (${owed.detail.localFrameworkVersion}) — the release manifest moves`,
-          )
-        : colors.dim("  No release work owed — the platform manifest stays put"),
+        ? `the platform release manifest moves ${
+            owed.detail.pointerFrameworkVersion ?? "unset"
+          } → ${owed.detail.localFrameworkVersion}`
+        : `no release work owed — the platform manifest stays at ${
+            owed.detail.pointerFrameworkVersion ?? "unset"
+          }`,
     );
 
     const composed = composePlatformManifestPublishEntry({
@@ -1197,7 +1211,7 @@ export async function runPublishTrain(
       fetchConfig: deps.registry.fetchConfig,
     });
     if (alreadyPublished) {
-      console.log("  Already up to date — skipping transaction");
+      stepOk("already up to date — skipping the transaction");
       persistDeployState();
       persistLockfile();
       await stageBootSnapshot();
@@ -1214,47 +1228,25 @@ export async function runPublishTrain(
     const submitOnce = async (): Promise<{ success: boolean; txHash?: string }> => {
       // Auth handles were validated once in preflight (guards once per run,
       // ticket #422) — the dispatch consumes the plan's handles.
-      if (useCustody) {
-        if (!plan.custodyWallet) {
-          throw new PublishTrainError({
-            kind: "submit",
-            registryUrl,
-            error: "custody publish requires the preflight custody wallet",
-          });
-        }
+      if (signing.mode === "custody") {
         return deps.signer.submit({
           mode: "custody",
           account,
           contract: registryNamespace,
           args: registryEntries,
-          custodyWallet: plan.custodyWallet,
+          custodyWallet: signing.custodyWallet,
           idempotencyKey: `bos-publish-${publishPointerDigest}`,
         });
       }
-      if (useWallet) {
-        const credential = plan.credential;
-        if (!credential || credential.accountId !== account) {
-          throw new PublishTrainError({
-            kind: "submit",
-            registryUrl,
-            error: `--wallet requires a CLI session under ${account}. Run bos login first.`,
-          });
-        }
+      if (signing.mode === "session") {
         return deps.signer.submit({
-          mode: "wallet",
+          mode: "session",
           account,
           contract: registryNamespace,
           network,
           args: registryEntries,
-          credential,
+          credential: signing.credential,
           configDir,
-        });
-      }
-      if (!strategy) {
-        throw new PublishTrainError({
-          kind: "submit",
-          registryUrl,
-          error: "non-wallet publish requires a resolved signing strategy",
         });
       }
       return deps.signer.submit({
@@ -1264,17 +1256,18 @@ export async function runPublishTrain(
         network,
         args: registryEntries,
         privateKey: input.privateKey,
-        strategy,
+        strategy: signing.strategy,
       });
     };
 
-    console.log(`  Submitting transaction on ${network}...`);
+    phase("Publish");
+    running(`submitting the publish transaction on ${network}`);
     let result = await submitOnce();
     if (result.txHash) {
-      console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
+      stepOk(`transaction submitted — ${nearblocksUrl(result.txHash, network)}`);
     }
 
-    console.log("  Waiting for publish confirmation...");
+    running("waiting for publish confirmation (registry read-back)");
     try {
       const confirmLegs: ConfirmLeg[] = [
         {
@@ -1329,7 +1322,7 @@ export async function runPublishTrain(
           // broadcast. Relay (wallet) and custody submissions move someone
           // else's signed transaction, so the probe would chase the wrong
           // sender and must not gate the wait.
-          ...(txHash && !useCustody && !useWallet
+          ...(txHash && signing.mode === "key"
             ? {
                 txStatus: (tx: string) => classifyTransactionOutcome(tx, account, network),
               }
@@ -1355,9 +1348,9 @@ export async function runPublishTrain(
         );
         result = await submitOnce();
         if (result.txHash) {
-          console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
+          stepOk(`transaction submitted — ${nearblocksUrl(result.txHash, network)}`);
         }
-        console.log("  Waiting for publish confirmation...");
+        running("waiting for publish confirmation (registry read-back)");
         verdict = await runConfirm(result.txHash);
       }
       if (!verdict.ok) {
@@ -1368,6 +1361,7 @@ export async function runPublishTrain(
         kind: "confirm",
         registryUrl,
         error: formatNearError(error),
+        ...(result.txHash ? { txHash: result.txHash } : {}),
         built,
         skipped,
         deployResults,
@@ -1381,6 +1375,7 @@ export async function runPublishTrain(
       status: "published",
       registryUrl,
       txHash: result.txHash,
+      ...(result.txHash ? { txUrl: nearblocksUrl(result.txHash, network) } : {}),
       pointerDigest: publishPointerDigest,
       remoteDigests: publishRemoteDigests,
       built,

@@ -111,31 +111,36 @@ export class InitFlowService extends Context.Service<
 
             let parentPluginKeys: string[] = [];
             let parentConfig: BosConfig | null = null;
-            try {
-              const parent = await timePhase(timings, "parent config", () =>
-                fetchInitParent(extendsAccount, extendsGateway),
-              );
-              parentConfig = parent.parentConfig;
-              parentPluginKeys = parent.parentPluginKeys;
-            } catch (e) {
-              flowWarn(
-                `[init] Failed to fetch parent config from ${extendsAccount}/${extendsGateway}: ${
-                  e instanceof Error ? e.message : String(e)
-                }`,
-              );
-              return {
-                status: "error" as const,
-                directory,
-                extendsRef,
-                account,
-                domain,
-                extends: extendsRef,
-                plugins,
-                overrides,
-                filesCopied: 0,
-                timings,
-                error: `No config found at ${extendsRef} — are you sure this is the right parent?`,
-              };
+            if (input.parentConfig) {
+              parentConfig = input.parentConfig;
+              parentPluginKeys = parentConfig.plugins ? Object.keys(parentConfig.plugins) : [];
+            } else {
+              try {
+                const parent = await timePhase(timings, "parent config", () =>
+                  fetchInitParent(extendsAccount, extendsGateway),
+                );
+                parentConfig = parent.parentConfig;
+                parentPluginKeys = parent.parentPluginKeys;
+              } catch (e) {
+                flowWarn(
+                  `[init] Failed to fetch parent config from ${extendsAccount}/${extendsGateway}: ${
+                    e instanceof Error ? e.message : String(e)
+                  }`,
+                );
+                return {
+                  status: "error" as const,
+                  directory,
+                  extendsRef,
+                  account,
+                  domain,
+                  extends: extendsRef,
+                  plugins,
+                  overrides,
+                  filesCopied: 0,
+                  timings,
+                  error: `No config found at ${extendsRef} — are you sure this is the right parent?`,
+                };
+              }
             }
 
             overrides = overrides?.length ? overrides : (["ui", "api"] as OverrideSection[]);
@@ -459,4 +464,9 @@ export type InitOptions = {
   level?: StarterLevel | undefined;
   source?: string | undefined;
   noInstall?: boolean | undefined;
+  /** The parent config, pre-resolved — skips the FastKV fetch. Test/hermetic
+   * seam: the scaffold phase still re-loads the parent config from `source`
+   * when one is given; this value covers the fetch-dependent defaults
+   * (plugin selection, plugin dir mapping, route exclusions). */
+  parentConfig?: BosConfig | undefined;
 };

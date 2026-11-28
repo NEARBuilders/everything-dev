@@ -218,12 +218,6 @@ export const PublishOptionsSchema = z.object({
   network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
 
   privateKey: z.string().optional(),
-  wallet: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
-    ),
 
   env: z
     .enum(["production", "staging"])
@@ -262,12 +256,6 @@ export const RollbackOptionsSchema = z.object({
   network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
 
   privateKey: z.string().optional(),
-  wallet: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
-    ),
 
   env: z
     .enum(["production", "staging"])
@@ -324,7 +312,6 @@ export const PromoteOptionsSchema = z.object({
     .describe("Environment: production or staging"),
   network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
   privateKey: z.string().optional(),
-  wallet: z.boolean().default(false),
   registry: z
     .string()
     .optional()
@@ -339,6 +326,8 @@ export const PublishResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  txUrl: z.string().optional(),
+  kind: z.string().optional(),
   pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
@@ -445,12 +434,6 @@ export const DeployOptionsSchema = z.object({
   network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
 
   privateKey: z.string().optional(),
-  wallet: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
-    ),
   service: z.string().optional().describe("Override Railway service name from config"),
 
   registry: z
@@ -512,6 +495,8 @@ export const DeployResultSchema = z.object({
   status: z.enum(["deployed", "published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  txUrl: z.string().optional(),
+  kind: z.string().optional(),
   pointerDigest: z.string().optional(),
   remoteDigests: z.record(z.string(), z.string()).optional(),
   history: z.array(DeployManifestListEntrySchema).optional(),
@@ -581,7 +566,7 @@ export const LoginOptionsSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Mint a scoped deploy key (bundles:write for the config's account/gateway), store it as the session credential, and print it for BOS_STORAGE_API_KEY — plus export the publish key for headless/CI use",
+      "Additionally mint and export a NEAR publish key to ~/.near-credentials for headless/CI key signing (the deploy key itself is always minted for interactive use)",
     ),
 
   custody: z
@@ -589,7 +574,12 @@ export const LoginOptionsSchema = z.object({
     .default(false)
     .describe("Also register an OutLayer custody wallet for custody publishes"),
 
-  site: z.string().optional().describe("Override site URL hosting the CLI login page"),
+  site: z
+    .string()
+    .optional()
+    .describe(
+      "Override the login site (defaults to the root of the extends chain — the platform services' domain)",
+    ),
 
   expiresIn: z
     .number()
@@ -597,7 +587,7 @@ export const LoginOptionsSchema = z.object({
     .positive()
     .optional()
     .describe(
-      "Credential lifetime in seconds (default: 90 days; deploy keys with --key: 365 days)",
+      "Credential lifetime in seconds (default: 365 days with a deploy key — when the config sets account and gateway — else 90 days)",
     ),
 
   device: z
@@ -944,7 +934,7 @@ export const UpgradeResultSchema = z.object({
 });
 
 export const DeployedVersionStatusSchema = z.object({
-  publishedDigest: z.string(),
+  publishedDigest: z.string().optional(),
   servedDigest: z.string().optional(),
   inSync: z.boolean(),
   error: z.string().optional(),
@@ -956,6 +946,7 @@ export const StatusResultSchema = z.object({
   extends: z.string().optional(),
   account: z.string().optional(),
   domain: z.string().optional(),
+  parentUnreachable: z.string().optional(),
   packages: z.array(
     z.object({
       name: z.string(),
@@ -1709,7 +1700,7 @@ export const cliCommandMeta = {
   login: {
     commandPath: ["login"],
     summary:
-      "Sign in with your NEAR account via the hosted site (wallet, passkey, or social login)",
+      "Sign in via the hosted site — one browser approval installs the scoped deploy key and the gasless publish key `bos deploy` uses",
     interactive: true,
   },
   logout: {

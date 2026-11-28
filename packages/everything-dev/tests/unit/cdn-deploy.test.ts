@@ -5,9 +5,9 @@ import {
   resolveCdnDeployInputs,
 } from "../../src/services/deploy/cdn";
 
-const configWithCdn = (origin?: string) =>
+const configWithCdn = (origin?: string, upload?: string) =>
   ({
-    cdn: origin === undefined ? undefined : { origin },
+    cdn: origin === undefined && upload === undefined ? undefined : { origin, upload },
   }) as never;
 
 const session = (siteUrl: string, accountId = "child.near") => ({
@@ -42,6 +42,57 @@ describe("resolveCdnDeployInputs", () => {
       uploadsPlanned: true,
     });
     expect(resolved.storageOrigin).toBe("https://upload.example.test");
+    expect(resolved.error).toBeUndefined();
+  });
+
+  it("the authored cdn.upload wins over the platform default and the session site", () => {
+    const resolved = resolveCdnDeployInputs({
+      env: {},
+      bosConfig: configWithCdn("https://cdn.everything.dev", "https://upload.example.test"),
+      session: session("https://everything.dev"),
+      account: "child.near",
+      gateway: "child.app",
+      uploadsPlanned: true,
+    });
+    expect(resolved.storageOrigin).toBe("https://upload.example.test");
+    expect(resolved.error).toBeUndefined();
+  });
+
+  it("an authored cdn.upload alone (no cdn.origin) is still the upload origin, cdn.origin error is separate", () => {
+    const resolved = resolveCdnDeployInputs({
+      env: {},
+      bosConfig: configWithCdn(undefined, "https://upload.example.test"),
+      session: session("https://upload.example.test"),
+      account: "child.near",
+      gateway: "child.app",
+      uploadsPlanned: true,
+    });
+    expect(resolved.error).toContain("cdn.origin");
+  });
+
+  it("an authored local cdn.upload is a hard error (committed configs are publicly reachable)", () => {
+    const resolved = resolveCdnDeployInputs({
+      env: {},
+      bosConfig: configWithCdn("https://cdn.example.test", "http://localhost:3000"),
+      session: null,
+      account: "child.near",
+      gateway: "child.app",
+      uploadsPlanned: true,
+    });
+    expect(resolved.error).toContain("cdn.upload");
+    expect(resolved.error).toContain("http://localhost:3000");
+  });
+
+  it("the env BOS_STORAGE_ORIGIN overrides the authored cdn.upload", () => {
+    const resolved = resolveCdnDeployInputs({
+      env: { BOS_STORAGE_ORIGIN: "https://api.example.dev", BOS_STORAGE_API_KEY: "edk_env" },
+      bosConfig: configWithCdn("https://cdn.everything.dev", "https://upload.example.test"),
+      session: session("https://everything.dev"),
+      account: "child.near",
+      gateway: "child.app",
+      uploadsPlanned: true,
+    });
+    expect(resolved.storageOrigin).toBe("https://api.example.dev");
     expect(resolved.error).toBeUndefined();
   });
 

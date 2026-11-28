@@ -16,6 +16,7 @@ import {
 import { createAccessControl } from "better-auth/plugins/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
 import { gt } from "drizzle-orm";
+import { apiKeyDefaultConfig } from "./api-key-default-config";
 import type {
   AuthConfig,
   AuthCrossSubDomainCookiesConfig,
@@ -367,7 +368,12 @@ export function createAuthInstance(
       organization({
         ac: orgAc,
         roles: orgRoles,
-        membershipLimit: membershipPolicy.limit,
+        // KEEP: better-auth turns membershipLimit into a SQL LIMIT, and its
+        // `membershipLimit || 100` fallback would silently re-cap at 100 if it
+        // were omitted — so an unlimited policy must pass a finite value.
+        membershipLimit: Number.isFinite(membershipPolicy.limit)
+          ? membershipPolicy.limit
+          : Number.MAX_SAFE_INTEGER,
         requireEmailVerificationOnInvitation: true,
         teams: {
           enabled: true,
@@ -468,6 +474,7 @@ export function createAuthInstance(
       }),
       deviceLink(db),
       custody(db, config.secret, network),
+      apiKeyDefaultConfig(),
       apiKey([
         {
           configId: "user-keys",

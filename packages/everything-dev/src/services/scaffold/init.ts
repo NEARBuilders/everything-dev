@@ -138,6 +138,9 @@ export const INIT_ROOT_PATTERNS = [
   ".env.example",
   ".gitignore",
   "biome.json",
+  // The host workspace's tsconfig extends the root base — children with a
+  // host override need it at their root (born-healthy build gate).
+  "tsconfig.base.json",
   "AGENTS.md",
   ".agents/skills/**",
   "skills-lock.json",
@@ -206,26 +209,21 @@ export function buildPluginRouteExclusions(
   return claimedByUnselected.filter((route) => !claimedBySelected.has(route));
 }
 
-const STARTER_PRODUCT_EXCLUSIONS = [
-  "_public/explore.tsx",
-  "_public/stake.tsx",
-  "_public/n/**",
+/**
+ * Parent-only product surfaces, excluded at every starter level. Entries must
+ * match real files in the template tree — the coherence assertion in
+ * `init-route-exclusions.test.ts` fails any stale glob (drift in the
+ * staleness direction: a glob outliving its route is deleted here, a new
+ * product route is registered here).
+ */
+export const STARTER_PRODUCT_EXCLUSIONS = [
   "_public/$accountId.tsx",
   "_public/$accountId/**",
-  "_public/activity/**",
-  "_public/-stake-*",
-  "_authenticated/_dashboard/dashboard/node/**",
-  "_authenticated/_dashboard/nodes/**",
-  "_authenticated/_dashboard/tenant.*",
-  "_authenticated/_dashboard/discover.tsx",
-  "_authenticated/_dashboard/apply.tsx",
-  "_authenticated/_dashboard/prototype-staking-poc.tsx",
-  "_authenticated/onboarding/**",
-  "_admin/_dashboard/_dashboard/admin/nodes/**",
-  "_admin/_dashboard/_dashboard/admin/proposals/**",
-  "_admin/_dashboard/_dashboard/admin/tenants/**",
-  "_admin/_dashboard/_dashboard/admin/relayer.tsx",
-  "_admin/_dashboard/_dashboard/admin/organizations.tsx",
+  // Parent-coupled surfaces: routes whose api/plugin dependencies no child
+  // composes (deploys → the parent's hosting api; things → the parent's
+  // votes/proposals plugins). The born-healthy typecheck gate caught them.
+  "_authenticated/deploys.tsx",
+  "_authenticated/_dashboard/things/**",
 ] as const;
 
 const STARTER_SIMPLE_EXCLUSIONS = [
@@ -1462,8 +1460,15 @@ export async function generateDatabaseMigrations(destination: string): Promise<v
     const scripts = pkg.scripts as Record<string, string> | undefined;
     if (!scripts?.["db:generate"]) continue;
 
-    const cwd = join(destination, workspaceDir);
-    await execCommand("pnpm", ["--dir", "api", "exec", "drizzle-kit", "generate"], cwd);
+    // From the child root: pnpm canonicalizes `--dir` against the process
+    // cwd, and the workspace's own script form is `pnpm --dir <ws> exec …`
+    // — running it from inside the workspace resolved `<ws>/<ws>` and died
+    // with ENOENT on every api-bearing init (born-healthy matrix, plan 067).
+    await execCommand(
+      "pnpm",
+      ["--dir", workspaceDir, "exec", "drizzle-kit", "generate"],
+      destination,
+    );
   }
 }
 

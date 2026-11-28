@@ -20,12 +20,13 @@ beforeEach(() => {
   originalCwd = process.cwd();
   process.chdir(dir);
   writeFileSync(
-    join(dir, "bos.config.json"),
-    `${JSON.stringify({
+    join(dir, "bos.app.ts"),
+    `export default ${JSON.stringify({
+      name: "drift-child",
       account: "child.near",
       extends: "bos://dev.everything.near/everything.dev",
       release: "2.0.0-rc.16",
-    })}\n`,
+    })};\n`,
   );
 });
 

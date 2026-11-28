@@ -50,18 +50,21 @@ export function isLocalOrigin(url: string): boolean {
  * Deploy origin resolution (ADR 0020, as amended): the CDN origin comes from
  * the env or the authored `cdn.origin` (inherited via extends) — a hard
  * requirement when uploads are planned, because the host never serves
- * `/bundles` itself. The upload origin is the env, the platform upload
- * service when the effective CDN is the platform CDN (an app-site session
- * URL is not an upload origin by design), the `bos login` session's siteUrl,
- * or the runtime's own gateway. A session pinned to a local site is a hard
- * error (the origin can only ever be a squatter's port); an env-pinned local
- * origin is deliberate local testing and only warns. Config-only publishes
+ * `/bundles` itself. The upload origin resolves in priority order: the env
+ * (`BOS_STORAGE_ORIGIN` — CI and deliberate local stacks), the authored
+ * `cdn.upload` (inherited via extends), the platform upload service when the
+ * effective CDN is the platform CDN (an app-site session URL is not an upload
+ * origin by design), the `bos login` session's siteUrl, or the runtime's own
+ * gateway. An authored local upload/CDN origin is a hard error (committed
+ * configs must be publicly reachable — local testing goes through the env,
+ * which only warns); a session pinned to a local site is a hard error (the
+ * origin can only ever be a squatter's port). Config-only publishes
  * (`uploadsPlanned: false`) ship the committed config verbatim — no origins
  * are resolved and nothing is required.
  */
 export function resolveCdnDeployInputs(input: {
   env: Record<string, string | undefined>;
-  bosConfig: { cdn?: { origin?: string } } | null;
+  bosConfig: { cdn?: { origin?: string; upload?: string } } | null;
   session: SessionCredentialLike | null;
   custodyAccount?: string;
   account: string;
@@ -114,11 +117,26 @@ export function resolveCdnDeployInputs(input: {
   }
 
   let storageOrigin: string;
+  const configUploadOrigin = input.bosConfig?.cdn?.upload?.replace(/\/$/, "");
   if (storageEnvOrigin) {
     storageOrigin = storageEnvOrigin;
     if (isLocalOrigin(storageEnvOrigin) && !warning) {
       warning = `BOS_STORAGE_ORIGIN is a local URL (${storageEnvOrigin}) — uploading to a local stack.`;
     }
+  } else if (configUploadOrigin) {
+    if (isLocalOrigin(configUploadOrigin)) {
+      return {
+        cdnOrigin,
+        storageOrigin: configUploadOrigin,
+        apiKey,
+        warning,
+        error:
+          `the authored config sets cdn.upload to the local URL ${configUploadOrigin} — deploy upload ` +
+          "origins must be publicly reachable. Set BOS_STORAGE_ORIGIN for a local deploy, " +
+          "or fix cdn.upload (inherited via extends).",
+      };
+    }
+    storageOrigin = configUploadOrigin;
   } else if (cdnOrigin === PLATFORM_CDN_ORIGIN) {
     storageOrigin = PLATFORM_UPLOAD_ORIGIN;
   } else if (sessionSite) {
@@ -142,8 +160,9 @@ export function resolveCdnDeployInputs(input: {
       warning,
       error:
         `Bundle uploads require an upload-service origin — the gateway (${input.gateway}) no longer serves ` +
-        "uploads (ADR 0027: the upload service is standalone at upload.everything.dev). Set BOS_STORAGE_ORIGIN " +
-        "in the environment (CI) or re-run `bos login` against the production site so the session pins it.",
+        "uploads (ADR 0027: the upload service is standalone at upload.everything.dev). Set `cdn.upload` " +
+        "in the authored config (children inherit it from the base runtime via extends), BOS_STORAGE_ORIGIN " +
+        "in the environment (CI), or re-run `bos login` against the production site so the session pins it.",
     };
   }
 
@@ -154,8 +173,9 @@ export function resolveCdnDeployInputs(input: {
       apiKey,
       warning,
       error:
-        "CDN deploy requires bundle-upload credentials — run `bos login --key` and add the printed key " +
-        "to GitHub secrets as BOS_STORAGE_API_KEY (the deploy key also serves interactive deploys)",
+        "CDN deploy requires bundle-upload credentials — run `bos login` (interactive deploys use the " +
+        "stored deploy key), or for CI run `bos login --key` and add the printed key to your secrets " +
+        "as BOS_STORAGE_API_KEY",
     };
   }
   const uploadIdentities = new Set(
@@ -241,8 +261,9 @@ export async function probeStorageOrigin(
   if (uploadProbe.status === 404 || uploadProbe.status === 405) {
     return (
       `POST /api/storage/bundles responded ${uploadProbe.status} — this origin is an app host, ` +
-      "not the platform upload service. Set BOS_STORAGE_ORIGIN=https://upload.everything.dev " +
-      "(the platform CDN's write path) or re-run `bos login` against the production site."
+      "not the platform upload service. Set `cdn.upload` in the authored config " +
+      "(the platform CDN's write path, inherited via extends), BOS_STORAGE_ORIGIN in the " +
+      "environment, or re-run `bos login` against the production site."
     );
   }
   return undefined;

@@ -302,6 +302,27 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
       for (let i = 0; i < pending.length; i += 1) {
         const record = pending[i]!;
         const parentId = record.parentId;
+        // A plugin mounting into an area this runtime does not declare — the
+        // starter level stripped the mount (#935) or the host never had it —
+        // cannot render here. Omit the subtree instead of failing the whole
+        // runtime; the core ui keeps the throw (a mount typo in the
+        // runtime's own ui is a genuine config error).
+        if (!parentId && plugin.key !== CORE_UI_PLUGIN_KEY) {
+          const firstSegment = record.id.split("/")[0] ?? "";
+          if (firstSegment.startsWith("_")) {
+            const mount = resolveMountSegment(firstSegment.slice(1));
+            if (mount && !mountRoutes.has(mount)) {
+              console.log(
+                `[Compose] plugin "${plugin.key}" route "${record.id}" mounts into "${mount}", which this runtime does not declare — route omitted`,
+              );
+              shadowedIds.add(record.id);
+              pending.splice(i, 1);
+              i -= 1;
+              progressed = true;
+              continue;
+            }
+          }
+        }
         if (parentId) {
           if (shadowedIds.has(parentId)) {
             shadowedIds.add(record.id);

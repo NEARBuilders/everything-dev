@@ -10,6 +10,7 @@ import {
   Layer,
   ManagedRuntime,
   Option,
+  References,
 } from "effect";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
 import { pointerDigest, remoteDigests } from "everything-dev/digest";
@@ -23,13 +24,16 @@ import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
 import { HostServerError } from "./services/errors";
-import { FederationLifecycle } from "./services/federation.server";
+import { FederationContainers } from "./services/federation/containers";
+import { FederationLifecycle } from "./services/federation/lifecycle";
+import { FederationLoader } from "./services/federation/loader";
 import { closeMcpServer } from "./services/mcp";
 import { PluginsService } from "./services/plugins";
 import { deploymentDigest, RuntimeSnapshot } from "./services/runtime-snapshot";
 import { SnapshotCoordinator } from "./services/snapshot-coordinator";
 import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
 import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
+import { minimumLogLevel } from "./utils/effect-run";
 import { extractErrorDetails } from "./utils/errors";
 import { logger } from "./utils/logger";
 
@@ -78,6 +82,8 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     const plugins = yield* PluginsService;
     const security = yield* SecurityMiddleware;
     yield* FederationLifecycle;
+    const federationLoader = yield* FederationLoader;
+    const federationContainers = yield* FederationContainers;
     const apiProxyMode = Boolean(config.api?.proxy);
 
     const ssrEnabled = isSsrAvailable(config);
@@ -90,6 +96,13 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     const getBaseConfig = async () =>
       (await Effect.runPromiseWith(effectContext)(snapshot.get)).config;
     const getServingState = () => Effect.runPromiseWith(effectContext)(snapshot.get);
+    const getPendingRestart = async (): Promise<readonly string[]> =>
+      Effect.runPromiseWith(effectContext)(
+        Effect.gen(function* () {
+          const coordinator = yield* Effect.serviceOption(SnapshotCoordinator);
+          return Option.isSome(coordinator) ? yield* coordinator.value.pendingRestart : [];
+        }),
+      );
     const bootedFromSnapshot = process.env.BOS_BOOT_SNAPSHOT === "1";
     const app = new Hono<HonoEnv>();
 
@@ -136,6 +149,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
       const composeOk = !ssrEnabled || compositionHealth.status === "ready";
       const probeFailed = compositionHealth.selfProbe?.status === "failed";
       const serving = await getServingState();
+      const pendingRestart = await getPendingRestart();
       const snapshotBoot = getSnapshotBootHealth(bootedFromSnapshot, serving.pointer !== undefined);
       return c.json(
         {
@@ -154,6 +168,12 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
                   "boot-frozen slots changed pin — the swap cannot adopt them; restart to serve the adopted generation",
               }
             : {}),
+          ...(pendingRestart.length
+            ? {
+                pendingRestart,
+                note: "a published generation is held — boot-frozen slots moved pin and the coherence guard refuses a partial swap; restart (replace the instance) to serve UI and backends together",
+              }
+            : {}),
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
           ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
@@ -167,7 +187,11 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
         Effect.gen(function* () {
           const state = yield* snapshot.get;
           const watch = yield* Effect.serviceOption(SnapshotWatch);
+          const coordinator = yield* Effect.serviceOption(SnapshotCoordinator);
           const lastOutcome = Option.isSome(watch) ? watch.value.lastOutcome : undefined;
+          const pendingRestart = Option.isSome(coordinator)
+            ? yield* coordinator.value.pendingRestart
+            : [];
           return {
             deploymentDigest: state.config.deploymentDigest ?? state.deploymentDigest,
             pointerDigest: state.pointer ? pointerDigest(state.pointer as never) : undefined,
@@ -176,6 +200,12 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
               ? {
                   restartRequired: state.restartRequired,
                   note: "boot-frozen slots changed pin — the swap cannot adopt them; restart to serve the adopted generation",
+                }
+              : {}),
+            ...(pendingRestart.length
+              ? {
+                  pendingRestart,
+                  note: "a published generation is held — boot-frozen slots moved pin and the coherence guard refuses a partial swap; restart (replace the instance) to serve UI and backends together",
                 }
               : {}),
             ...(platform
@@ -242,7 +272,18 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
 
     app.use("/*", sessionMiddleware);
 
-    app.get("*", createSsrFallbackHandler(config, plugins, CSP_STRICT, getServingState));
+    app.get(
+      "*",
+      createSsrFallbackHandler(config, plugins, CSP_STRICT, getServingState, (effect) =>
+        Effect.runPromiseWith(effectContext)(
+          Effect.provideService(
+            Effect.provideService(effect, FederationContainers, federationContainers),
+            FederationLoader,
+            federationLoader,
+          ),
+        ),
+      ),
+    );
 
     const startHttpServer = () => {
       const hostname = process.env.HOST || "0.0.0.0";
@@ -260,7 +301,14 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
         }
 
         if (forwardedProto || forwardedHost) {
-          req = new Request(url, req);
+          // KEEP: `new Request(url, req)` (Request-as-init) throws
+          // "Illegal invocation" on Node ≥ 26's undici — copy explicitly.
+          const hasBody = req.method !== "GET" && req.method !== "HEAD";
+          req = new Request(url, {
+            method: req.method,
+            headers: req.headers,
+            ...(hasBody ? { body: req.body, duplex: "half" } : {}),
+          });
         }
 
         return app.fetch(req, env, executionCtx);
@@ -362,6 +410,7 @@ export const runServer = (input: ServerInput): ServerHandle => {
     FederationLifecycle.layer,
     Layer.provideMerge(CoordinatorLive, SnapshotLive),
     WatchLive,
+    Layer.succeed(References.MinimumLogLevel, minimumLogLevel()),
   );
 
   const runtime = ManagedRuntime.make(ServerLive);

@@ -1,5 +1,6 @@
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { redirect } from "@tanstack/react-router";
+import { teamWorkspaceQueryKey } from "everything-dev/ui/auth";
 import type { ApiClient } from "@/app";
 import type { AuthRequestContext } from "@/lib/auth";
 import { type FeatureArea, isFeatureArea } from "@/lib/feature-areas";
@@ -36,7 +37,7 @@ const ROUTE_AREAS: Array<{ prefix: string; area: FeatureArea }> = [
   { prefix: "/stake", area: "stake" },
 ];
 
-export const teamWorkspaceQueryKey = ["team-workspace"] as const;
+export { teamWorkspaceQueryKey };
 
 export function resolveTeamWorkspace(
   context: AuthRequestContext | null | undefined,

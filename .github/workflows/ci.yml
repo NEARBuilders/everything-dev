@@ -148,24 +148,30 @@ jobs:
         env:
           AUDIT_STRICT: ${{ secrets.AUDIT_STRICT }}
         run: |
-          set +e -o pipefail
-          timeout 240 pnpm audit --json 2>&1 | tee audit-output.txt
+          set +e
+          audit_json="$RUNNER_TEMP/audit-output.json"
+          timeout 240 pnpm audit --json > "$audit_json" 2>"$RUNNER_TEMP/audit-stderr.txt"
           audit_exit=$?
           if [ "$audit_exit" -eq 124 ]; then
-            echo "::warning::pnpm audit timed out after 240s — skipping vulnerability check"
+            echo "::warning::pnpm audit timed out after 240s — the vulnerability check DID NOT RUN"
+            echo "- Security audit: **SKIPPED** (pnpm audit timed out after 240s)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [ "$audit_exit" -gt 1 ]; then
-            echo "::warning::pnpm audit exited with code $audit_exit — see output above"
+            echo "::warning::pnpm audit exited with code $audit_exit — the vulnerability check DID NOT RUN"
+            echo "- Security audit: **SKIPPED** (audit exited with $audit_exit)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if grep -qiE '(critical|high)' audit-output.txt; then
+          audit_status=0
+          node .github/scripts/audit-summary.mjs "$audit_json" || audit_status=$?
+          if [ "$audit_status" = "10" ]; then
             if [ "$AUDIT_STRICT" = "true" ]; then
-              echo "::error::Critical or high vulnerabilities found — failing the audit"
+              echo "::error::pnpm audit found critical or high vulnerabilities — failing the audit (AUDIT_STRICT=true)"
               exit 1
-            else
-              echo "::warning::Critical or high vulnerabilities found — set AUDIT_STRICT=true secret to fail on these"
             fi
+            echo "::warning::pnpm audit found critical or high vulnerabilities — set AUDIT_STRICT=true to fail on these"
+          elif [ "$audit_status" = "3" ]; then
+            echo "- Security audit: **SKIPPED** (audit output unreadable)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Run Biome lint and format check
@@ -189,6 +195,11 @@ jobs:
       # contract types + manifest pipeline in one command.
       - name: Build template plugin (contract types + manifest pipeline)
         run: pnpm run build template
+
+      # Runs after the builds on purpose — the guard's job is to catch a
+      # build step regenerating artifacts into src/ trees (#923).
+      - name: Check for stray build artifacts
+        run: node scripts/stray-artifacts-guard.mjs
 
   workflows-lint:
     name: Workflow lint
@@ -341,12 +352,12 @@ jobs:
       - name: Test better-near-auth
         run: pnpm --filter better-near-auth test
 
-  fresh-init-dev:
-    name: Fresh init dev gate
+  init-matrix:
+    name: Init scaffold matrix
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.everything-dev == 'true'
+    if: needs.detect-changes.outputs.ui-api == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -377,8 +388,47 @@ jobs:
       - name: Build framework dists
         run: pnpm run build template
 
-      - name: Fresh init + dev boot gate
-        run: pnpm --filter everything-dev exec vitest run tests/integration/fresh-init-dev.test.ts
+      - name: Init scaffold matrix (structure + install lanes)
+        run: pnpm --filter everything-dev exec vitest run tests/integration/init.matrix.test.ts
+
+  init-boot:
+    name: Init boot gate
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.ui-api == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build framework dists
+        run: pnpm run build template
+
+      - name: Init boot gates (build + dev boot, per level)
+        run: pnpm --filter everything-dev exec vitest run tests/integration/init.boot.test.ts
 
   plugin-tests:
     name: Plugin tests
@@ -1168,10 +1218,52 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Evaluate suite results
+        # No checkout — this job is the 5-second verdict over `needs`, so the
+        # report runs inline (a script file would not exist in the workspace).
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
-          RESULTS="${{ join(needs.*.result, ' ') }}"
-          echo "suite results: $RESULTS"
-          if echo "$RESULTS" | grep -qE 'failure|cancelled'; then
-            echo "::error::CI run has failed or cancelled suites — see the jobs above"
+          gate_status=0
+          REPORT="$(node -e '
+            const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
+            const labels = {
+              "detect-changes": "Path gating (detect-changes)",
+              "lint-and-typecheck": "Lint + typecheck",
+              "workflows-lint": "Workflow lint",
+              "framework-unit": "Framework unit tests",
+              "framework-integration": "Framework integration tests",
+              "better-near-auth": "better-near-auth tests",
+              "plugin-tests": "Plugin tests",
+              "ui-api-tests": "UI/API tests",
+              "host-tests": "Host tests",
+              "regression-unit": "Regression: unit",
+              "regression-http": "Regression: HTTP",
+              "regression-http-start": "Regression: HTTP (start stack)",
+              "regression-framework": "Regression: framework",
+              "regression-browser": "Regression: browser",
+              "regression-browser-smoke": "Regression: browser smoke",
+              "regression-browser-start": "Regression: browser (start stack)",
+            };
+            const rows = Object.entries(needs).map(([id, info]) => [
+              labels[id] ?? id,
+              (info ?? {}).result ?? "unknown",
+            ]);
+            console.log("### CI suite results");
+            console.log("");
+            console.log("| Suite | Result |");
+            console.log("|-------|--------|");
+            for (const [label, result] of rows) {
+              const mark = result === "success" ? "✓ success" : result === "skipped" ? "– skipped" : "✗ " + result;
+              console.log("| " + label + " | " + mark + " |");
+            }
+            const failed = rows.filter(([, result]) => result === "failure" || result === "cancelled");
+            for (const [label, result] of failed) {
+              console.log("::error::Suite \"" + label + "\" " + result + " — see that job log above");
+            }
+            process.exit(failed.length > 0 ? 1 : 0);
+          ')" || gate_status=$?
+          printf '%s\n' "$REPORT"
+          printf '%s\n' "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$gate_status" -ne 0 ]; then
             exit 1
           fi

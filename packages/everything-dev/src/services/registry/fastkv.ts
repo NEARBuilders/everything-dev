@@ -83,9 +83,10 @@ export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: str
   } catch (error) {
     // message parity: the historical failure surface is "No config found
     // for <bosUrl>" — keep it for absent reads so every "startsWith" check
-    // downstream keeps working.
+    // downstream keeps working. Message parity and chain preservation are
+    // independent: the cause rides along.
     if (error instanceof RegistryError && error.kind === "absent") {
-      throw new Error(`No config found for ${bosUrl}`);
+      throw new Error(`No config found for ${bosUrl}`, { cause: error });
     }
     throw error;
   }

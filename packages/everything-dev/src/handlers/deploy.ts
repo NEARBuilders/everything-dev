@@ -29,6 +29,8 @@ type TrainErrorResult = {
   registryUrl: string;
   error: string;
   txHash?: string;
+  txUrl?: string;
+  kind?: string;
   built?: string[];
   skipped?: string[];
   deployResults?: WorkspaceDeployResult[];
@@ -81,7 +83,6 @@ export function registerDeploy(builder: BosBuilder) {
           packages: "all",
           network: input.network,
           privateKey: input.privateKey,
-          wallet: input.wallet,
           registry: input.registry,
         })
         .pipe(Effect.catchTag("PublishTrainError", mapTrainError));
@@ -90,6 +91,8 @@ export function registerDeploy(builder: BosBuilder) {
         status: result.status,
         registryUrl: result.registryUrl,
         txHash: result.txHash,
+        ...(result.txUrl ? { txUrl: result.txUrl } : {}),
+        ...(result.status === "error" && result.kind ? { kind: result.kind } : {}),
         ...(result.status === "error" && result.error ? { error: result.error } : {}),
         built: result.built,
         skipped: result.skipped,
@@ -141,7 +144,6 @@ export function registerDeploy(builder: BosBuilder) {
             verbose: input.verbose,
             network: input.network,
             privateKey: input.privateKey,
-            wallet: input.wallet,
             promote: true,
           }),
         catch: (error) => ({
@@ -204,7 +206,6 @@ async function rollbackBody(
     verbose: boolean;
     network?: "mainnet" | "testnet";
     privateKey?: string;
-    wallet: boolean;
     /** Promote framing (ADR 0042 ticket 05): activate a recorded deployment
      * without the rolledBackFrom brand; requires an explicit version, and an
      * already-live target is a legitimate idempotent no-op rather than a
@@ -333,7 +334,6 @@ async function rollbackBody(
       registry: input.registry,
       network: input.network,
       privateKey: input.privateKey,
-      wallet: input.wallet,
       verbose: input.verbose,
       dryRun: input.dryRun,
     },
@@ -459,6 +459,7 @@ async function deployBody(
       status: "error",
       registryUrl: result.registryUrl,
       txHash: result.txHash,
+      kind: result.kind,
       built: result.built,
       skipped: result.skipped,
       error: result.error,
@@ -490,6 +491,7 @@ async function deployBody(
   const configPublished = {
     registryUrl: result.registryUrl,
     txHash: result.txHash,
+    ...(result.txUrl ? { txUrl: result.txUrl } : {}),
     pointerDigest: result.pointerDigest,
     remoteDigests: result.remoteDigests,
     built: result.built,

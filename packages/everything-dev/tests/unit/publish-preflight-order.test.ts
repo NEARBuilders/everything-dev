@@ -181,10 +181,14 @@ describe("publishToFastKv preflight ordering", () => {
       BOS_BUNDLE_CDN_ORIGIN: process.env.BOS_BUNDLE_CDN_ORIGIN,
       BOS_STORAGE_API_KEY: process.env.BOS_STORAGE_API_KEY,
       BOS_STORAGE_ORIGIN: process.env.BOS_STORAGE_ORIGIN,
+      NEAR_PRIVATE_KEY: process.env.NEAR_PRIVATE_KEY,
+      BOS_NEAR_PRIVATE_KEY: process.env.BOS_NEAR_PRIVATE_KEY,
     };
     delete process.env.BOS_BUNDLE_CDN_ORIGIN;
     delete process.env.BOS_STORAGE_API_KEY;
     delete process.env.BOS_STORAGE_ORIGIN;
+    delete process.env.NEAR_PRIVATE_KEY;
+    delete process.env.BOS_NEAR_PRIVATE_KEY;
     process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS = "1";
 
     resolveSigningStrategyMock.mockResolvedValue({
@@ -263,7 +267,14 @@ describe("publishToFastKv preflight ordering", () => {
       delegateKey: null,
     });
 
-    const result = await publishToFastKv({ ...baseInput, configDir });
+    // No explicit key and publish.auth pinned to the session: the session
+    // guard fires (an implicit mismatched session would fall through to key).
+    const result = await publishToFastKv({
+      ...baseInput,
+      bosConfig: { ...bosConfig, publish: { auth: "session" } } as BosConfig,
+      privateKey: undefined,
+      configDir,
+    });
 
     expect(result.status).toBe("error");
     expect(result.error).toContain("someone.else.near");
