@@ -156,6 +156,28 @@ function setPath(value: Record<string, Json>, path: string[], leaf: Json): Recor
   return out;
 }
 
+type ShapeKind = "object" | "array" | "scalar";
+
+function shapeKind(value: Json): ShapeKind {
+  if (Array.isArray(value)) return "array";
+  if (value !== null && typeof value === "object") return "object";
+  return "scalar";
+}
+
+function typeCompatible(a: Json, b: Json): boolean {
+  if (shapeKind(a) !== shapeKind(b)) return false;
+  if (shapeKind(a) !== "object") return true;
+  const ra = a as Record<string, Json>;
+  const rb = b as Record<string, Json>;
+  for (const key of Object.keys(ra)) {
+    if (key in rb && !typeCompatible(ra[key], rb[key])) return false;
+  }
+  for (const key of Object.keys(rb)) {
+    if (key in ra && !typeCompatible(ra[key], rb[key])) return false;
+  }
+  return true;
+}
+
 const mergePathAlpha = ["app", "api", "shared", "effect", "variables", "alpha"];
 const mergePath = fc.array(fc.constantFrom(...mergePathAlpha), { minLength: 1, maxLength: 3 });
 
@@ -208,12 +230,22 @@ const resolvedConfig: fc.Arbitrary<Record<string, Json>> = nullFreeConfig.filter
 
 describe("mergeBosConfigWithExtends laws", () => {
   it("associativity on the null-free domain: chain resolution is grouping-independent", () => {
-    const prop = fc.property(nullFreeConfig, nullFreeConfig, nullFreeConfig, (a, b, c) => {
+    // Type-conflicting triples are exempt (#948): a same-path conflict where
+    // exactly one side is a plain object resolves by wholesale replacement of
+    // the non-object side (child-wins), so across three overlays the
+    // replacement order decides which shape survives and the law stops holding
+    // — same documented asymmetry class as the null case below and the
+    // mergeAuthoredOverPublished exemption further down. Nulls stay in the law.
+    const prop = fc
+      .tuple(nullFreeConfig, nullFreeConfig, nullFreeConfig)
+      .filter(([a, b, c]) => typeCompatible(a, b) && typeCompatible(b, c) && typeCompatible(a, c))
+      .map(([a, b, c]) => ({ a, b, c }));
+    const law = fc.property(prop, ({ a, b, c }) => {
       const left = mergeExtends(a, mergeExtends(b, c));
       const right = mergeExtends(mergeExtends(a, b), c);
       return canon(left) === canon(right);
     });
-    expect(fc.assert(prop, { numRuns: 300 })).toBeUndefined();
+    expect(fc.assert(law, { numRuns: 300 })).toBeUndefined();
   });
 
   it("associativity with nulls fails by design: parent null absorbs, child null is transparent (documented)", () => {
@@ -225,6 +257,37 @@ describe("mergeBosConfigWithExtends laws", () => {
       publish: { zod: false },
     });
     expect(canon(left)).not.toBe(canon(right));
+  });
+
+  it("associativity with shape conflicts fails by design: child non-object wins, grouping decides which shape survives (documented, #948)", () => {
+    const scalarFirst = {
+      a: { title: { ui: { api: {} } } } as Record<string, Json>,
+      b: { title: { ui: 0 } } as Record<string, Json>,
+      c: { title: { ui: {} } } as Record<string, Json>,
+    };
+    const arrayFirst = {
+      a: { title: { connectSrc: { api: [] } } } as Record<string, Json>,
+      b: { title: { connectSrc: [] } } as Record<string, Json>,
+      c: { title: { connectSrc: {} } } as Record<string, Json>,
+    };
+
+    expect(canon(mergeExtends(scalarFirst.a, scalarFirst.b))).toBe(canon({ title: { ui: 0 } }));
+    expect(canon(mergeExtends(mergeExtends(scalarFirst.a, scalarFirst.b), scalarFirst.c))).toBe(
+      canon({ title: { ui: {} } }),
+    );
+    expect(canon(mergeExtends(scalarFirst.a, mergeExtends(scalarFirst.b, scalarFirst.c)))).toBe(
+      canon({ title: { ui: { api: {} } } }),
+    );
+
+    expect(canon(mergeExtends(arrayFirst.a, arrayFirst.b))).toBe(
+      canon({ title: { connectSrc: [] } }),
+    );
+    expect(canon(mergeExtends(mergeExtends(arrayFirst.a, arrayFirst.b), arrayFirst.c))).toBe(
+      canon({ title: { connectSrc: {} } }),
+    );
+    expect(canon(mergeExtends(arrayFirst.a, mergeExtends(arrayFirst.b, arrayFirst.c)))).toBe(
+      canon({ title: { connectSrc: { api: [] } } }),
+    );
   });
 
   it("child scalar precedence at arbitrary paths", () => {
@@ -577,12 +640,60 @@ describe("mergeAuthoredOverPublished laws", () => {
   });
 
   it("associativity under repeated overlays", () => {
-    const prop = fc.property(arbitraryConfig, arbitraryConfig, arbitraryConfig, (p, a1, a2) => {
+    // Type-conflicting triples are exempt, mirroring the documented null
+    // asymmetry below (#948): the overlay resolves a same-path conflict where
+    // exactly one side is a plain object by wholesale replacement of the
+    // non-object side (authored-wins), so with three overlays the replacement
+    // order decides which shape survives and canonicalized results stop being
+    // grouping-independent. Everything else (nulls included) stays in the law.
+    const prop = fc
+      .tuple(arbitraryConfig, arbitraryConfig, arbitraryConfig)
+      .filter(
+        ([p, a1, a2]) => typeCompatible(p, a1) && typeCompatible(a1, a2) && typeCompatible(p, a2),
+      )
+      .map(([p, a1, a2]) => ({ p, a1, a2 }));
+    const law = fc.property(prop, ({ p, a1, a2 }) => {
       const left = overlayAuthored(overlayAuthored(p, a1), a2);
       const right = overlayAuthored(p, overlayAuthored(a1, a2));
       return canon(left) === canon(right);
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(law, { numRuns: 200 })).toBeUndefined();
+  });
+
+  it("associativity with shape conflicts fails by design: authored non-object wins, grouping decides which shape survives (documented, #948)", () => {
+    const objectFirst = {
+      p: { domain: { api: { api: [] } } } as Record<string, Json>,
+      a1: { domain: { api: [] } } as Record<string, Json>,
+      a2: { domain: { api: {} } } as Record<string, Json>,
+    };
+    const scalarFirst = {
+      p: { extra: { connectSrc: { api: {} } } } as Record<string, Json>,
+      a1: { extra: { connectSrc: false } } as Record<string, Json>,
+      a2: { extra: { connectSrc: {} } } as Record<string, Json>,
+    };
+
+    for (const { p, a1, a2 } of [objectFirst, scalarFirst]) {
+      const left = overlayAuthored(overlayAuthored(p, a1), a2);
+      const right = overlayAuthored(p, overlayAuthored(a1, a2));
+      expect(canon(left)).not.toBe(canon(right));
+    }
+
+    expect(
+      getPath(overlayAuthored(overlayAuthored(objectFirst.p, objectFirst.a1), objectFirst.a2), [
+        "domain",
+        "api",
+      ]),
+    ).toEqual({});
+    expect(getPath(overlayAuthored(objectFirst.p, objectFirst.a1), ["domain", "api"])).toEqual([]);
+    expect(
+      getPath(overlayAuthored(overlayAuthored(scalarFirst.p, scalarFirst.a1), scalarFirst.a2), [
+        "extra",
+        "connectSrc",
+      ]),
+    ).toEqual({});
+    expect(
+      getPath(overlayAuthored(scalarFirst.p, scalarFirst.a1), ["extra", "connectSrc"]),
+    ).toEqual(false);
   });
 
   it("idempotence: overlaying a resolved snapshot with itself is a fixpoint", () => {
