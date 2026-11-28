@@ -75,15 +75,15 @@ _Avoid_: version plane, release plane (retired), plane stamping (the mechanism; 
 ## Documentation
 
 **Book**:
-The manual — `docs/book/` (ADR 0055). Short chapters organized by concept, stating the platform as it is, each naming the commands that check its claims and citing the ADRs it rests on. The book synthesizes the ledger; it never replaces a record. When a chapter and an ADR disagree, the ADR wins.
+The manual — `docs/book/` (ADR 0055): the platform as it is, organized by concept rather than by decision, each chapter citing the ADRs it rests on. Distinguished from the **ADR ledger**, which records how the platform came to be.
 _Avoid_: guide (the task-shaped skills are guides), tutorial, wiki
 
 **ADR ledger**:
-The set of Architecture Decision Records under `docs/adr/` taken as one body (ADR 0055) — dated, append-only except for dated amendments, one record per decision. Cite a record by number; never rewrite one into prose. A new or amended record obligates a check of the book chapters that cite it.
+The Architecture Decision Records under `docs/adr/` taken as one body (ADR 0055) — dated, one record per decision, amended only by dated sections. Distinguished from the **book**, which summarizes it.
 _Avoid_: documentation (the ledger is one layer of it), archive (superseded records are history, not storage)
 
 **Documentation map**:
-`docs/README.md` (ADR 0055) — what the repository is, what each documentation tree is for, and where new writing goes. The entry point that `llms.txt` and `skill.md` point at.
+`docs/README.md` (ADR 0055) — the description of the repository and of each documentation tree: what it is for and who it is for. Distinguished from an index, which lists a tree's entries without orienting the reader.
 _Avoid_: index (the ADR and plans indexes are indexes; the map orients), README (ambiguous — the repository has several)
 
 ## Organization access

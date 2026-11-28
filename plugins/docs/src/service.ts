@@ -6,11 +6,6 @@ export interface DocRecord {
   readonly source: string;
   readonly path: string;
   readonly slug: string;
-  /**
-   * The doc's file relative to the repository root ("docs/adr/0012-x.md",
-   * "plugins/auth/docs/install.md") — the base its relative links resolve
-   * against, exactly as a repository host resolves them.
-   */
   readonly file: string;
   readonly title: string;
   readonly description?: string;
@@ -22,10 +17,6 @@ export interface DocRecord {
   readonly search?: string;
 }
 
-/**
- * The repository file a record's links resolve against, derived from its
- * slug — for corpora compiled before the `file` field existed.
- */
 export const fileOfSlug = (slug: string, source: string): string => {
   if (slug === "glossary") return "GLOSSARY.md";
   const pluginMatch = /^plugins\/([^/]+)\/(.+)$/.exec(slug);

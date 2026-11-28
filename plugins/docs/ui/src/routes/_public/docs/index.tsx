@@ -8,17 +8,11 @@ import { NavTree } from "@/components/docs/nav-tree";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { repositoryOf, resolveDocsClient } from "@/lib/api";
+import { isNotFound, repositoryOf, resolveDocsClient } from "@/lib/api";
 import { useDocLinks } from "@/lib/doc-links";
 import { docsNavQueryOptions } from "@/lib/queries";
 import type { DocOutput } from "../../../../../src/contract";
 
-/**
- * The documentation map — the corpus's root `README.md` (docs/README.md).
- * When a repository writes one, the index renders it above the tree: what
- * the repository is, what each section is for, and where to start. A corpus
- * without one gets the plain index.
- */
 const DOCUMENTATION_MAP_SLUG = "README";
 
 interface DocsIndexLoaderData {
@@ -31,15 +25,12 @@ export const Route = createFileRoute("/_public/docs/")({
   }),
   loader: async ({ context }) => {
     const client = resolveDocsClient(context);
-    try {
-      await context.queryClient.ensureQueryData(docsNavQueryOptions(client));
-    } catch {
-      // The tree is a progressive enhancement — the index still renders.
-    }
+    await context.queryClient.prefetchQuery(docsNavQueryOptions(client));
     try {
       const { doc } = await client.getBySlug({ slug: DOCUMENTATION_MAP_SLUG });
       return { map: doc } satisfies DocsIndexLoaderData;
-    } catch {
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
       return { map: null } satisfies DocsIndexLoaderData;
     }
   },

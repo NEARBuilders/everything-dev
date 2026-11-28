@@ -9,8 +9,7 @@ const repoRoot = process.cwd();
 // claim to describe the current repo. Deliberately excluded: docs/adr/*.md
 // bodies and docs/plans/*.md bodies (dated records; ADRs cite their PR/commit,
 // plans self-stamp with `git rev-parse` for their own drift detection), and
-// CHANGELOG.md (historical by convention). The documentation map and the book
-// are in scope: every link they name is a navigation claim (ADR 0055).
+// CHANGELOG.md (historical by convention).
 const FILE_SCOPES = [
   "AGENTS.md",
   "GLOSSARY.md",

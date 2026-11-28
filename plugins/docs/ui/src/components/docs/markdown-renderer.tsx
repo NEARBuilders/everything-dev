@@ -162,11 +162,6 @@ function Heading({
   );
 }
 
-/**
- * A link authored as a repository path, routed to where it opens in the app
- * (resolveDocHref). Links into the corpus navigate in the reader without a
- * document reload; links that leave the app open in a new tab.
- */
 function DocLink({
   href,
   file,
@@ -206,7 +201,6 @@ export function MarkdownRenderer({
   links,
 }: {
   content: string;
-  /** The doc's repository file — the base its relative links resolve against. */
   file?: string;
   links?: DocLinkContext;
 }) {

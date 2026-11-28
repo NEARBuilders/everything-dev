@@ -37,7 +37,8 @@ site** creates a second source that drifts from the first.
 [docs/README.md](../README.md) is the **documentation map** — the entry point that
 says what the repository is, what each tree is for, and where new writing goes. All
 of it is compiled by the docs plugin from the same git tree, so the website cannot
-drift from the repository.
+drift from the repository. The reader renders the map at `/docs` when the corpus has
+one; a corpus without it gets the plain index.
 
 **2. The book synthesizes and cites; the ledger is never rewritten.** A chapter gives
 the big ideas and the concepts a builder needs, names the commands that check its
@@ -70,6 +71,14 @@ Repository links derive from the runtime config's `repository` field, so a runti
 that composes the docs plugin sends source links to its own repository. The
 default branch is addressed as `HEAD`; no branch name is guessed.
 
+A link resolves against the document's own repository file — every record carries
+`file`, and a corpus compiled before the field existed derives it from the slug.
+The repository-only forms are matched first: the root `README.md` would otherwise
+collide with a page whose slug is also `README`. A link into the corpus navigates
+in the reader without a document reload; a link that leaves the app opens in a new
+tab. Until the navigation tree has loaded the corpus is unknown, and a document
+link is assumed compiled.
+
 **5. Documents are published; repository examples are not.** Plans, audits, and
 design maps are documents and join the corpus. Runnable prototype trees under
 `docs/plans/prototypes/` are code with a README — they stay in git and are excluded
@@ -82,8 +91,9 @@ they do not change when a chapter does.
 **7. The read API is on every API surface.** The docs routes join the base API
 router, so they are reachable over RPC, REST, OpenAPI, and MCP like every other
 route — an agent fetches a page with a plain `GET /api/docs/{slug}` and reads raw
-markdown. Slugs are path-shaped, so the REST parameter uses the reserved expansion
-(`{+slug}`), and query parameters coerce.
+markdown. The per-plugin RPC mount alone leaves an API RPC-only. Slugs are
+path-shaped, so the REST parameter uses the reserved expansion (`{+slug}`); query
+strings arrive as strings, so query parameters coerce.
 
 **8. The reader's stylesheet stands on its own.** A plugin's utilities must sort
 after the host's, or its responsive variants lose to the host's base classes. A
@@ -95,11 +105,13 @@ a runtime that composes the docs UI remotely and cannot re-source its classes.
 
 - An app author can learn the platform in one sitting and descend into the ledger
   at the exact record behind any statement.
-- The reader's sidebar opens on the book and collapses the rest, so the manual is
-  the first thing a reader sees and the ledger is one click away.
+- The manual is the first thing a reader sees in the sidebar, and the ledger is one
+  click away.
 - The book is one more surface an ADR change must touch. The cost is bounded — a
   search for the record's number — and it is the price of having a manual that is
   true.
+- The sidebar opens the first top-level section — the one frontmatter `order` puts
+  first — and keeps every other directory closed until it holds the current page.
 - Link resolution resolves against the compiled corpus, so a document that links a
   markdown file the corpus does not include lands in the repository instead of a
   404.

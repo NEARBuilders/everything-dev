@@ -90,7 +90,6 @@ export const contract = oc.router({
           .string()
           .optional()
           .describe("Filter by content source: app, or a plugin's workspace name"),
-        // KEEP: query strings arrive as strings on the REST surface.
         limit: z.coerce
           .number()
           .min(1)
@@ -105,8 +104,6 @@ export const contract = oc.router({
   getBySlug: oc
     .route({
       method: "GET",
-      // KEEP: slugs are path-shaped (book/01-the-model) — only the reserved
-      // expansion keeps the slash inside one parameter on the REST surface.
       path: "/docs/{+slug}",
       summary: "Get a doc by slug",
       description: "Returns a single doc's metadata and raw markdown body.",

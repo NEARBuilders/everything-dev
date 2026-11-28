@@ -15,7 +15,6 @@ test.describe("Docs", () => {
     await waitForApp(page);
 
     await expect(page.getByTestId("docs.heading")).toBeVisible({ timeout: 15000 });
-    // Scoped to the list: the sidebar's tree carries the same testids.
     const list = page.getByTestId("docs.list");
     await expect(list.getByTestId("docs.tree")).toBeVisible({ timeout: 15000 });
     const items = list.getByTestId("docs.item");
@@ -56,7 +55,6 @@ test.describe("Docs", () => {
     await page.goto("/docs", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
-    // Top-level sections only — the tree nests directories.
     const sections = page
       .getByTestId("docs.list")
       .locator(':scope > ul > li > details[data-testid="docs.tree-dir"]');
@@ -65,7 +63,7 @@ test.describe("Docs", () => {
     await expect(sections.first()).toHaveAttribute("open", "");
 
     const ledger = sections.filter({
-      has: page.locator(":scope > summary", { hasText: /^Adr$/ }),
+      has: page.locator(":scope > summary", { hasText: /^ADR$/ }),
     });
     await expect(ledger).toHaveCount(1);
     await expect(ledger).not.toHaveAttribute("open", /.*/);
@@ -78,8 +76,6 @@ test.describe("Docs", () => {
     await waitForApp(page);
 
     await expect(page.getByTestId("docs.reader-title")).toBeVisible({ timeout: 15000 });
-    // A plugin's utilities must outrank the host's: `hidden lg:block` shows the
-    // sidebar only if the docs stylesheet's `lg:block` beats the host's `hidden`.
     await expect(page.getByTestId("docs.sidebar")).toBeVisible();
     await expect(page.getByTestId("docs.mobile-tree")).toBeHidden();
     await expect(page.getByTestId("docs.toc")).toBeVisible();
@@ -181,13 +177,11 @@ test.describe("Docs", () => {
     await expect(count).toHaveText(/\d+ \/ \d+ docs/, { timeout: 15000 });
     const total = await count.innerText();
 
-    // Scoped to the list: the sidebar's tree carries the same item testid.
     const results = page.getByTestId("docs.list").getByTestId("docs.item");
     await page.getByTestId("docs.search").fill("0017-session-gas-keys");
     await expect(results).toHaveCount(1, { timeout: 15000 });
     await expect(count).not.toHaveText(total);
 
-    // The list keeps the previous results until the new query settles.
     await page.getByTestId("docs.search").fill("ADR 0001");
     await expect(results.nth(1)).toBeVisible({ timeout: 15000 });
     const bodyMatches = await results.count();

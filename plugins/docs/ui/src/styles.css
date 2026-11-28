@@ -1,7 +1,3 @@
-/* KEEP: a plugin's utilities must sort after the host's, or its variants lose to the
-   host's base classes (the host's `.hidden` beats a plugin's `lg:block`). A nested
-   `utilities.*` layer sorts *before* its parent's own rules, so the utilities go in
-   their own top-level layer, ordered last whether this sheet loads first or second. */
 @layer properties, theme, base, components, utilities, plugins;
 @import "tailwindcss/theme" theme(reference inline);
 @import "tailwindcss/utilities" layer(plugins.docs);
