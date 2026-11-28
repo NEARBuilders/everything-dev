@@ -62,7 +62,7 @@ import { stripLocalDevelopmentTargets } from "../../src/services/resolution/merg
 
 const bosConfig = {
   account: "dev.everything.near",
-  domain: "dev.everything.dev",
+  domain: "everything.dev",
   cdn: { origin: "https://cdn.example.test" },
   app: {
     host: {
