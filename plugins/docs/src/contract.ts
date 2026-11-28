@@ -9,7 +9,12 @@ const Errors = {
 };
 
 export const DocSummarySchema = z.object({
-  slug: z.string().describe("Doc slug, path-derived, e.g. adr/0012-session-gas-keys"),
+  slug: z
+    .string()
+    .describe("Mount-qualified slug, e.g. adr/0012-session-gas-keys or plugins/auth/install"),
+  source: z
+    .string()
+    .describe("Content source: app for the composing app's docs tree, or the plugin's name"),
   title: z.string().describe("Human title: frontmatter, first heading, or slug fallback"),
   description: z.string().optional().describe("Frontmatter description, if authored"),
   tags: z.array(z.string()).describe("Frontmatter tags, empty by default"),
@@ -29,6 +34,24 @@ export const ListDocsSchema = z.object({
   }),
 });
 
+export const NavNodeSchema = z.object({
+  label: z.string().describe("Directory name, or the prettified page title at the leaf"),
+  slug: z.string().nullable().describe("Qualified slug when a page exists at this path"),
+  title: z.string().nullable(),
+  order: z.number(),
+  get children() {
+    return z.array(NavNodeSchema).describe("Child nodes, sorted by order then label");
+  },
+});
+
+export interface NavNodeShape {
+  label: string;
+  slug: string | null;
+  title: string | null;
+  order: number;
+  children: NavNodeShape[];
+}
+
 export const contract = oc.router({
   listPublished: oc
     .route({
@@ -36,7 +59,7 @@ export const contract = oc.router({
       path: "/docs",
       summary: "List published docs",
       description:
-        "Lists the repository's compiled docs with optional query and tag filters and opaque-cursor pagination.",
+        "Lists the compiled docs across all content sources with optional query, source and tag filters and opaque-cursor pagination. Query matches against title, slug, description and body text.",
       tags: ["Docs"],
     })
     .input(
@@ -44,8 +67,12 @@ export const contract = oc.router({
         q: z
           .string()
           .optional()
-          .describe("Case-insensitive match against title, slug, description"),
+          .describe("Case-insensitive match against title, slug, description and body text"),
         tag: z.string().optional().describe("Filter by tag"),
+        source: z
+          .string()
+          .optional()
+          .describe("Filter by content source: app, or a plugin's workspace name"),
         limit: z.number().min(1).max(100).default(20).describe("Maximum number of docs to return"),
         cursor: z.string().optional().describe("Opaque cursor for the next page"),
       }),
@@ -62,11 +89,24 @@ export const contract = oc.router({
     })
     .input(
       z.object({
-        slug: z.string().min(1, "Slug is required").describe("Doc slug"),
+        slug: z.string().min(1, "Slug is required").describe("Mount-qualified slug"),
       }),
     )
     .output(z.object({ doc: DocSchema }))
     .errors(Errors),
+
+  getNav: oc
+    .route({
+      method: "GET",
+      path: "/docs/nav",
+      summary: "Get the docs navigation tree",
+      description:
+        "The full navigation tree over every content source: one directory node per slug path segment, page nodes at the leaves, sorted by subtree-minimum order then label.",
+      tags: ["Docs"],
+    })
+    .output(z.object({ nav: z.array(NavNodeSchema) })),
 });
 
 export type ContractType = typeof contract;
+
+export type DocOutput = z.output<typeof DocSchema>;

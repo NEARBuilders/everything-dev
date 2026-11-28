@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { Clock, Effect } from "effect";
 import {
   type AuthRemoteShape,
@@ -304,13 +305,27 @@ export function buildServiceDescriptors(
         });
       }
       if (p?.ui && pluginCfg.ui?.source === "local") {
-        descriptors.push({
-          key: `plugin-ui:${pluginId}`,
-          source: "local",
-          url: `http://localhost:${p.ui}`,
-          port: p.ui,
-          localPath: pluginCfg.ui?.localPath,
-        });
+        // Folder-form UI (ui dir inside the plugin workspace, no own
+        // package.json): the plugin's own dev process serves the UI build
+        // via BOS_UI_PORT — no standalone plugin-ui unit, so this list stays
+        // in lockstep with buildServiceDescriptorMap (the map the dev
+        // session actually spawns from). The port stays allocated; the
+        // assigned runtime config carries it on the ui slot.
+        const uiLocalPath = pluginCfg.ui?.localPath;
+        const isFolderFormUi = Boolean(
+          uiLocalPath &&
+            existsSync(join(uiLocalPath, "src", "routes")) &&
+            !existsSync(join(uiLocalPath, "package.json")),
+        );
+        if (!isFolderFormUi) {
+          descriptors.push({
+            key: `plugin-ui:${pluginId}`,
+            source: "local",
+            url: `http://localhost:${p.ui}`,
+            port: p.ui,
+            localPath: pluginCfg.ui?.localPath,
+          });
+        }
       }
     }
   }

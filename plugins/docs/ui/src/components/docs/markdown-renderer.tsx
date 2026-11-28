@@ -1,13 +1,17 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
+import GithubSlugger from "github-slugger";
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
+import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 
 /**
- * Client-side markdown renderer shared by the public read route and (in a
- * later epic) the draft-editor preview — preview parity by construction.
- * Code highlighting runs through shiki's JavaScript regex engine (no WASM)
- * against a lazily built singleton with a fixed common-language set.
+ * Markdown renderer shared by the public read route and (in a later epic)
+ * the draft-editor preview — preview parity by construction. Headings get
+ * stable ids (rehype-slug) with hover anchors, so sections are deep-linkable
+ * and the reader's TOC can target them. Code highlighting runs through
+ * shiki's JavaScript regex engine (no WASM) against a lazily built singleton
+ * with a fixed common-language set.
  */
 
 const LANGS = [
@@ -57,6 +61,30 @@ const LANG_ALIASES: Record<string, string> = {
   md: "markdown",
   mdx: "markdown",
 };
+
+export interface TocEntry {
+  id: string;
+  text: string;
+  depth: 2 | 3;
+}
+
+/**
+ * h2/h3 outline of a markdown body, with ids matching what rehype-slug
+ * assigns to the rendered headings (same github-slugger algorithm). Skips
+ * fenced code blocks so fenced lines can't masquerade as headings.
+ */
+export function extractToc(content: string): TocEntry[] {
+  const slugger = new GithubSlugger();
+  const entries: TocEntry[] = [];
+  for (const line of content.replace(/```[\s\S]*?```/g, "").split("\n")) {
+    const match = /^(#{2,3})\s+(.+?)\s*#*\s*$/.exec(line.trim());
+    if (!match) continue;
+    const text = match[2]?.replace(/[*_`]/g, "").trim() ?? "";
+    if (!text) continue;
+    entries.push({ id: slugger.slug(text), text, depth: match[1]?.length === 2 ? 2 : 3 });
+  }
+  return entries;
+}
 
 function CodeBlock({ className, children }: { className?: string; children?: React.ReactNode }) {
   const match = /language-(\w+)/.exec(className ?? "");
@@ -112,6 +140,35 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
   );
 }
 
+const headingLevels = ["h1", "h2", "h3", "h4"] as const;
+
+function Heading({
+  level,
+  children,
+  id,
+}: {
+  level: string;
+  children?: React.ReactNode;
+  id?: string;
+}) {
+  const Tag = level as (typeof headingLevels)[number];
+  return (
+    <Tag id={id} className="group relative scroll-mt-6">
+      {children}
+      {id && (
+        <a
+          href={`#${id}`}
+          aria-label="Link to this section"
+          className="absolute top-1/2 -left-5 -translate-y-1/2 text-sm text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+          data-testid="docs.heading-anchor"
+        >
+          #
+        </a>
+      )}
+    </Tag>
+  );
+}
+
 export function MarkdownRenderer({ content }: { content: string }) {
   return (
     <div
@@ -120,7 +177,28 @@ export function MarkdownRenderer({ content }: { content: string }) {
     >
       <Markdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSlug]}
         components={{
+          h1: ({ children, id }) => (
+            <Heading level="h1" id={id}>
+              {children}
+            </Heading>
+          ),
+          h2: ({ children, id }) => (
+            <Heading level="h2" id={id}>
+              {children}
+            </Heading>
+          ),
+          h3: ({ children, id }) => (
+            <Heading level="h3" id={id}>
+              {children}
+            </Heading>
+          ),
+          h4: ({ children, id }) => (
+            <Heading level="h4" id={id}>
+              {children}
+            </Heading>
+          ),
           pre: ({ children }) => <>{children}</>,
           code: (props) => {
             const { className, children } = props as {

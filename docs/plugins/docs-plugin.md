@@ -1,6 +1,6 @@
 ---
 title: Docs plugin
-description: The repository's own documentation, productized — docs-as-code with build-time compilation and gate-free reads
+description: The repository's own documentation, productized — docs-as-code with build-time compilation, per-plugin docs lanes, and gate-free reads
 tags:
   - plugins
   - docs
@@ -10,18 +10,39 @@ order: 20
 # Docs plugin
 
 The docs plugin treats this repository's markdown as the product. There is no content
-database and no publishing pipeline: the markdown in `docs/` (plus `GLOSSARY.md`) is the
-single source of truth, compiled at build time and served read-only.
+database and no publishing pipeline: the markdown in `docs/` (plus `GLOSSARY.md`, plus
+each plugin's own `docs/` folder) is the single source of truth, compiled at build time
+and served read-only.
 
 ## How content flows
 
-1. Edit markdown in the repository (`docs/**` or `GLOSSARY.md`) — by hand or by an agent.
+1. Edit markdown in the repository — the app's `docs/**` tree, `GLOSSARY.md`, or any
+   plugin's `plugins/<name>/docs/**` tree — by hand or by an agent.
 2. Merge to `main`. CI deploys; the deploy train rebuilds the plugin.
 3. During the plugin's rspack build, a `beforeCompile` hook runs
    [Velite](https://velite.js.org), which compiles every matching file into typed JSON.
 4. The compiled JSON is bundled into the plugin, and the read API serves it.
 
 Content changes are versioned, reviewed, and audited in git — nothing else stores them.
+
+## Content sources and slugs
+
+Every compiled record carries its **source** (`app`, or a plugin's workspace name) and a
+mount-qualified slug:
+
+| File | Source | Slug |
+| --- | --- | --- |
+| `docs/adr/0012-foo.md` | `app` | `adr/0012-foo` |
+| `GLOSSARY.md` | `app` | `glossary` |
+| `plugins/auth/docs/install.md` | `auth` | `plugins/auth/install` |
+
+The slug **is** the public URL shape under `/docs` (`/docs/plugins/auth/install`) and the
+navigation tree's path — one scheme shared by URLs, slugs, and nav. A plugin ships its
+docs lane by adding a `docs/` folder to its workspace; the docs plugin needs no changes.
+
+Each mounted plugin source owns its `plugins/<name>/…` prefix: where an app-authored page
+and a mounted plugin doc qualify to the same slug, the plugin's own content shadows the
+app page (see [ADR 0051](../adr/0051-docs-content-sources.md)).
 
 ## Frontmatter
 
@@ -30,33 +51,35 @@ Every doc honors an optional frontmatter block:
 | Field | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `title` | string | first `#` heading, then the filename | Human title |
-| `description` | string | — | Card copy on the index |
-| `tags` | string[] | `[]` | Filter facet |
-| `order` | number | `100` | Sort weight (lower first) |
-
-Slugs are path-derived: `docs/adr/0012-foo.md` → `adr/0012-foo`, `GLOSSARY.md` →
-`glossary`.
+| `description` | string | — | Card copy on search results, head meta |
+| `tags` | string[] | `[]` | Badge facet |
+| `order` | number | `100` | Sort weight (lower first) — lifts whole directories by subtree minimum |
 
 ## Reading docs
 
 Public, gate-free routes under the `public` mount:
 
-- `/docs` — the index: every compiled doc as a card (title, description, tag chips)
-- `/docs/<slug>` — a rendered doc
+- `/docs` — the index: the navigation tree (collapsible by directory) plus full-text
+  search over title, slug, description, and **body text**
+- `/docs/<slug>` — the reader: breadcrumbs, the rendered doc with heading anchors, an
+  on-this-page TOC, and prev/next in tree order
 
-The API supports query/tag filtering and cursor pagination (`listPublished`); the v1
-index renders the full list and doesn't expose filter inputs yet.
+A persistent sidebar shows the same nav tree on every docs page.
 
 Programmatically, the same content is available to agents and tools:
 
-- REST: `GET /api/rpc/docs/listPublished?q=&tag=&limit=&cursor=` and
-  `GET /api/rpc/docs/getBySlug?slug=<slug>` (OpenAPI: `/api/spec.json`)
-- MCP: the same operations appear as generated tools on the MCP surface
+- `listPublished({ q?, tag?, source?, limit, cursor })` — cursor-paginated; `q` matches
+  body text, `source` filters by content source
+- `getBySlug({ slug })` — a single doc's metadata and raw markdown body
+- `getNav()` — the full navigation tree (directories by slug segment, ordered pages)
+
+All three are exposed via oRPC (`/api/rpc/docs/…`), REST (`GET /api/docs/…`,
+OpenAPI at `/api/spec.json`), and the MCP surface.
 
 ## Adding a doc
 
-Create a markdown file anywhere under `docs/` (or edit an existing one). Frontmatter is
-optional — a file with just a heading is a valid doc:
+Create a markdown file anywhere under `docs/` (or under a plugin's `docs/` folder).
+Frontmatter is optional — a file with just a heading is a valid doc:
 
 ```md
 ---
@@ -86,6 +109,7 @@ docs: Plugin("docs").path("plugins/docs", {
 }),
 ```
 
-The plugin declares no secrets and no database. Its velite config currently compiles the
-root runtime's `docs/` tree (the pattern is authored in the plugin's `velite.config.ts`);
-a child runtime can edit that file to point at its own content directory.
+The plugin declares no secrets and no database. Its velite config compiles the owning
+repo's content sources (the patterns live in the plugin's `velite.config.ts`, relative to
+that repo's root) — a runtime that wants its own docs owns or overrides the plugin
+workspace in its own repo, and the deploy train recompiles on merge.

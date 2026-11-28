@@ -1,23 +1,18 @@
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { NavTree } from "@/components/docs/nav-tree";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createDocsApiClient, resolveClientConfig } from "@/lib/api";
-import "../../../styles.css";
+import { resolveDocsClient } from "@/lib/api";
+import { docsNavQueryOptions } from "@/lib/queries";
 
 export const Route = createFileRoute("/_public/docs/")({
   head: () => ({
     meta: [{ title: "Docs" }],
   }),
-  staticData: {
-    nav: {
-      label: "Docs",
-      icon: "book",
-      order: 40,
-    },
-  },
   component: DocsIndexPage,
 });
 
@@ -26,91 +21,71 @@ interface DocSummary {
   title: string;
   description?: string;
   tags: string[];
-  order: number;
-}
-
-const UNTAGGED = "untagged";
-
-const groupLabel = (tag: string) => (tag === UNTAGGED ? "More" : tag);
-
-function tagOf(doc: DocSummary): string {
-  return doc.tags[0] ?? UNTAGGED;
 }
 
 function DocsIndexPage() {
-  const { runtimeConfig } = useRouter().options.context;
-  const [docs, setDocs] = useState<DocSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const routerContext = useRouter().options.context;
+  const client = resolveDocsClient(routerContext);
+  const { data: nav } = useQuery(docsNavQueryOptions(client));
+
   const [query, setQuery] = useState("");
-  const [tag, setTag] = useState<string | null>(null);
+  const [results, setResults] = useState<DocSummary[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const debounced = useDebounced(query);
+
+  const total = useMemo(() => {
+    let count = 0;
+    const walk = (nodes: readonly { slug: string | null; children: readonly unknown[] }[]) => {
+      for (const node of nodes) {
+        if (node.slug) count += 1;
+        walk(node.children as typeof nodes);
+      }
+    };
+    walk(nav ?? []);
+    return count;
+  }, [nav]);
 
   useEffect(() => {
-    const client = createDocsApiClient(resolveClientConfig(runtimeConfig));
+    const q = debounced.trim();
+    if (!q) {
+      setResults(null);
+      setSearching(false);
+      return;
+    }
+    let alive = true;
+    setSearching(true);
     client
-      .listPublished({ limit: 100 })
+      .listPublished({ q, limit: 50 })
       .then(({ data }) => {
-        setDocs(data);
-        setLoading(false);
+        if (alive) {
+          setResults(data);
+          setSearching(false);
+        }
       })
       .catch(() => {
-        setError("Docs could not be loaded. Please try again.");
-        setLoading(false);
+        if (alive) {
+          setResults([]);
+          setSearching(false);
+        }
       });
-  }, [runtimeConfig?.hostUrl, runtimeConfig?.rpcBase]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return docs.filter((doc) => {
-      if (tag && tagOf(doc) !== tag) return false;
-      if (!q) return true;
-      return `${doc.title} ${doc.slug} ${doc.description ?? ""}`.toLowerCase().includes(q);
-    });
-  }, [docs, query, tag]);
-
-  const groups = useMemo(() => {
-    const byTag = new Map<string, DocSummary[]>();
-    for (const doc of filtered) {
-      const key = tagOf(doc);
-      const list = byTag.get(key) ?? [];
-      list.push(doc);
-      byTag.set(key, list);
-    }
-    return [...byTag.entries()].sort(([a], [b]) => {
-      if (a === UNTAGGED) return 1;
-      if (b === UNTAGGED) return -1;
-      return a.localeCompare(b);
-    });
-  }, [filtered]);
-
-  const tags = useMemo(
-    () => [...new Set(docs.map(tagOf))].filter((t) => t !== UNTAGGED).sort(),
-    [docs],
-  );
-
-  if (error) {
-    return (
-      <div
-        className="mx-auto max-w-3xl px-4 py-16 text-sm text-destructive"
-        data-testid="docs.error"
-      >
-        {error}
-      </div>
-    );
-  }
+    return () => {
+      alive = false;
+    };
+  }, [debounced, client]);
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-8">
-      <header className="mb-6 flex flex-wrap items-center gap-3">
-        <h1 className="mr-auto text-2xl font-semibold" data-testid="docs.heading">
+    <div>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold" data-testid="docs.heading">
           Docs
         </h1>
-        <span className="text-sm text-muted-foreground" data-testid="docs.count">
-          {loading ? "…" : `${filtered.length} / ${docs.length}`} docs
-        </span>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Guides, ADRs, and reference for this runtime — the repository's own markdown, served
+          read-only.
+        </p>
       </header>
 
-      <div className="mb-6 flex flex-wrap items-center gap-2">
+      <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
         <div className="relative w-full sm:max-w-xs">
           <MagnifyingGlassIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -122,93 +97,76 @@ function DocsIndexPage() {
             data-testid="docs.search"
           />
         </div>
-        <button
-          type="button"
-          onClick={() => setTag(null)}
-          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-            tag === null
-              ? "border-primary/30 bg-primary/10 text-primary"
-              : "border-border bg-muted/50 text-muted-foreground hover:bg-muted"
-          }`}
-          data-testid="docs.filter-all"
-        >
-          All
-        </button>
-        {tags.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTag(tag === t ? null : t)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-              tag === t
-                ? "border-primary/30 bg-primary/10 text-primary"
-                : "border-border bg-muted/50 text-muted-foreground hover:bg-muted"
-            }`}
-            data-testid="docs.filter-tag"
-          >
-            {t}
-          </button>
-        ))}
+        <span className="text-sm text-muted-foreground" data-testid="docs.count">
+          {searching ? "…" : `${results ? results.length : total} / ${total} docs`}
+        </span>
       </div>
 
-      {loading ? (
+      {searching ? (
         <div className="py-16 text-sm text-muted-foreground" data-testid="docs.loading">
-          Loading docs…
+          Searching…
         </div>
-      ) : filtered.length === 0 ? (
-        <div className="py-16 text-sm text-muted-foreground" data-testid="docs.empty">
-          No docs match.
+      ) : results ? (
+        <SearchResults results={results} />
+      ) : nav ? (
+        <div data-testid="docs.list">
+          <NavTree nodes={nav} />
         </div>
       ) : (
-        <div className="flex flex-col gap-8" data-testid="docs.list">
-          {groups.map(([groupTag, groupDocs]) => (
-            <section key={groupTag}>
-              <h2
-                className="mb-3 text-xs font-bold tracking-wider text-muted-foreground uppercase"
-                data-testid="docs.group"
-              >
-                {groupLabel(groupTag)}
-              </h2>
-              <div className="flex flex-col gap-3">
-                {groupDocs.map((doc) => (
-                  <Link
-                    key={doc.slug}
-                    to="/docs/$"
-                    params={{ _splat: doc.slug }}
-                    className="rounded-xl focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-                    data-testid="docs.item"
-                  >
-                    <Card className="px-6 transition-colors hover:bg-accent/50">
-                      <div className="flex items-baseline gap-3">
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
-                          {String(doc.order).padStart(2, "0")}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="font-medium text-card-foreground">{doc.title}</div>
-                          {doc.description && (
-                            <div className="mt-1 text-sm text-muted-foreground">
-                              {doc.description}
-                            </div>
-                          )}
-                          {doc.tags.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {doc.tags.map((t) => (
-                                <Badge key={t} variant={t === groupTag ? "default" : "secondary"}>
-                                  {t}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          ))}
+        <div className="py-16 text-sm text-muted-foreground" data-testid="docs.loading">
+          Loading docs…
         </div>
       )}
     </div>
   );
+}
+
+function SearchResults({ results }: { results: DocSummary[] }) {
+  if (results.length === 0) {
+    return (
+      <div className="py-16 text-sm text-muted-foreground" data-testid="docs.empty">
+        No docs match.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3" data-testid="docs.list">
+      {results.map((doc) => (
+        <Link
+          key={doc.slug}
+          to="/docs/$"
+          params={{ _splat: doc.slug }}
+          className="rounded-xl focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+          data-testid="docs.item"
+        >
+          <Card className="px-6 transition-colors hover:bg-accent/50">
+            <div className="min-w-0">
+              <div className="font-medium text-card-foreground">{doc.title}</div>
+              {doc.description && (
+                <div className="mt-1 text-sm text-muted-foreground">{doc.description}</div>
+              )}
+              {doc.tags.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {doc.tags.map((t) => (
+                    <Badge key={t} variant="secondary">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function useDebounced(value: string): string {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), 200);
+    return () => window.clearTimeout(timer);
+  }, [value]);
+  return debounced;
 }

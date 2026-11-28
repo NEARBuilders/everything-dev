@@ -1,10 +1,10 @@
 /**
- * The docs ui's api-client seam — mirrors the core ui's lib/api.ts: the docs
- * contract (its own server source, workspace-local whenever this ui is
- * local) binds once here, so routes import the typed client from @/lib/api
- * instead of walking into server sources. The contract import stays
- * type-only — binding is a pure type instantiation, and a value import
- * would drag the server contract's schemas into the browser bundle.
+ * The docs ui's api-client seam. Routes prefer the shared api client from
+ * the router context — the core contract namespaces the docs plugin, and on
+ * SSR the host provides the in-process client through the same property —
+ * so reads ride exactly the seam every core route uses. The local fallback
+ * keeps the plugin ui usable standalone (dev overlay preview), where no
+ * host context exists.
  */
 
 import type { ContractRouterClient } from "@orpc/contract";
@@ -27,4 +27,15 @@ export function resolveClientConfig(runtimeConfig?: { hostUrl?: string; rpcBase?
       runtimeConfig?.hostUrl ?? (typeof window !== "undefined" ? window.location.origin : ""),
     rpcBase: (runtimeConfig?.rpcBase ?? "/api/rpc") as "/api/rpc",
   };
+}
+
+type DocsClientContext = {
+  apiClient?: unknown;
+  runtimeConfig?: { hostUrl?: string; rpcBase?: string };
+};
+
+export function resolveDocsClient(context: DocsClientContext): DocsApiClient {
+  const shared = (context.apiClient as { docs?: DocsApiClient } | undefined)?.docs;
+  if (shared) return shared;
+  return createDocsApiClient(resolveClientConfig(context.runtimeConfig));
 }

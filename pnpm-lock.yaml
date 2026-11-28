@@ -1535,6 +1535,9 @@ importers:
       everything-dev:
         specifier: workspace:^
         version: link:../../packages/everything-dev
+      github-slugger:
+        specifier: ^2.0.0
+        version: 2.0.0
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -1544,6 +1547,9 @@ importers:
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.3.0)(react@19.3.1)
+      rehype-slug:
+        specifier: ^6.0.0
+        version: 6.0.0
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1

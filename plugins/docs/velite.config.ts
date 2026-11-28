@@ -17,16 +17,21 @@ const firstHeading = (raw: string): string | undefined => {
 };
 
 /**
- * Content root is the repository's docs tree (relative to this config file);
- * the glossary rides in from the repo root via an upward glob. Slugs are
- * path-derived (`GLOSSARY.md` → `glossary`, `adr/0012-*.md` → `adr/0012-*`);
- * titles fall back to the first heading, then a prettified filename.
- * Frontmatter honors title, description, tags, and order. Only raw markdown
- * is emitted — rendering happens client-side through the shared
- * MarkdownRenderer.
+ * Content root is the repository root, so one collection aggregates every
+ * content source: the app's `docs` tree, the root `GLOSSARY.md`, and each
+ * plugin's per-plugin docs tree (`plugins/<name>/docs`). Each compiled record
+ * carries the source it came from (`app`, or the plugin's workspace name) and
+ * a mount-qualified slug — app docs keep their path (`adr/0012-…`), plugin
+ * docs live under `plugins/<name>/…`, which is also the public URL shape
+ * under /docs.
+ *
+ * Body text is flattened into a `search` field (code fences and markdown
+ * syntax stripped) so list queries can match content, not just metadata.
+ * Only raw markdown is emitted — rendering happens client-side through the
+ * shared MarkdownRenderer.
  */
 export default defineConfig({
-  root: "../../docs",
+  root: "../..",
   output: {
     data: ".velite",
     assets: ".velite/static",
@@ -35,13 +40,25 @@ export default defineConfig({
   collections: {
     docs: defineCollection({
       name: "Doc",
-      pattern: ["**/*.md", "../GLOSSARY.md"],
+      pattern: ["docs/**/*.md", "GLOSSARY.md", "plugins/*/docs/**/*.md"],
       schema: s.object({
-        slug: s.custom<string>().transform(() => {
-          const { file, config } = context();
-          const relativePath = relative(config.root, file.path).replace(/\\/g, "/");
-          const withoutExtension = relativePath.replace(/\.(md|mdx)$/i, "");
+        source: s.custom<string>().transform(() => {
+          const path = relative(context().config.root, context().file.path).replace(/\\/g, "/");
+          const pluginMatch = /^plugins\/([^/]+)\/docs\//.exec(path);
+          return pluginMatch?.[1] ?? "app";
+        }),
+        path: s.custom<string>().transform(() => {
+          const path = relative(context().config.root, context().file.path).replace(/\\/g, "/");
+          const within = path.replace(/^plugins\/[^/]+\/docs\//, "").replace(/^docs\//, "");
+          const withoutExtension = within.replace(/\.(md|mdx)$/i, "");
           return withoutExtension.endsWith("GLOSSARY") ? "glossary" : withoutExtension;
+        }),
+        slug: s.custom<string>().transform(() => {
+          const path = relative(context().config.root, context().file.path).replace(/\\/g, "/");
+          const pluginMatch = /^plugins\/([^/]+)\/docs\/(.+)\.(md|mdx)$/i.exec(path);
+          if (pluginMatch) return `plugins/${pluginMatch[1]}/${pluginMatch[2]}`;
+          const withoutDocs = path.replace(/^docs\//, "").replace(/\.(md|mdx)$/i, "");
+          return withoutDocs.endsWith("GLOSSARY") ? "glossary" : withoutDocs;
         }),
         title: z
           .string()
@@ -54,6 +71,16 @@ export default defineConfig({
         tags: z.array(z.string()).default([]),
         order: z.number().default(100),
         raw: s.custom<string>().transform(() => context().file.content),
+        search: s.custom<string>().transform(() =>
+          (context().file.content ?? "")
+            .replace(/```[\s\S]*?```/g, " ")
+            .replace(/`[^`]*`/g, " ")
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+            .replace(/^#{1,6}\s+/gm, "")
+            .replace(/[*_>|]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim(),
+        ),
       }),
     }),
   },
