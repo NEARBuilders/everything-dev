@@ -73,6 +73,7 @@ export const V2_CATALOG: Readonly<Record<string, string>> = {
   pg: "^8.12.0",
   react: "19.3.1",
   "react-dom": "19.3.1",
+  seroval: "1.6.11",
   sirv: "3.0.2",
   sonner: "2.0.8",
   typescript: "7.0.2",
