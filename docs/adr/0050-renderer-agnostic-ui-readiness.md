@@ -1,4 +1,4 @@
-# ADR 0048: UI renderer-agnostic readiness — Standard Schema contracts, logic seams, no renderer abstraction
+# ADR 0050: UI renderer-agnostic readiness — Standard Schema contracts, logic seams, no renderer abstraction
 
 Date: 2026-11-27
 Status: Accepted
