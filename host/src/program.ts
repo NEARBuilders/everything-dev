@@ -24,6 +24,7 @@ import { getSnapshotBootHealth, type HealthLoadingState } from "./routes/health"
 import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
+import { forkDevPluginAdopt } from "./services/dev-plugin-adopt";
 import { HostServerError } from "./services/errors";
 import { FederationContainers } from "./services/federation/containers";
 import { FederationLifecycle } from "./services/federation/lifecycle";
@@ -180,6 +181,14 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
           ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
+          ...(devAdopt.generations.size > 0
+            ? {
+                devAdopt: {
+                  generations: Object.fromEntries(devAdopt.generations),
+                  note: "dev plugin adopt (ADR 0051) — in-process plugin generations the dev serving plane has adopted past the boot build",
+                },
+              }
+            : {}),
         },
         compositionHealth.status === "failed" ? 503 : 200,
       );
@@ -269,9 +278,11 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     }
 
     registerAuthHandler(app, plugins);
-    yield* Effect.promise(() =>
+    const rpcServing = yield* Effect.promise(() =>
       setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState),
     );
+
+    const devAdopt = yield* forkDevPluginAdopt({ config, plugins, serving: rpcServing });
 
     app.use("/*", sessionMiddleware);
 

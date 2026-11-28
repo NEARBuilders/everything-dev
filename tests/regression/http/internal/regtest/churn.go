@@ -229,3 +229,83 @@ func tailString(s string, max int) string {
 	}
 	return s[len(s)-max:]
 }
+
+// DevShapeRebuildPlugin rebuilds a plugin workspace exactly the way the dev
+// stack's watcher does (BOS_DEV_SERVER=1 → fixed dev entry names), through the
+// workspace's own build script so the every-plugin bin resolves through pnpm's
+// PATH. The newest-mtime guard keeps a silent no-op build loud.
+func DevShapeRebuildPlugin(t *testing.T, pluginDir string) {
+	t.Helper()
+	rebuildStartedAt := time.Now()
+	cmd := exec.Command("pnpm", "run", "build")
+	cmd.Dir = filepath.Join(RepoRoot(), pluginDir)
+	cmd.Env = append(os.Environ(), "BOS_DEV_SERVER=1")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("dev-shape plugin rebuild failed: %v\n%s", err, tailString(out.String(), 4000))
+	}
+	newest, err := newestModTimeUnder(filepath.Join(cmd.Dir, "dist"))
+	if err != nil {
+		t.Fatalf("dev-shape plugin rebuild produced no dist to inspect: %v\n%s", err,
+			tailString(out.String(), 4000))
+	}
+	if !newest.After(rebuildStartedAt) {
+		t.Fatalf("dev-shape plugin rebuild wrote nothing under dist — a silent no-op "+
+			"(newest mtime %s predates build start)\n%s", newest, tailString(out.String(), 4000))
+	}
+	t.Logf("dev-shape %s rebuild took %s", pluginDir, time.Since(rebuildStartedAt).Round(time.Millisecond))
+}
+
+// EditVotesSourceWithMarker appends a unique numeric churn offset to the
+// votes plugin's anonymous getUpvoteCount handler — the served totalCount
+// gains the offset only after the rebuilt generation reaches serving. A
+// t.Cleanup restores the original source.
+func EditVotesSourceWithMarker(t *testing.T) int64 {
+	t.Helper()
+	indexPath := filepath.Join(RepoRoot(), "plugins", "votes", "src", "index.ts")
+	original, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("reading plugins/votes/src/index.ts: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.WriteFile(indexPath, original, 0o644); err != nil {
+			t.Logf("WARN: failed to restore %s: %v", indexPath, err)
+		}
+	})
+
+	marker := time.Now().UnixMilli() % 100_000_000
+	needle := "return await voteService.getUpvoteCount(input.entityId);"
+	replacement := fmt.Sprintf(
+		"{\n        const churned = await voteService.getUpvoteCount(input.entityId);\n        return { ...churned, totalCount: churned.totalCount + %d };\n      }",
+		marker,
+	)
+	content := strings.Replace(string(original), needle, replacement, 1)
+	if content == string(original) {
+		t.Fatalf("churn needle %q not found in plugins/votes/src/index.ts — fixture drift", needle)
+	}
+	if err := os.WriteFile(indexPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("editing plugins/votes/src/index.ts: %v", err)
+	}
+	return marker
+}
+
+// LinesSince scans each log from its snapshotted offset and returns the bytes
+// appended after it, advancing the offsets past what was consumed — the
+// explicit state for "wait until the logs say X" loops: each poll reads only
+// the newly appended bytes, and a match never has to be found twice.
+func LinesSince(logs []string, offsets map[string]int64) (string, map[string]int64) {
+	var out []byte
+	next := make(map[string]int64, len(offsets))
+	for logPath, offset := range offsets {
+		data, err := os.ReadFile(logPath)
+		if err != nil || int64(len(data)) <= offset {
+			next[logPath] = offset
+			continue
+		}
+		out = append(out, data[offset:]...)
+		next[logPath] = int64(len(data))
+	}
+	return string(out), next
+}

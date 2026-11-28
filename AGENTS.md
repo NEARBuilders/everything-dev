@@ -435,7 +435,8 @@ Run your own host instance on your own NEAR account while inheriting the base pl
 ### Making Changes
 - **Host Changes**: Edit `host/src/` when changing runtime resolution, auth wiring, SSR, proxying, or plugin mounting
 - **UI Changes**: Edit `ui/src/` files → hot reload automatically
-- **API Changes**: Edit `api/src/` files → hot reload automatically
+- **Plugin Changes**: Edit `plugins/<id>/src/` files → the dev adopt picks the rebuilt generation up without a restart (ADR 0051): the host reloads the in-process plugin and swaps the serving router, the dev session replaces the plugin child. The `api` and `auth` app slots keep their boot-frozen serving on the host — restart `bos dev` for those
+- **API Changes**: Edit `api/src/` files → the api child replaces on rebuild; host-mediated `/api/*` serving still needs a restart (ADR 0051)
 - **CLI/Scaffolding Changes**: Edit `packages/everything-dev/` when changing init/dev/publish flows or child-project scaffolding
 - **New Components**: Create in `ui/src/components/ui/`, export from `ui/src/components/index.ts`
 - **New Routes**: Create file in `ui/src/routes/`, TanStack Router auto-generates tree

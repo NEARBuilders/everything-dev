@@ -37,13 +37,19 @@ type HonoEnv = { Variables: AuthVariables };
  */
 type RpcRouteServe = (c: Context<HonoEnv>) => Promise<Response>;
 
-function registerPublicRpcRouter(
-  rpcRoutes: Map<string, RpcRouteServe>,
-  prefix: string,
-  router: unknown,
-  effectContext: unknown,
-) {
-  const handler = new RPCHandler(router as any, {
+/**
+ * One live serving slot for a composed plugin's router. The mounted route
+ * closure reads the cell per request; the dev adopt (issue #942) swaps the
+ * handler and effect context in place when a plugin reloads, so the next
+ * request serves the new generation without re-mounting the Hono routes.
+ */
+export interface PluginRpcCell {
+  handler: RPCHandler<any>;
+  effectContext: unknown;
+}
+
+const buildRpcHandler = (router: unknown) =>
+  new RPCHandler(router as any, {
     errorStatusMap: PLUGIN_ERROR_STATUS_MAP,
     plugins: [new BatchHandlerPlugin()],
     interceptors: [
@@ -54,7 +60,45 @@ function registerPublicRpcRouter(
       }),
     ],
   });
-  rpcRoutes.set(prefix, (c) => handleOrpc(c, handler, prefix as `/${string}`, effectContext));
+
+/**
+ * The dev adopt's serving seam: key = plugin key (the `/api/rpc/{key}` prefix
+ * owner). `swap` atomically replaces one plugin's live handler + effect
+ * context; an in-flight request on the old handler finishes on the old
+ * generation, and the next request opens on the new one — the pair never
+ * splits mid-adopt.
+ */
+export class PluginRpcServing {
+  readonly cells = new Map<string, PluginRpcCell>();
+
+  constructor(
+    /** Injectable for the serving-cell tests; production builds real oRPC
+     * handlers. */
+    private readonly buildHandler: (router: unknown) => RPCHandler<any> = buildRpcHandler,
+  ) {}
+
+  swap(key: string, router: unknown, effectContext: unknown): boolean {
+    const cell = this.cells.get(key);
+    if (!cell) return false;
+    cell.handler = this.buildHandler(router);
+    cell.effectContext = effectContext;
+    return true;
+  }
+}
+
+function registerPublicRpcRouter(
+  rpcRoutes: Map<string, RpcRouteServe>,
+  serving: PluginRpcServing,
+  key: string,
+  prefix: string,
+  router: unknown,
+  effectContext: unknown,
+) {
+  const cell: PluginRpcCell = { handler: buildRpcHandler(router), effectContext };
+  serving.cells.set(key, cell);
+  rpcRoutes.set(prefix, (c) =>
+    handleOrpc(c, cell.handler, prefix as `/${string}`, cell.effectContext),
+  );
 }
 
 /**
@@ -139,7 +183,8 @@ export async function setupApiRoutes(
   plugins: PluginResult,
   sessionMiddleware: ReturnType<typeof createSessionMiddleware>,
   loadingState: HealthLoadingState,
-) {
+  serving: PluginRpcServing = new PluginRpcServing(),
+): Promise<PluginRpcServing> {
   const apiConfig = config.api;
 
   if (!apiConfig) {
@@ -167,6 +212,8 @@ export async function setupApiRoutes(
   if (plugins.auth?.router) {
     registerPublicRpcRouter(
       rpcRoutes,
+      serving,
+      "auth",
       "/api/rpc/auth",
       plugins.auth.router,
       plugins.auth.initialized?.effectContext,
@@ -182,6 +229,8 @@ export async function setupApiRoutes(
     if (!plugin.router) continue;
     registerPublicRpcRouter(
       rpcRoutes,
+      serving,
+      pluginKey,
       `/api/rpc/${pluginKey}`,
       plugin.router,
       plugin.initialized?.effectContext,
@@ -204,7 +253,7 @@ export async function setupApiRoutes(
       return response;
     });
 
-    return;
+    return serving;
   }
 
   app.get(HEALTH_PATH, (c: Context<HonoEnv>) => {
@@ -261,7 +310,7 @@ export async function setupApiRoutes(
     app.all("/api/rpc/*", unavailable);
     app.all("/api", unavailable);
     app.all("/api/*", unavailable);
-    return;
+    return serving;
   }
 
   const rpcHandler = new RPCHandler(apiRouter as any, {
@@ -326,4 +375,6 @@ export async function setupApiRoutes(
   app.all("/api/*", (c: Context<HonoEnv>) =>
     handleOrpc(c, apiHandler, "/api", mergedEffectContext),
   );
+
+  return serving;
 }
