@@ -19,6 +19,7 @@
 - **Depends on**: done/002-effect-bridge-dedupe.md (both rewrite the template's `lib/` — land 002 first)
 - **Category**: tech-debt / security-adjacent
 - **Planned at**: commit `c9ca44e1`, 2026-09-15
+- **Closed** (2026-11-28 — DONE-ELSEWHERE): one framework home exists: `packages/everything-dev/src/api/auth-middleware.ts` exports the only `createAuthMiddleware` in the tree, and the per-plugin `lib/auth.ts` copies plus `plugins/apps` are gone. The five-copy problem this plan targeted no longer exists, so the plan is archived unexecuted.
 
 ## Why this matters
 

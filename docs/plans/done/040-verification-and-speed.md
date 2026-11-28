@@ -54,7 +54,7 @@
 - `.github/workflows/ci.yml` (if the framework job needs adjusting after the root-chain change)
 
 **Out of scope**:
-- Characterization tests for dev-session/orchestrator teardown — **plan 015 owns these** (`docs/plans/015-orchestrator-characterization-tests.md`, TODO); do not start them here
+- Characterization tests for dev-session/orchestrator teardown — plan 015 (archived 2026-11-28 as [015-orchestrator-characterization-tests.md](./015-orchestrator-characterization-tests.md): the target modules were deleted, their behavior is pinned in `tests/unit/dev-session-processes.test.ts`)
 - Port allocation / planner semantics (036/038)
 - The `publish.subprocess.test.ts` dist-CLI smoke (TEST-04) — valuable but needs a build-budget decision; recorded in Maintenance notes as the follow-up
 

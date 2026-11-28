@@ -13,6 +13,7 @@
 - **Depends on**: none (057's semver module is a nice-to-have for pin reporting but not required)
 - **Category**: security / direction (the stated product goal — verifiable execution)
 - **Planned at**: commit `1e435601`, 2026-10-28
+- **Closed** (2026-11-28 — DONE): the revival shipped in the verification-spine sprint (ADR 0046, ticket 03 — PR #838, 2026-11-10). Both gaps are fixed: the integrity hook installs inside `createPluginRuntime`, and the registry keys the resolved hashed artifact URLs (entry, SSR entry, every file in the pin's `files` map) — a drifted file fails with the tagged `IntegrityMismatch` (`federation-integrity.test.ts`). `bos verify` is `services/deploy/verify.ts`. Every file:line excerpt below predates that rewrite — read the ADR, not this plan.
 - **Issue**: https://github.com/NEARBuilders/everything-dev/issues/642
 
 ## Why this matters

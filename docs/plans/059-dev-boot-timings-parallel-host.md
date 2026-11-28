@@ -13,6 +13,7 @@
 - **Depends on**: none (059's timing leg is the measurement baseline for 060/062)
 - **Category**: perf / dx
 - **Planned at**: commit `1e435601`, 2026-10-28
+- **Re-based** (2026-11-28, verified at `01454f9f`): `services/dev/flow.ts:29-68` still collects `devTimings` and `cli/commands/dev.ts` still never prints them. `composeSpawnEnv` is at `services/boot/process.ts:40`. `services/dev/orchestrator.ts` and `services/dev/contract.ts` are gone — the Supervisor (`services/boot/units.ts`, ADR 0048 stage 3) owns readiness and `services/dev/session.ts:545-561` is the per-unit readiness race.
 - **Issue**: https://github.com/NEARBuilders/everything-dev/issues/640
 
 ## Why this matters

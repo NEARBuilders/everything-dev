@@ -14,6 +14,7 @@
 - **Depends on**: 014 (ResolvedChainContext — the minimal path resolves the chain for catalogs)
 - **Category**: product direction (ticket #90)
 - **Planned at**: 2026-09-15, decision recorded on #90
+- **Re-based** (2026-11-28, verified at `01454f9f`): shipped in a different shape than the plan. `services/scaffold/init-flow.ts:230` gates `isMinimalScaffold = sourceDir === ""` and routes to `scaffoldMinimalProject` (`services/scaffold/init.ts:1244`) — the minimal scaffold is the default when no local `--source` is given. The plan's `--full` opt-out is not what shipped; check the done-criteria below against `scaffoldMinimalProject` before closing.
 
 ## Decision (recorded on ticket #90)
 
