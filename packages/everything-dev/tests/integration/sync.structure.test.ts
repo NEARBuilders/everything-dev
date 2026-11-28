@@ -383,8 +383,8 @@ describe("child-owned block protocol (#538)", () => {
     expect(consumer).not.toContain("bos upgrade --check");
   });
 
-  it("the template api/plugin.dev.ts carries the child-owned markers around variables", () => {
-    for (const copy of ["api/plugin.dev.ts", ".github/templates/api/plugin.dev.ts"]) {
+  it("the template api/bos.dev.ts carries the child-owned markers around variables", () => {
+    for (const copy of ["api/bos.dev.ts", ".github/templates/api/bos.dev.ts"]) {
       const content = readFileSync(join(REPO_ROOT, copy), "utf-8");
       const start = content.indexOf(CHILD_OWNED_BLOCK_START);
       const end = content.indexOf(CHILD_OWNED_BLOCK_END);

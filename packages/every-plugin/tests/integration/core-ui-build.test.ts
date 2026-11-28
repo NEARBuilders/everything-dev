@@ -25,7 +25,7 @@ function makeWorkspace(
     fs.mkdirSync(join(pluginDir, "ui", "src", "routes"), { recursive: true });
     fs.mkdirSync(join(pluginDir, "src"), { recursive: true });
     fs.writeFileSync(join(pluginDir, "src", "contract.ts"), "export {};\n");
-    fs.writeFileSync(join(pluginDir, "plugin.dev.ts"), "export {};\n");
+    fs.writeFileSync(join(pluginDir, "bos.dev.ts"), "export {};\n");
     fs.writeFileSync(
       join(pluginDir, "package.json"),
       JSON.stringify({ name: "@everything-dev/myplugin-plugin", version: "0.0.0" }),
@@ -43,7 +43,7 @@ function makeWorkspace(
   fs.writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "ui", version: "0.0.0" }));
   if (shape === "plugin") {
     fs.writeFileSync(join(cwd, "src", "contract.ts"), "export {};\n");
-    fs.writeFileSync(join(cwd, "plugin.dev.ts"), "export {};\n");
+    fs.writeFileSync(join(cwd, "bos.dev.ts"), "export {};\n");
   }
   if (shape === "core-ui") {
     fs.writeFileSync(join(cwd, "src", "entry.ts"), "export {};\n");

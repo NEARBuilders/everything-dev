@@ -109,7 +109,7 @@ export interface PluginDevServerHandle {
  * `registerRemote` derives the MF remote name from it, and the plugin's
  * database layer derives its migration slug from it, so a pre-normalized
  * remote name here would migrate into a different schema than the host
- * expects. plugin.dev.ts no longer carries a pluginId field.
+ * expects. bos.dev.ts no longer carries a pluginId field.
  */
 export const resolveDevPluginId = (cwd: string): string => getPluginInfo(cwd).name;
 
@@ -119,7 +119,13 @@ export async function startPluginDevServer(
   process.env.BOS_DEV_SERVER = "1";
   const cwd = options.cwd ?? process.cwd();
   const pluginInfo = getPluginInfo(cwd);
-  const devConfig = loadDevConfig(path.join(cwd, "plugin.dev.ts"));
+  const devOverlayPath = path.join(cwd, "bos.dev.ts");
+  if (!fs.existsSync(devOverlayPath) && fs.existsSync(path.join(cwd, "plugin.dev.ts"))) {
+    throw new Error(
+      "plugin.dev.ts is retired — rename it to bos.dev.ts (or run `bos upgrade`, which renames it with a backup under .bos/sync-backup/)",
+    );
+  }
+  const devConfig = loadDevConfig(devOverlayPath);
   const pluginId = resolveDevPluginId(cwd);
   const compositionKey = pluginLayoutKey(cwd) ?? pluginId;
   const port = options.port ?? (Number(process.env.PORT) || devConfig?.port || 3999);

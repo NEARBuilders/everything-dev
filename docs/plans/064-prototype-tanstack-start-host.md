@@ -12,6 +12,7 @@
 - **Depends on**: none (062 independent; evidence feeds the eventual Start ADR)
 - **Category**: direction (spike)
 - **Planned at**: commit `1e435601`, 2026-10-28
+- **Deferred** (#922, 2026-11-23): re-entry when a real host limitation bites — the Module Federation replacement is rejected (ADR 0024 notes stand) and nothing currently forces the question.
 - **Issue**: https://github.com/NEARBuilders/everything-dev/issues/645
 
 ## Why this matters

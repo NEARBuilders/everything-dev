@@ -18,7 +18,7 @@ export const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   "ui/postcss.config.mjs",
   "ui/tsconfig.json",
   "api/package.json",
-  "api/plugin.dev.ts",
+  "api/bos.dev.ts",
   "api/rspack.config.js",
   "api/tsconfig.json",
   "api/drizzle.config.ts",
@@ -101,7 +101,7 @@ export const CHILD_OWNED_BLOCK_END = "// child-owned-end";
  * between the two marker comments, dedented by the span's common leading
  * indent (splice re-indents with the template's marker indentation, so
  * extract→splice→extract is byte-stable). Files synced before #538 carry no
- * markers; for the api/plugin.dev.ts shape a legacy fallback lifts the entire
+ * markers; for the api/bos.dev.ts shape a legacy fallback lifts the entire
  * `variables: { … },` literal so children's existing dev variables (citynode's
  * domain/gatewayDomains) migrate onto the marker protocol on the next sync.
  */

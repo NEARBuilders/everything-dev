@@ -391,7 +391,7 @@ function buildSyncedFileContent(
   // synced before the markers existed lift their `variables` literal onto the
   // protocol on the first pass.
   const template = raw.toString("utf-8");
-  if (template.includes(CHILD_OWNED_BLOCK_START) && filePath.endsWith("plugin.dev.ts")) {
+  if (template.includes(CHILD_OWNED_BLOCK_START) && filePath.endsWith("bos.dev.ts")) {
     const destPathLocal = join(projectDir, destPath);
     if (existsSync(destPathLocal)) {
       const childBlock = extractChildOwnedBlock(readFileSync(destPathLocal, "utf-8"));

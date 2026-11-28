@@ -8,6 +8,7 @@ import { timePhase } from "../../utils/timing";
 import { readNodeModulesVersion } from "../framework-version";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
+import { renameLegacyPluginDevOverlays } from "./dev-overlay-migration";
 import { runTypesGen } from "./init";
 import { absorbLegacySnapshot } from "./snapshot";
 import { syncTemplate } from "./sync";
@@ -142,6 +143,12 @@ export async function runMigrationPhase(
   // included (ADR 0032 gates framework-owned files, not the baseline).
   const snapshotAbsorbed = await timePhase(timings, "absorb sync snapshot", () =>
     absorbLegacySnapshot(projectDir),
+  );
+
+  // Runs on every migration phase — same-version upgrades included: the
+  // rename is idempotent, and legacy names must not survive any upgrade.
+  await timePhase(timings, "rename legacy dev overlays", () =>
+    renameLegacyPluginDevOverlays(projectDir),
   );
 
   // The catalog-preferring resolution would read the specifier back as the
