@@ -7,6 +7,7 @@ import { buildRuntimeConfigEffect } from "everything-dev/config";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
+import { FederationLifecycle } from "../../src/services/federation/lifecycle";
 import { deploymentDigest, RuntimeSnapshot } from "../../src/services/runtime-snapshot";
 import {
   adoptPublishedPointer,
@@ -146,6 +147,7 @@ const derivedFor = (uiIndex: number) =>
 
 const snapshotLayer = RuntimeSnapshot.layer().pipe(
   Layer.provide(Layer.succeed(ConfigService, bootConfig)),
+  Layer.provideMerge(FederationLifecycle.layer),
 );
 
 const buildRuntimeConfigMock = vi.mocked(buildRuntimeConfigEffect);
