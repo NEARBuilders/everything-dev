@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type AdoptObservation,
   type AdoptState,
@@ -191,16 +194,49 @@ describe("advanceAdopt (the file-watcher state machine)", () => {
 });
 
 describe("createBackendFingerprintSampler", () => {
+  const workspace = mkdtempSync(join(tmpdir(), "dev-adopt-sampler-"));
+  const distDir = join(workspace, "dist");
+
+  beforeAll(() => {
+    // The sampler reads a BUILT dist — materialize the minimal fake one at
+    // runtime; dist/ is gitignored so a fixture dist would never survive a
+    // cold checkout.
+    mkdirSync(distDir, { recursive: true });
+    writeFileSync(join(distDir, "remoteEntry.js"), 'console.log("sampler fixture");');
+    writeFileSync(
+      join(distDir, "mf-manifest.json"),
+      JSON.stringify({ metaData: { name: "sampler-fixture" } }),
+    );
+  });
+
+  afterAll(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
   it("reads the built container and manifest of a workspace dist", async () => {
-    const sampler = createBackendFingerprintSampler("tests/fixtures/dev-adopt-plugin");
+    const sampler = createBackendFingerprintSampler(workspace);
     const first = await sampler();
     expect(first).not.toBeNull();
     const second = await sampler();
     expect(second).toEqual(first);
   });
 
-  it("returns null for a workspace with no dist", async () => {
-    const sampler = createBackendFingerprintSampler("tests/fixtures/dev-adopt-plugin-empty");
-    expect(await sampler()).toBeNull();
+  it("a changed container moves the digest", async () => {
+    const sampler = createBackendFingerprintSampler(workspace);
+    const before = await sampler();
+    writeFileSync(join(distDir, "remoteEntry.js"), 'console.log("sampler churned");');
+    const after = await sampler();
+    expect(after).not.toBeNull();
+    expect(after!.digest).not.toBe(before!.digest);
+  });
+
+  it("returns null for a workspace with no built container", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "dev-adopt-sampler-empty-"));
+    try {
+      const sampler = createBackendFingerprintSampler(empty);
+      expect(await sampler()).toBeNull();
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
   });
 });

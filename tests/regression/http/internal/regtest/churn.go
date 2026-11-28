@@ -290,3 +290,22 @@ func EditVotesSourceWithMarker(t *testing.T) int64 {
 	}
 	return marker
 }
+
+// LinesSince scans each log from its snapshotted offset and returns the bytes
+// appended after it, advancing the offsets past what was consumed — the
+// explicit state for "wait until the logs say X" loops: each poll reads only
+// the newly appended bytes, and a match never has to be found twice.
+func LinesSince(logs []string, offsets map[string]int64) (string, map[string]int64) {
+	var out []byte
+	next := make(map[string]int64, len(offsets))
+	for logPath, offset := range offsets {
+		data, err := os.ReadFile(logPath)
+		if err != nil || int64(len(data)) <= offset {
+			next[logPath] = offset
+			continue
+		}
+		out = append(out, data[offset:]...)
+		next[logPath] = int64(len(data))
+	}
+	return string(out), next
+}

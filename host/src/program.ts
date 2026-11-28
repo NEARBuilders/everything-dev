@@ -181,6 +181,14 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
           ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
+          ...(devAdopt.generations.size > 0
+            ? {
+                devAdopt: {
+                  generations: Object.fromEntries(devAdopt.generations),
+                  note: "dev plugin adopt (ADR 0051) — in-process plugin generations the dev serving plane has adopted past the boot build",
+                },
+              }
+            : {}),
         },
         compositionHealth.status === "failed" ? 503 : 200,
       );
@@ -274,7 +282,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
       setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState),
     );
 
-    yield* forkDevPluginAdopt({ config, plugins, serving: rpcServing });
+    const devAdopt = yield* forkDevPluginAdopt({ config, plugins, serving: rpcServing });
 
     app.use("/*", sessionMiddleware);
 

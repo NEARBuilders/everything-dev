@@ -57,34 +57,52 @@ func TestPluginChurnAdopt(t *testing.T) {
 		t.Fatalf("churn marker %d never served — the plugin generation did not adopt without a restart", marker)
 	}
 
-	// The adopt must be visible in the logs: the host serving plane's move
-	// line (and the supervisor's child-replacement line).
-	found := map[string]bool{
-		"[DevPluginAdopt] plugins/votes moved to generation 1": false,
-		"[dev] [OUT] plugins/votes moved to generation 1":      false,
+	// The host serving plane's adopt is machine-readable: /health reports
+	// the dev adopt's per-plugin serving generations (dev only) — the
+	// ADR 0048 contract (HTTP over log text). The supervisor's child
+	// replacement line (`[dev] plugins/votes moved to generation 1`) is the
+	// second half of the UX contract and rides the session log.
+	healthDeadline := time.Now().Add(10 * time.Second)
+	adopted := false
+	for time.Now().Before(healthDeadline) && !adopted {
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/health")
+		if status != 200 {
+			t.Fatalf("[health] expected 200 during the adopt check, got %d: %s", status, body)
+		}
+		var payload struct {
+			DevAdopt struct {
+				Generations map[string]int `json:"generations"`
+			} `json:"devAdopt"`
+		}
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatalf("[health] undecodable body: %v\nBody: %s", err, body)
+		}
+		adopted = payload.DevAdopt.Generations["votes"] >= 1
+		if !adopted {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
+	if !adopted {
+		t.Fatalf("/health never reported a dev-adopt generation for votes — the serving plane did not commit the adopt")
+	}
+
+	// The supervisor's child-replacement line is the log contract; the move
+	// line trails the marker by a log write, so poll the tail since the
+	// pre-churn offset (LinesSince consumes incrementally) until it lands.
+	supervisorNeedle := "[dev] plugins/votes moved to generation 1"
 	logs := regtest.RegressionLogsWithMarks(t)
-	for _, logPath := range logs {
-		data, err := os.ReadFile(logPath)
-		if err != nil {
-			continue
-		}
-		offset := offsets[logPath]
-		if int64(len(data)) <= offset {
-			continue
-		}
-		tail := string(data[offset:])
-		for needle := range found {
-			if strings.Contains(tail, needle) {
-				found[needle] = true
-			}
+	scanDeadline := time.Now().Add(10 * time.Second)
+	adoptedLine := false
+	for time.Now().Before(scanDeadline) && !adoptedLine {
+		tail, nextOffsets := regtest.LinesSince(logs, offsets)
+		offsets = nextOffsets
+		adoptedLine = strings.Contains(tail, supervisorNeedle)
+		if !adoptedLine {
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
-	if !found["[DevPluginAdopt] plugins/votes moved to generation 1"] {
-		t.Fatalf("the host adopt never logged the generation move — the reload ran without the UX contract\nlogs: %v", logs)
-	}
-	if !found["[dev] [OUT] plugins/votes moved to generation 1"] {
-		t.Fatalf("the dev session never logged the child replacement line\nlogs: %v", logs)
+	if !adoptedLine {
+		t.Fatalf("the dev session never logged %q — the child replacement did not hold\nlogs: %v", supervisorNeedle, logs)
 	}
 }
 

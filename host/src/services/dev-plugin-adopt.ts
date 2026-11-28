@@ -116,11 +116,18 @@ export const runDevAdoptTick = (deps: DevAdoptTickDeps, state: AdoptState) =>
     return working;
   });
 
-const workspaceLabel = (localPath: string): string => {
-  const relative = path.relative(process.cwd(), localPath);
+const workspaceLabel = (localPath: string, rootHint?: string): string => {
+  const root = rootHint ?? process.cwd();
+  const relative = path.relative(root, path.resolve(root, localPath));
   if (relative && !relative.startsWith("..")) return relative;
   return path.basename(localPath);
 };
+
+export interface DevAdoptHandle {
+  /** The serving generation per adopted plugin key (1 = first adopted move
+   * past the boot build) — the arbiter's HTTP surface on /health. */
+  readonly generations: Map<string, number>;
+}
 
 /**
  * The dev host's adopt loop (issue #942): the host federation-loads plugin
@@ -133,19 +140,22 @@ const workspaceLabel = (localPath: string): string => {
  * or the new one, never a mix. This is the dev plane's analogue of the
  * production reconciler's instance replacement (issue #941) — the two never
  * arm together: the reconciler is production-only, this loop is dev-only.
+ *
+ * Returns the handle even when disarmed (empty map) — /health reports
+ * `devAdopt` only when it is non-empty.
  */
 export const forkDevPluginAdopt = (input: {
   readonly config: RuntimeConfig;
   readonly plugins: PluginResult;
   readonly serving: PluginRpcServing;
   readonly intervalMs?: number;
-}): Effect.Effect<void, never, Scope.Scope> =>
+}): Effect.Effect<DevAdoptHandle, never, Scope.Scope> =>
   Effect.gen(function* () {
-    if (input.config.env !== "development") return;
-    if (!input.plugins.runtime) return;
+    if (input.config.env !== "development") return { generations: new Map() };
+    if (!input.plugins.runtime) return { generations: new Map() };
 
     const slots = localPluginSlots(input.config, input.plugins.plugins);
-    if (slots.length === 0) return;
+    if (slots.length === 0) return { generations: new Map() };
 
     const samplers = new Map<string, () => Promise<BackendDistFingerprint | null>>();
     for (const key of slots) {
@@ -153,10 +163,21 @@ export const forkDevPluginAdopt = (input: {
       if (!localPath) continue;
       samplers.set(key, createBackendFingerprintSampler(localPath));
     }
-    if (samplers.size === 0) return;
+    if (samplers.size === 0) return { generations: new Map() };
 
     const intervalMs = input.intervalMs ?? DEV_ADOPT_POLL_MS;
     const pluginRuntime = input.plugins.runtime;
+    // The label root: the host child's cwd is the host workspace, one level
+    // under the config's root — derive the root from the local host slot so
+    // labels are repo-root-relative ("plugins/votes"), matching the dev
+    // session's line.
+    const hostLocalPath =
+      input.config.host?.source === "local" ? input.config.host.localPath : undefined;
+    const rootHint = hostLocalPath
+      ? path.dirname(path.resolve(process.cwd(), hostLocalPath))
+      : undefined;
+    const labelOf = (key: string) =>
+      workspaceLabel(input.config.plugins?.[key]?.localPath ?? key, rootHint);
     const reload = async (key: string): Promise<void> => {
       const record: HostPluginEntry | undefined = input.plugins.plugins[key];
       const loadArgs = record?.loadArgs;
@@ -189,6 +210,7 @@ export const forkDevPluginAdopt = (input: {
       `[DevPluginAdopt] armed — watching ${[...samplers.keys()].join(", ")} for rebuilt plugin generations (poll ${intervalMs}ms)`,
     );
 
+    const generations = new Map<string, number>();
     let state = initialAdoptState;
     yield* Effect.forkScoped(
       Effect.gen(function* () {
@@ -199,7 +221,7 @@ export const forkDevPluginAdopt = (input: {
                 Promise.all(
                   [...samplers.entries()].map(async ([key, sample]) => ({
                     key,
-                    label: workspaceLabel(input.config.plugins?.[key]?.localPath ?? key),
+                    label: labelOf(key),
                     fingerprint: await sample(),
                   })),
                 ),
@@ -218,8 +240,12 @@ export const forkDevPluginAdopt = (input: {
             ),
           );
           state = outcome;
+          for (const [key, served] of outcome.served) {
+            if (served.generation > 0) generations.set(key, served.generation);
+          }
           yield* Effect.sleep(`${intervalMs} millis`);
         }
       }),
     );
+    return { generations };
   });

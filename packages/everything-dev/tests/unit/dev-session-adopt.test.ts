@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { type AddressInfo, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect, Exit, Layer } from "effect";
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ShellEnvLive } from "../../src/env/project-env";
 import { SupervisorLive } from "../../src/services/boot/adapters";
 import { DevRenderer } from "../../src/services/dev/render";
@@ -19,9 +19,11 @@ import { reapGroup } from "../../src/services/processes/kill";
 import type { RuntimeConfig } from "../../src/types";
 
 const fixturePath = fileURLToPath(new URL("../fixtures/fake-plugin-service.mjs", import.meta.url));
-const pluginWorkspace = fileURLToPath(
-  new URL("../fixtures/dev-adopt-plugin-workspace/", import.meta.url),
-);
+// The plugin workspace is materialized at runtime — the sampler reads a BUILT
+// dist and dist/ is gitignored, so a committed fixture dist would never
+// survive a cold checkout.
+const workspaceRoot = mkdtempSync(join(tmpdir(), "dev-adopt-workspace-"));
+const pluginWorkspace = workspaceRoot;
 
 const grabPort = (): Promise<number> =>
   new Promise((resolve, reject) => {
@@ -74,6 +76,10 @@ const record = (pid: number) => {
 
 describe("dev backend adopt — child replacement on a plugin rebuild", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "dev-adopt-session-"));
+  beforeAll(() => {
+    mkdirSync(join(workspaceRoot, "dist"), { recursive: true });
+    writeFileSync(join(workspaceRoot, "dist", "remoteEntry.js"), 'console.log("boot generation");');
+  });
   let session: DevSessionHandle | null = null;
   let port: number | undefined;
 
@@ -175,7 +181,7 @@ describe("dev backend adopt — child replacement on a plugin rebuild", () => {
     await vi.waitFor(
       () => {
         expect(logs).toContainEqual(
-          expect.stringContaining("dev-adopt-plugin-workspace moved to generation 1"),
+          expect.stringContaining(`${basename(pluginWorkspace)} moved to generation 1`),
         );
       },
       { timeout: 10_000, interval: 100 },

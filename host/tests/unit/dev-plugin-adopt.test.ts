@@ -33,6 +33,9 @@ const makeDeps = () => {
     logMove: vi.fn((line: string) => order.push(`move:${line}`)),
     logFailure: vi.fn((line: string) => order.push(`fail:${line}`)),
     now: vi.fn(() => 0),
+    // Explicit: the tick's settle semantics under test, independent of the
+    // production constant.
+    settleMs: 1_000,
   } as DevAdoptTickDeps & {
     order: string[];
     reload: ReturnType<typeof vi.fn>;
