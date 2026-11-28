@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "../../src/db/schema";
 import {
@@ -463,6 +463,47 @@ describe("admin organizations", () => {
       context: { reqHeaders: admin.reqHeaders },
     });
     expect(demoted.role).toBe("member");
+  });
+
+  it("a member removal that fails at the last write leaves the team memberships intact", async () => {
+    const handlers = createTestHandlers(setup.services).adminOrganizations;
+    const org = await createTestOrg(setup.services, member.userId);
+    const team = await handlers.adminCreateTeam({
+      input: { organizationId: org.id, name: "Ops Team" },
+      context: { reqHeaders: admin.reqHeaders },
+    });
+    await handlers.adminAddTeamMember({
+      input: { teamId: team.id, userId: member.userId },
+      context: { reqHeaders: admin.reqHeaders },
+    });
+    await handlers.adminAddMember({
+      input: { organizationId: org.id, userId: admin.userId, role: "owner" },
+      context: { reqHeaders: admin.reqHeaders },
+    });
+    await setup.services.db.execute(
+      sql`CREATE FUNCTION reject_member_delete() RETURNS trigger AS $$
+          BEGIN RAISE EXCEPTION 'member delete rejected'; END $$ LANGUAGE plpgsql`,
+    );
+    await setup.services.db.execute(
+      sql`CREATE TRIGGER member_delete_guard BEFORE DELETE ON "member"
+          FOR EACH ROW EXECUTE FUNCTION reject_member_delete()`,
+    );
+
+    await expect(
+      handlers.adminRemoveMember({
+        input: { organizationId: org.id, userId: member.userId },
+        context: { reqHeaders: admin.reqHeaders },
+      }),
+    ).rejects.toThrow();
+
+    const memberships = await setup.services.db.query.teamMember.findMany({
+      where: eq(schema.teamMember.teamId, team.id),
+    });
+    expect(memberships).toHaveLength(1);
+    const teamRow = await setup.services.db.query.team.findFirst({
+      where: eq(schema.team.id, team.id),
+    });
+    expect(teamRow?.memberCount).toBe(1);
   });
 
   it("creates, updates, and deletes teams", async () => {
