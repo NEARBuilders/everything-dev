@@ -258,10 +258,44 @@ function renderEnvFile(
     lines.push("");
   }
 
+  if (options.forExample) lines.push(...renderOperatorFlags());
+
   return `${lines.join("\n")}\n`;
 }
 
 export { renderEnvFile };
+
+/** Operator flags — read from the environment, never from the authored
+ * config — rendered into `.env.example` so the opt-in surface is visible
+ * where operators provision. Every default is empty: that is the current
+ * behavior. KEEP: this list is the only home; the committed `.env.example`
+ * is regenerated from it, so a hand-added block would be clobbered. */
+const OPERATOR_FLAGS: ReadonlyArray<readonly [name: string, comment: string]> = [
+  [
+    "BOS_HOLD_ON_BACKEND_CHANGE",
+    "1 holds a UI adoption when the published generation also moves a boot-frozen backend (api, auth, plugin backends), so UI and backends move as one unit. Default off.",
+  ],
+  [
+    "BOS_RECONCILE_HELD_GENERATIONS",
+    "1 lets the reconciler replace a held generation by terminating this instance — only with a supervisor that restarts it. Production only; default off.",
+  ],
+  [
+    "BOS_SNAPSHOT_DIR",
+    "Where the host writes its boot snapshot. Default: .bos/snapshot under the working directory.",
+  ],
+  [
+    "BOS_LOG_LEVEL",
+    "Console log level: error, warn (default), info or debug. The log file always gets everything; --log-level overrides this.",
+  ],
+];
+
+export function renderOperatorFlags(): string[] {
+  return [
+    "# Operator flags (optional — read from the environment, empty keeps the default)",
+    ...OPERATOR_FLAGS.flatMap(([name, comment]) => [`# ${comment}`, `${name}=`]),
+    "",
+  ];
+}
 
 function renderEnvTestFile(groups: SecretGroup[]): string {
   const lines: string[] = [
