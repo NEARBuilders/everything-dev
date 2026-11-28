@@ -20,7 +20,7 @@ The host injects a `ClientRuntimeConfig` into `window.__RUNTIME_CONFIG__` via an
 
 ```ts
 {
-  hostUrl: "https://dev.everything.dev",  // the host server origin
+  hostUrl: "https://everything.dev",  // the host server origin
   apiBase: "/api",
   rpcBase: "/api/rpc",
   authAvailable: true,
@@ -57,7 +57,7 @@ An external app, script, or child project can connect with just `@orpc/client` a
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 
-const HOST = "https://dev.everything.dev";
+const HOST = "https://everything.dev";
 
 const link = new RPCLink({
   origin: HOST,
@@ -334,10 +334,10 @@ Use the OpenAPI spec to generate typed clients in any language:
 
 ```bash
 # Generate a TypeScript client
-npx openapi-typescript-codegen --input https://dev.everything.dev/api --output ./generated-api
+npx openapi-typescript-codegen --input https://everything.dev/api --output ./generated-api
 
 # Generate a Python client
-openapi-generator-cli generate -i https://dev.everything.dev/api -g python -o ./api-client
+openapi-generator-cli generate -i https://everything.dev/api -g python -o ./api-client
 ```
 
 REST routes follow the `oc.route({ method, path })` declarations in each plugin's contract. For example, `GET {hostUrl}/api/v1/registry/apps` maps to the `apps` plugin's `listRegistryApps` procedure.
