@@ -30,7 +30,7 @@ export const LOCKFILE_NAME = "bos.lock.json";
  * against; fields are individually optional because the freeze is faithful to
  * what the config carries, not to what a producer wishes it carried.
  * `pluginRef` freezes a bare plugin reference (`plugins.<id>: "<key>"`). */
-export const LockfileRemoteSchema = z.discriminatedUnion("kind", [
+const LockfileRemoteSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("descriptor"),
@@ -46,9 +46,9 @@ export const LockfileRemoteSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
-export type LockfileRemote = z.infer<typeof LockfileRemoteSchema>;
+type LockfileRemote = z.infer<typeof LockfileRemoteSchema>;
 
-export const CompositionLockfileSchema = z
+const CompositionLockfileSchema = z
   .object({
     schemaVersion: z.literal(2),
     kind: z.literal("everything-dev/composition-lockfile"),
@@ -222,7 +222,7 @@ export async function readLockfileIfExists(
   }
 }
 
-export interface LockWriteResult {
+interface LockWriteResult {
   status: "written" | "unchanged" | "drift";
   path: string;
   pointerDigest: string;

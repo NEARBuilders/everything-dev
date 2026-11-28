@@ -40,7 +40,7 @@ export interface BundleNamespace {
   readonly gateway: string;
 }
 
-export class BundleReadError extends Schema.TaggedError<BundleReadError>()("BundleReadError", {
+class BundleReadError extends Schema.TaggedError<BundleReadError>()("BundleReadError", {
   path: Schema.String,
   cause: Schema.optional(Schema.Unknown),
 }) {}
@@ -185,11 +185,11 @@ export class BundleResolver extends Context.Service<
   }
 }
 
-export interface BundleFetchHandle {
+interface BundleFetchHandle {
   readonly uninstall: () => Promise<void>;
 }
 
-export interface BundleFetchOptions {
+interface BundleFetchOptions {
   /** Own-namespace FS resolution — requires a staged `BOS_BUNDLE_DIR`. */
   namespace?: BundleNamespace;
   /**

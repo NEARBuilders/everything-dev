@@ -25,7 +25,7 @@ export interface RollbackVerification {
   remotes: RollbackRemoteCheck[];
 }
 
-export { collectRemoteDescriptors, type RemoteDescriptor } from "../verify/chain";
+export { collectRemoteDescriptors } from "../verify/chain";
 
 export async function verifyRollbackSnapshot(
   config: BosConfigInput,
