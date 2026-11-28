@@ -4,7 +4,7 @@ import { z } from "zod";
 import { docs as compiledDocs } from "../.velite/index.js";
 import { contract } from "./contract";
 import { ContextSchema } from "./lib/context";
-import { type DocRecord, DocsService } from "./service";
+import { type DocRecord, DocsService, fileOfSlug } from "./service";
 
 class DocsServiceTag extends Context.Service<DocsServiceTag, DocsService>()("docs/DocsService") {}
 
@@ -12,6 +12,7 @@ export { DocsServiceTag };
 
 const compiledRecordSchema = z.object({
   slug: z.string(),
+  file: z.string().optional(),
   source: z.string().optional(),
   path: z.string().optional(),
   title: z.string().optional(),
@@ -28,10 +29,12 @@ type CompiledRecord = z.infer<typeof compiledRecordSchema>;
 
 const toRecord = (doc: CompiledRecord): DocRecord => {
   const { slug, source, path, description, raw, search } = doc;
+  const resolvedSource = source ?? "app";
   return {
     slug,
-    source: source ?? "app",
+    source: resolvedSource,
     path: path ?? slug,
+    file: doc.file ?? fileOfSlug(slug, resolvedSource),
     title: doc.title ?? slug,
     description,
     tags: doc.tags ?? [],

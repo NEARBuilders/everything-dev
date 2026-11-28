@@ -20,13 +20,19 @@ export function resolveClientConfig(runtimeConfig?: { hostUrl?: string; rpcBase?
   };
 }
 
-type DocsClientContext = {
+export type DocsClientContext = {
   apiClient?: unknown;
-  runtimeConfig?: { hostUrl?: string; rpcBase?: string };
+  runtimeConfig?: { hostUrl?: string; rpcBase?: string; repository?: string };
 };
+
+export const repositoryOf = (context: DocsClientContext): string | undefined =>
+  context.runtimeConfig?.repository;
 
 export function resolveDocsClient(context: DocsClientContext): DocsApiClient {
   const shared = (context.apiClient as { docs?: DocsApiClient } | undefined)?.docs;
   if (shared) return shared;
   return createApiClient<typeof contract>(resolveClientConfig(context.runtimeConfig));
 }
+
+export const isNotFound = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && (error as { code?: unknown }).code === "NOT_FOUND";

@@ -19,6 +19,7 @@ export declare const DocSchema: z.ZodObject<{
     order: z.ZodNumber;
     status: z.ZodOptional<z.ZodString>;
     statusNote: z.ZodOptional<z.ZodString>;
+    file: z.ZodString;
     raw: z.ZodString;
 }, z.core.$strip>;
 export declare const ListDocsSchema: z.ZodObject<{
@@ -59,7 +60,7 @@ export declare const contract: {
         q: z.ZodOptional<z.ZodString>;
         tag: z.ZodOptional<z.ZodString>;
         source: z.ZodOptional<z.ZodString>;
-        limit: z.ZodDefault<z.ZodNumber>;
+        limit: z.ZodDefault<z.ZodCoercedNumber<unknown>>;
         cursor: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>, z.ZodObject<{
         data: z.ZodArray<z.ZodObject<{
@@ -90,6 +91,7 @@ export declare const contract: {
             order: z.ZodNumber;
             status: z.ZodOptional<z.ZodString>;
             statusNote: z.ZodOptional<z.ZodString>;
+            file: z.ZodString;
             raw: z.ZodString;
         }, z.core.$strip>;
     }, z.core.$strip>, {

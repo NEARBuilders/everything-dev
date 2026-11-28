@@ -2,6 +2,13 @@
 
 > Open runtime for apps on NEAR — compose published plugins, own your runtime config, and extend the platform with your own deployments.
 
+## Documentation
+
+- [Documentation map](/docs): what this repository is, where every document lives, and where to start.
+- [The book](/docs/book): the manual — the model, authoring, running, publishing, and trusting a runtime. Thirteen short chapters, each citing its decisions.
+- [Decisions](/docs/adr): Architecture Decision Records — context, decision, consequences. The reasoning behind every statement in the book.
+- Machine-readable: `GET /api/docs` lists every page, `GET /api/docs/{slug}` returns one as raw markdown (e.g. `/api/docs/book/01-the-model`).
+
 ## Skills
 
 - [Skill](/skill.md): Entry-point router — pick the one skill for the task in front of you. Load ONE skill, not all.

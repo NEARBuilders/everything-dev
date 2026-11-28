@@ -5,6 +5,8 @@ import { resolveDocsClient } from "@/lib/api";
 import { docsNavQueryOptions } from "@/lib/queries";
 import "../../styles.css";
 
+const DOCS_ROUTE_PREFIX = "/docs/";
+
 export const Route = createFileRoute("/_public/docs")({
   staticData: {
     nav: {
@@ -26,7 +28,9 @@ function DocsLayout() {
   const routerContext = useRouter().options.context;
   const { data: nav } = useQuery(docsNavQueryOptions(resolveDocsClient(routerContext)));
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const currentSlug = pathname.startsWith("/docs/") ? pathname.slice(5) : undefined;
+  const currentSlug = pathname.startsWith(DOCS_ROUTE_PREFIX)
+    ? pathname.slice(DOCS_ROUTE_PREFIX.length)
+    : undefined;
 
   return (
     <div className="mx-auto flex w-full max-w-6xl gap-8 px-4 py-6 sm:px-8">

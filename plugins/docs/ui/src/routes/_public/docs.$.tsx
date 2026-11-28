@@ -7,7 +7,8 @@ import { NavTree } from "@/components/docs/nav-tree";
 import { StatusBadge } from "@/components/docs/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { resolveDocsClient } from "@/lib/api";
+import { isNotFound, repositoryOf, resolveDocsClient } from "@/lib/api";
+import { useDocLinks } from "@/lib/doc-links";
 import { docsNavQueryOptions } from "@/lib/queries";
 import type { DocOutput, NavNodeShape } from "../../../../src/contract";
 import { prettifySegment } from "../../../../src/lib/labels";
@@ -27,9 +28,6 @@ interface FlatEntry {
   slug: string;
   title: string;
 }
-
-const isNotFound = (error: unknown): boolean =>
-  typeof error === "object" && error !== null && (error as { code?: unknown }).code === "NOT_FOUND";
 
 export const Route = createFileRoute("/_public/docs/$")({
   loader: async ({ context, params }) => {
@@ -71,6 +69,7 @@ function DocPage() {
   const slug = data?.slug ?? "";
   const routerContext = useRouter().options.context;
   const { data: nav } = useQuery(docsNavQueryOptions(resolveDocsClient(routerContext)));
+  const links = useDocLinks(nav, repositoryOf(routerContext));
 
   const flat = useMemo(() => {
     const out: FlatEntry[] = [];
@@ -168,7 +167,11 @@ function DocPage() {
             )}
           </header>
           <div className="max-w-[48rem]">
-            <MarkdownRenderer content={dedupeLeadingTitle(doc.raw, doc.title)} slug={doc.slug} />
+            <MarkdownRenderer
+              content={dedupeLeadingTitle(doc.raw, doc.title)}
+              file={doc.file}
+              links={links}
+            />
           </div>
           {(prev || next) && (
             <nav

@@ -3,6 +3,12 @@
 ADRs record Architecturally Significant Decisions that are hard to reverse.
 Format: context → decision → consequences, one file per decision.
 
+This is the **decision ledger**: it records how the platform came to be. For the
+platform as it is, read [the book](../book/) — short chapters by concept, each citing
+the records it rests on. [The documentation map](../README.md) explains how the layers
+fit ([0055](./0055-the-book.md)). A record is never rewritten; a new or amended one
+obligates a check of the chapters that cite it.
+
 ## Index
 
 | ADR | Title | Status |
@@ -49,25 +55,33 @@ Format: context → decision → consequences, one file per decision.
 | [0044](./0044-per-identity-pglite-data-dirs.md) | Per-identity PGlite data dirs — concurrent embedded instances corrupt | Accepted |
 | [0045](./0045-per-workspace-migration-journals.md) | Per-workspace migration journals — journal identity follows workspace identity | Accepted |
 | [0046](./0046-manifest-attribution.md) | Manifest attribution — the deploy train signs version manifests; the key record lives in the on-chain config | Accepted |
+| [0046](./0046-manifest-attribution.md) | Manifest attribution — the deploy train signs version manifests; the key record lives in the on-chain config | Accepted |
+| [0046](./0046-verification-spine.md) | The verification spine — one Verifier engine, one chain walker, `Verified<T>`, signed manifests | Proposed (shares its number with the record above — cite by filename) |
 | [0047](./0047-one-committed-artifact.md) | One committed artifact — `bos.lock.json` absorbs the sync baseline; everything under `.bos/` is local-only | Accepted |
 | [0048](./0048-the-boot-seam.md) | The boot seam — one supervision core, policy as data | Accepted |
 | [0049](./0049-generation-scoped-ssr-composition.md) | Generation-scoped SSR composition — the generation is the unit of coherence; hot swap replaces TTL-as-invalidation in dev | Accepted |
 | [0050](./0050-renderer-agnostic-ui-readiness.md) | UI renderer-agnostic readiness — Standard Schema contracts, logic seams, no renderer abstraction | Accepted |
 | [0051](./0051-dev-plugin-adopt.md) | Dev plugin adopt — two cooperating dev watchers move rebuilt backend generations without a restart; the production reconciler stays untouched | Accepted |
+| [0053](./0053-docs-content-sources.md) | Docs content sources and the mount-qualified slug scheme | Accepted |
+| [0054](./0054-content-collections-framework-primitive.md) | Content collections as a framework primitive | Accepted |
+| [0055](./0055-the-book.md) | The book — a narrative manual layered over the decision ledger | Accepted |
 
 
-Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were
-renumbered from duplicate 0007/0011/0012/0013 numbers on 2026-09-26 — the
-original numbers were accidentally reused by dev-session efforts; the
-low-reference file in each pair moved (see git history). 0029 (agent surface
-split) was added on a side branch that never merged to main — do not reuse it.
+Skipped numbers: 0006 exists; 0015–0018 were renumbered from duplicate
+0007/0011/0012/0013 numbers on 2026-09-26 — the original numbers were accidentally
+reused by dev-session efforts; the low-reference file in each pair moved (see git
+history). 0029 (agent surface split) was added on a side branch that never merged to
+main — do not reuse it. 0052 was skipped when 0053–0054 landed — treat it as taken.
 
 ## Number assignment discipline
 
 - Take the next free number (`ls docs/adr/ | sort -n | tail -1`, then +1 —
-  next free is **0052**). Never reuse a number, even for a rejected ADR.
-- When citing an ADR in code, plans, changesets, or AGENTS.md, cite the
-  number **with the filename** if the context could be ambiguous.
+  next free is **0056**). Never reuse a number, even for a rejected ADR.
+- When citing an ADR in code, plans, changesets, AGENTS.md, or the book, cite the
+  number **with the filename** if the context could be ambiguous — always, for the
+  two records numbered 0046.
 - Superseded ADRs stay in place with a `Superseded by` status link to the
   replacement — they are history, not garbage.
 - Amendments append a dated `## Amendment` section and update the Status line.
+- A new or amended ADR obligates a check of the book chapters that cite it:
+  `rg "<number>" docs/book`.

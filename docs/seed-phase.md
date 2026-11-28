@@ -1,3 +1,9 @@
+---
+title: Seed phase
+description: Declarative database seeding — declare a seed block in the authored config and bos dev checks it and runs it before anything serves.
+order: 13
+---
+
 # Seed phase
 
 Declarative database seeding for everything.dev apps (#865). Consumer apps hand-roll

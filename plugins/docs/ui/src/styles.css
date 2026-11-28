@@ -1,5 +1,6 @@
+@layer properties, theme, base, components, utilities, plugins;
 @import "tailwindcss/theme" theme(reference inline);
-@import "tailwindcss/utilities" layer(utilities.auth);
+@import "tailwindcss/utilities" layer(plugins.docs);
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 

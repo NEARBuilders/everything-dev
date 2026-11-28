@@ -6,6 +6,7 @@ export interface DocRecord {
   readonly source: string;
   readonly path: string;
   readonly slug: string;
+  readonly file: string;
   readonly title: string;
   readonly description?: string;
   readonly tags: string[];
@@ -15,6 +16,15 @@ export interface DocRecord {
   readonly raw: string;
   readonly search?: string;
 }
+
+export const fileOfSlug = (slug: string, source: string): string => {
+  if (slug === "glossary") return "GLOSSARY.md";
+  const pluginMatch = /^plugins\/([^/]+)\/(.+)$/.exec(slug);
+  if (source !== "app" && pluginMatch?.[1] && pluginMatch[2]) {
+    return `plugins/${pluginMatch[1]}/docs/${pluginMatch[2]}.md`;
+  }
+  return `docs/${slug}.md`;
+};
 
 export interface NavNode {
   label: string;

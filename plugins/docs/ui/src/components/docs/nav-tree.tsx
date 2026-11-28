@@ -13,6 +13,7 @@ const isAncestor = (dirPath: string, currentSlug?: string): boolean =>
   );
 
 export function NavTree({ nodes, currentSlug, depth = 0 }: NavTreeProps) {
+  const leadSection = depth === 0 ? nodes.find((node) => !node.slug)?.path : undefined;
   return (
     <ul
       className={`flex flex-col gap-0.5 ${depth > 0 ? "border-l border-border pl-3" : ""}`}
@@ -37,7 +38,7 @@ export function NavTree({ nodes, currentSlug, depth = 0 }: NavTreeProps) {
         ) : (
           <li key={node.path || `${node.label}-${node.children.length}`}>
             <details
-              open={depth === 0 || isAncestor(node.path, currentSlug)}
+              open={node.path === leadSection || isAncestor(node.path, currentSlug)}
               data-testid="docs.tree-dir"
             >
               <summary className="cursor-pointer list-none px-2 py-1 text-xs font-bold tracking-wider text-muted-foreground uppercase select-none hover:text-foreground">

@@ -280,6 +280,11 @@ export default createPlugin.withPlugins<PluginsClient>()({
       (router as Record<string, unknown>).things = templateRouter;
     }
 
+    const docsRouter = plugins.docs?.router;
+    if (docsRouter) {
+      (router as Record<string, unknown>).docs = docsRouter;
+    }
+
     return router;
   },
 });

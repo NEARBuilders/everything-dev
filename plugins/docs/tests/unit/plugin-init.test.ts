@@ -53,8 +53,12 @@ describe("docs plugin sources variable", () => {
     };
     expect(data.map((doc) => doc.slug)).toEqual(["hello"]);
     expect(data[0]?.source).toBe("remote-source");
-    const found = (await Effect.runPromise(service.getBySlug("hello"))) as { raw: string };
+    const found = (await Effect.runPromise(service.getBySlug("hello"))) as {
+      raw: string;
+      file: string;
+    };
     expect(found.raw).toBe("# Hello");
+    expect(found.file).toBe("docs/hello.md");
   });
 
   it("keeps the baked corpus when no sources are declared", async () => {

@@ -1,4 +1,14 @@
-const EXTERNAL_SCHEMES = /^[a-z][a-z0-9+.-]*:/i;
+export interface DocLinkContext {
+  readonly slugs?: ReadonlySet<string>;
+  readonly repository?: string;
+}
+
+export const EXTERNAL_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+const GITHUB_REPOSITORY =
+  /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/i;
+const SKILL_FILE = /^packages\/([^/]+)\/skills\/(.+)$/;
+const PUBLIC_ASSET = /^ui\/public\/(.+)$/;
+export const DOCS_ROUTE_PREFIX = "/docs/";
 
 const splitHash = (href: string): { path: string; hash: string } => {
   const index = href.indexOf("#");
@@ -8,28 +18,70 @@ const splitHash = (href: string): { path: string; hash: string } => {
 
 const hasFileExtension = (basename: string): boolean => /\.[a-z0-9]+$/i.test(basename);
 
-export function resolveDocHref(href: string, slug: string): string {
-  if (!href || href.startsWith("#") || EXTERNAL_SCHEMES.test(href)) return href;
-  if (href.startsWith("/docs/")) return href;
+export const routeOf = (repoPath: string): string => {
+  const plugin = /^plugins\/([^/]+)\/docs\/(.+)$/.exec(repoPath);
+  const within =
+    plugin?.[1] && plugin[2]
+      ? `plugins/${plugin[1]}/${plugin[2]}`
+      : repoPath.replace(/^docs\//, "");
+  const withoutExtension = within.replace(/\.(md|mdx)$/i, "");
+  return withoutExtension.endsWith("GLOSSARY") ? "glossary" : withoutExtension;
+};
+
+const isCompiled = (route: string, isDirectory: boolean, slugs?: ReadonlySet<string>) => {
+  if (!slugs) return true;
+  if (slugs.has(route)) return true;
+  return isDirectory && [...slugs].some((slug) => slug.startsWith(`${route}/`));
+};
+
+export function repositoryUrl(
+  repository: string | undefined,
+  repoPath: string,
+  isDirectory: boolean,
+): string | undefined {
+  if (!repository) return undefined;
+  const match = GITHUB_REPOSITORY.exec(repository.trim());
+  if (!match?.[1] || !match[2]) return undefined;
+  const encoded = repoPath.split("/").map(encodeURIComponent).join("/");
+  return `https://github.com/${match[1]}/${match[2]}/${isDirectory ? "tree" : "blob"}/HEAD/${encoded}`;
+}
+
+export function resolveDocHref(href: string, file: string, context: DocLinkContext = {}): string {
+  if (!href || href.startsWith("#") || EXTERNAL_SCHEME.test(href)) return href;
+  if (href.startsWith(DOCS_ROUTE_PREFIX)) return href;
 
   const { path, hash } = splitHash(href);
   if (!path) return href;
 
-  const isRooted = path.startsWith("/") || path.startsWith("docs/");
-  const segments = isRooted ? [] : slug.split("/").slice(0, -1);
-  const parts = path.split("/");
-  for (const part of parts) {
+  const rooted = path.startsWith("/") || path.startsWith("docs/") || !file;
+  const segments = rooted ? [] : file.split("/").slice(0, -1);
+  for (const part of path.split("/")) {
     if (part === "." || part === "") continue;
     if (part === "..") segments.pop();
     else segments.push(part);
   }
   const resolved = segments.join("/");
-  const basename = resolved.split("/").at(-1) ?? "";
-  if (hasFileExtension(basename) && !/\.(md|mdx)$/i.test(basename)) return href;
-  const normalized = resolved.replace(/^docs\//, "");
-  const withoutExtension = normalized.replace(/\.(md|mdx)$/i, "");
-  const route = withoutExtension.endsWith("GLOSSARY") ? "glossary" : withoutExtension;
-  return `/docs/${route}${hash}`;
+  const isMarkdown = /\.(md|mdx)$/i.test(resolved);
+  const isDirectory = !hasFileExtension(resolved.split("/").at(-1) ?? "");
+
+  const skill = SKILL_FILE.exec(resolved);
+  if (skill?.[1] && skill[2]) return `/skills/${skill[1]}/${skill[2]}${hash}`;
+
+  const asset = PUBLIC_ASSET.exec(resolved);
+  if (asset?.[1]) return `/${asset[1]}${hash}`;
+
+  if (resolved === "README.md") return `/about${hash}`;
+
+  if (isMarkdown || isDirectory) {
+    const route = routeOf(resolved);
+    if (isCompiled(route, isDirectory, context.slugs)) return `${DOCS_ROUTE_PREFIX}${route}${hash}`;
+  }
+
+  const repository = repositoryUrl(context.repository, resolved, isDirectory);
+  if (repository) return `${repository}${hash}`;
+
+  if (isMarkdown || isDirectory) return `${DOCS_ROUTE_PREFIX}${routeOf(resolved)}${hash}`;
+  return href;
 }
 
 export function dedupeLeadingTitle(raw: string, title: string): string {

@@ -68,6 +68,8 @@ This repo is the **everything.dev base runtime** — the source of truth for the
 
 After cloning, read **`AGENTS.md`** at the repo root — operational guidance, the TanStack Intent skills block, and regression test instructions. Then load the skill for the task in front of you from the table above.
 
+For the model behind a task, read the matching chapter of the book at `/docs/book` — start at `/docs`, the documentation map. Each chapter is short, names the commands that check its claims, and cites the ADRs it rests on.
+
 To scaffold a **new app** instead of modifying this one, use `bos init` — `everything-dev#init-upgrade` walks it.
 
 ## Rules to work by
@@ -83,6 +85,7 @@ To scaffold a **new app** instead of modifying this one, use `bos init` — `eve
 
 - `/` — landing
 - `/about` — renders the repo README
+- `/docs` — the documentation map; `/docs/book` — the manual; `/docs/adr` — the decision ledger
 - `/skill` — this page rendered
 - `/skill.md`, `/llms.txt` — raw doc endpoints
 - `/skills/<package>/<skill>/SKILL.md` — the skill family

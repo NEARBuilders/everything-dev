@@ -19,6 +19,8 @@ const FILE_SCOPES = [
   "ui/README.md",
   "ui/DESIGN.md",
   "host/README.md",
+  "docs/README.md",
+  "docs/book",
   "docs/agents",
   "docs/adr/README.md",
   "docs/plans/README.md",
