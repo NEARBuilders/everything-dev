@@ -19,6 +19,7 @@
   032-sandbox-orchestrator-spike.md (spike/design only)
 - **Category**: direction / dx
 - **Planned at**: commit `00d162cb`, 2026-09-18
+- **Re-based** (2026-11-28, verified at `01454f9f`): the page still does not exist — `ui/src/routes/_authenticated/deploys.tsx` is history-only and no `/deploy` route exists. The publish credential model moved to custody/session: `src/contract.ts`'s `LoginOptionsSchema` carries `key` and `custody` (`:565-579`). `src/fastkv.ts` moved to `src/services/registry/fastkv.ts`; `ui/src/routes/_layout/` is gone.
 
 ## Why this matters
 

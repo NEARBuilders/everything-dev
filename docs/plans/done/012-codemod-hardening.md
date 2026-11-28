@@ -17,6 +17,7 @@
 - **Depends on**: done/001-buildscoped-helper.md (the codemod may emit `buildScoped` after 001 lands — see Step 4)
 - **Category**: bug / tech-debt
 - **Planned at**: commit `c9ca44e1`, 2026-09-15
+- **Closed** (2026-11-28 — MOOT): the `bos sync` codemod surface this plan hardened was deleted when `bos sync` was retired (`23d8bc1c`, #541, ADR 0036). No user-source codemod remains; the two "codemod" mentions left in the tree are comments naming the legacy `platform:` form (`services/scaffold/upgrade-migration.ts:36,76`).
 
 ## Why this matters
 

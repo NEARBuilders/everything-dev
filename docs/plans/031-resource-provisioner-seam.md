@@ -17,6 +17,7 @@
 - **Depends on**: 028-app-ts-descriptor.md
 - **Category**: architecture / direction
 - **Planned at**: commit `00d162cb`, 2026-09-18
+- **Re-based** (2026-11-28, verified at `01454f9f`): the descriptor still has no `resources` / `bindings` fields and `infra/provisioner.ts` was never created. Alchemy no longer has a platform-side home either — the issue's `infra/alchemy.run.ts` is gone, and the only references left under `packages/everything-dev/src/` are `services/hosting/docker.ts` and the generated v2 catalog row. Re-verify the alchemy premise before executing. `src/app.ts` moved to `src/services/resolution/`.
 
 ## Why this matters
 

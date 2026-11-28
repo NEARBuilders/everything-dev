@@ -19,6 +19,7 @@
 - **Depends on**: none (but land BEFORE plan 012's replacer work touches adjacent upgrade code — no file overlap, order is soft)
 - **Category**: tests
 - **Planned at**: commit `c9ca44e1`, 2026-09-15
+- **Closed** (2026-11-28 — DONE-ELSEWHERE): `orchestrator.ts` and `dev-session.ts` — the modules to characterize — were deleted in the boot-seam consolidation (ADR 0048; #931, #934, #945). The behavior is pinned where it now lives: `tests/unit/dev-session-processes.test.ts` (escalation, orphan reaping, adoption), `dev-session-adopt.test.ts`, `dev-session.test.ts`. Residue: preflight is characterized only through `tests/unit/infra.test.ts`.
 
 ## Why this matters
 

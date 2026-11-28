@@ -17,6 +17,7 @@
 - **Depends on**: none
 - **Category**: dx
 - **Planned at**: commit `c9ca44e1`, 2026-09-15
+- **Re-based** (2026-11-28, verified at `01454f9f`): the proposed `infra/staleness.ts` was never created. The wiring point moved — `services/dev/boot.ts:13` imports `preflightLocalInfra` from `infra/preflight.ts` and calls it at `:264` — and the build-time freshness comparison lives in `services/workspace/build-train.ts` (the prerequisite train's staleness check). `src/build.ts` and `cli/contract.meta.ts` no longer exist at those paths (`src/contract.meta.ts` does).
 
 ## Why this matters
 

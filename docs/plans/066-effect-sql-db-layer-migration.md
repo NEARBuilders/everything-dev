@@ -13,6 +13,7 @@
 - **Depends on**: none
 - **Category**: tech-debt / migration
 - **Planned at**: commit `1e435601`, 2026-10-28
+- **Re-entry trigger — corrected** (2026-11-28, verified at `01454f9f`): the stated trigger ("before the first new DB-layer feature — the approvals plugin's schema, #925") already fired elsewhere: `plugins/agent-connect` shipped new DB schema on 2026-11-02 (`e8fc814a`; `plugins/agent-connect/src/db/{schema.ts,layer.ts,migrations}`) without this spike. The plan is therefore no longer gated on #925 — the go/no-go `search_path` spike is owed now. The plumbing it targets is unchanged: `src/db/driver.ts:64,276` still sets `search_path` by hand and `effect/unstable/sql` appears nowhere in the tree.
 - **Deferred** (#922, 2026-11-23): re-entry before the first new DB-layer feature — the approvals plugin's schema work (#925) is the named trigger. The go/no-go spike (per-connection `search_path` gate) runs then.
 - **Issue**: https://github.com/NEARBuilders/everything-dev/issues/647
 
