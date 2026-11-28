@@ -10,7 +10,7 @@ _Avoid_: app (ambiguous between the runtime and a tenant), project
 
 **EntryResolver**:
 The host's entry-URL seam (`entryUrls` in `everything-dev/ui/remote-entry`) — one pure derivation from a stamped remote (`RemoteEntry`) to the URLs each surface loads: `ui` (browser entry — bustered fixed name in development, digest-derived hashed outside it), `ssr` (server container entry; undefined when the remote has no SSR coordinates), and `browserManifest` (the digest-derived hashed mf-manifest, structurally absent for local remotes — atomic-deploys 08). Surfaces resolve lazily and throw loudly outside development naming remote + surface; buster arithmetic (integrity for ui, ssrIntegrity→containerVersion for the server) lives inside the module, never at call sites.
-_Avoid_: SlotResolver (retired), `web` surface (retired — the browser surface is `ui`), resolveEntryUrlForEnv (the deleted per-surface helper), remoteEntryUrlOf/ssrEntryUrlOf/getSsrEntryUrl (the deleted per-site wrappers), buster at the call site
+_Avoid_: `web` surface (retired — the browser surface is `ui`), resolveEntryUrlForEnv (the deleted per-surface helper), remoteEntryUrlOf/ssrEntryUrlOf/getSsrEntryUrl (the deleted per-site wrappers), buster at the call site
 
 **Quiet build**:
 The prerequisite dist builder in `everything-dev/build` — one function (`buildPackageQuietly`) over the three framework packages (every-plugin, better-near-auth, everything-dev), each identified by its staleness-check dist entry. Skips when the dist is fresh, rebuilds captured-output-quietly, and fails loudly on nonzero exit; used by `bos build`'s train and the `bos dev` boot build.
@@ -46,7 +46,7 @@ _Avoid_: config slot (retired — the ticket-11 vocabulary; attachment slots in 
 
 **Registry key**:
 One of the four typed keys in `src/services/registry/keys.ts` (ADR 0040), each with one wire form: `runtimeConfig` (`apps/<account>/<gateway>/bos.config.json`), `manifest` (`apps/<account>/<gateway>/manifest.json` — the thin tag: version + digest), `version` (`versions/<v>.json` — the immutable per-release record, written once), `deployRecord` (`deploys/<ts>.json` — the audit trail). A `RuntimeRef` (`bos://<account>/<gateway>`) names the identity every key hangs from. Never hand-build registry paths.
-_Avoid_: platform.json (the retired pre-cutover key — abandoned in place), slot (a key is not a slot), hand-built path strings (the golden tests pin the wire forms)
+_Avoid_: slot (a key is not a slot), hand-built path strings (the golden tests pin the wire forms)
 
 **Platform release manifest**:
 The machine-readable contract of one framework release (ADR 0034): framework + every-plugin versions, the release catalog, exact shared-dep versions with their flags, the hashed template inventory, and the compat floor — composed once by the deploy train and published to two homes with byte-identical content (FastKV as the thin tag `apps/<root-account>/<root-gateway>/manifest.json` naming the immutable `versions/<v>.json` record — ADR 0040 — and the in-image copy generated inside the docker build). Carries image `ref` + tags, never the digest.

@@ -7,10 +7,10 @@ import { timePhase } from "../../utils/timing";
 import { readNodeModulesVersion } from "../framework-version";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
+import { describeCleanoutItem, runCleanout } from "./cleanout";
 import { renameLegacyPluginDevOverlays } from "./dev-overlay-migration";
 import { runTypesGen } from "./init";
 import { convertLegacyJsonConfig } from "./json-config-migration";
-import { absorbLegacySnapshot } from "./snapshot";
 import { syncTemplate } from "./sync";
 import {
   FRAMEWORK_PACKAGES,
@@ -134,16 +134,6 @@ export async function runMigrationPhase(
   const legacyCache = join(projectDir, ".bos", "platform-manifest.json");
   if (existsSync(legacyCache)) rmSync(legacyCache, { force: true });
 
-  // ADR 0047: the sync baseline's committed form is bos.lock.json's
-  // template.sync — absorb a legacy .bos/sync-snapshot.json wherever a lock
-  // exists, so the file stops regenerating (and stops being committed).
-  // Without a lock the legacy file stays: it is still the only baseline,
-  // now local-only. Runs on every migration phase — same-version upgrades
-  // included (ADR 0032 gates framework-owned files, not the baseline).
-  const snapshotAbsorbed = await timePhase(timings, "absorb sync snapshot", () =>
-    absorbLegacySnapshot(projectDir),
-  );
-
   // Runs on every migration phase — same-version upgrades included: the
   // rename is idempotent, and legacy names must not survive any upgrade.
   await timePhase(timings, "rename legacy dev overlays", () =>
@@ -154,8 +144,18 @@ export async function runMigrationPhase(
   // config): a JSON-form tree converts here so every later phase sees the
   // descriptor. Fields the descriptor cannot express abort loudly — the tree
   // is never half-converted, and the manual path is the message.
-  const legacyJsonConverted = await timePhase(timings, "convert legacy json config", () =>
-    convertLegacyJsonConfig(projectDir),
+  await timePhase(timings, "convert legacy json config", () => convertLegacyJsonConfig(projectDir));
+
+  // Cleanout (#921, ADR 0047): delete the legacy state "delete at will"
+  // never deleted — absorb .bos/sync-snapshot.json into bos.lock.json's
+  // template.sync (lock-verified; without a lock the file stays: it is
+  // still the only baseline), and delete children's unowned .changeset/.
+  // Runs after the JSON conversion so the child-guard reads the descriptor
+  // the legacy trees now have. Same-version upgrades included (ADR 0032
+  // gates framework-owned files, not the ghosts).
+  const cleanoutLog = (message: string): void => console.error(`  [cleanout] ${message}`);
+  const cleanout = await timePhase(timings, "cleanout legacy state", () =>
+    runCleanout(projectDir, cleanoutLog),
   );
 
   // The catalog-preferring resolution would read the specifier back as the
@@ -174,7 +174,7 @@ export async function runMigrationPhase(
   );
 
   const migratedRootPackageJson = await timePhase(timings, "migrate root package", () =>
-    migrateChildRootPackageJson(projectDir),
+    migrateChildRootPackageJson(projectDir, cleanoutLog),
   );
 
   let syncResult: UpgradeResult["sync"];
@@ -236,8 +236,10 @@ export async function runMigrationPhase(
   const migratedFiles = [
     ...(releaseStamped ? [releaseStamped] : []),
     ...(migratedRootPackageJson ? ["package.json"] : []),
-    ...(snapshotAbsorbed === "absorbed" ? ["bos.lock.json"] : []),
+    ...(cleanout.lockAbsorbed ? ["bos.lock.json"] : []),
   ];
+
+  const cleanoutNotes = cleanout.items.map((item) => describeCleanoutItem(item, "done"));
 
   const mainPkg = parentSource.catalog["everything-dev"];
   const changelogUrl = mainPkg
@@ -249,6 +251,7 @@ export async function runMigrationPhase(
     packages: [],
     sync: syncResult,
     migrated: migratedFiles.length > 0 ? migratedFiles : undefined,
+    ...(cleanoutNotes.length > 0 ? { notes: cleanoutNotes } : {}),
     ...(realignment ? { realignment } : {}),
     timings,
     changelogUrl,

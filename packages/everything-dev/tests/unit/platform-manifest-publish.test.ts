@@ -9,7 +9,7 @@ import {
   platformTruthViolations,
   resolveExactCatalog,
 } from "../../src/services/deploy/platform-manifest";
-import { serializePlatformReleaseManifest } from "../../src/services/platform/manifest";
+import { serializePlatformManifest } from "../../src/services/platform/manifest";
 import { ManifestSchema, manifestTagOf } from "../../src/services/platform/manifest-schema";
 
 const tmpRoot = join(import.meta.dirname, ".platform-publish-fixture");
@@ -186,7 +186,7 @@ describe("deriveImageRefFromPlatformManifest", () => {
     const derived = await deriveImageRefFromPlatformManifest({
       configDir,
       localConfig: { extends: "bos://root.near/root" },
-      fetchTag: async () => manifestTagOf(manifest, serializePlatformReleaseManifest(manifest)),
+      fetchTag: async () => manifestTagOf(manifest, serializePlatformManifest(manifest)),
       fetchRecord: async () => manifest,
     });
     expect(derived).toEqual({

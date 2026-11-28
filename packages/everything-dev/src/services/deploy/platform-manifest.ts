@@ -9,12 +9,12 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { compareSemver, satisfiesConstraint } from "../../utils/semver";
 import {
-  composePlatformReleaseManifest,
+  composePlatformManifest,
   computeTemplateInventory,
   type Manifest,
   type RemoteRecord,
   resolvePlatformManifest,
-  serializePlatformReleaseManifest,
+  serializePlatformManifest,
 } from "../platform/manifest";
 import { CUTOVER_RELEASE, manifestTagOf } from "../platform/manifest-schema";
 import { getManifestKey, getVersionKey } from "../registry/pointer";
@@ -196,7 +196,7 @@ export function composePlatformManifestPublishEntry(opts: {
   const compatMinChild =
     compareSemver(CUTOVER_RELEASE, previousFloor) > 0 ? CUTOVER_RELEASE : previousFloor;
 
-  const manifest = composePlatformReleaseManifest({
+  const manifest = composePlatformManifest({
     frameworkVersion,
     everyPluginVersion,
     ...(opts.gitSha ? { gitSha: opts.gitSha } : {}),
@@ -206,7 +206,7 @@ export function composePlatformManifestPublishEntry(opts: {
     compatMinChild,
     ...(opts.publishPayload ? { remotes: releaseRemoteMap(opts.publishPayload) } : {}),
   });
-  const value = serializePlatformReleaseManifest(manifest);
+  const value = serializePlatformManifest(manifest);
   const tag = manifestTagOf(manifest, value);
   return {
     tag: {

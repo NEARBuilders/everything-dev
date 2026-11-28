@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  composePlatformReleaseManifest,
+  composePlatformManifest,
   type Manifest,
   resolvePlatformManifest,
 } from "../../src/services/platform/manifest";
@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 function makeManifest(frameworkVersion: string): Manifest {
-  return composePlatformReleaseManifest({
+  return composePlatformManifest({
     frameworkVersion,
     everyPluginVersion: "3.0.0-rc.9",
     imageRef: "ghcr.io/nearbuilders/everything-dev",

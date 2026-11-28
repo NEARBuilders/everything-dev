@@ -61,7 +61,7 @@ function serviceWith(
     ManifestService,
     ManifestService.of({
       resolvePlatformManifest: resolve,
-      composePlatformReleaseManifest: () => {
+      composePlatformManifest: () => {
         throw new Error("not exercised by this test");
       },
       checkPlatformCompat: () => [],

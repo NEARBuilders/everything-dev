@@ -26,7 +26,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 function makeManifest(frameworkVersion: string, catalog: Record<string, string>) {
   return {
-    manifest: platformManifestModule.composePlatformReleaseManifest({
+    manifest: platformManifestModule.composePlatformManifest({
       frameworkVersion,
       everyPluginVersion: frameworkVersion,
       imageRef: "ghcr.io/nearbuilders/everything-dev",

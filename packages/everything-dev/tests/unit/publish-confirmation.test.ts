@@ -287,7 +287,7 @@ describe("confirmPublish — the publish-confirmation state machine", () => {
 describe("isConfigAlreadyPublished", () => {
   const publishConfig: BosConfig = {
     account: "dev.everything.near",
-    domain: "dev.everything.dev",
+    domain: "everything.dev",
     app: {
       host: { development: "local:host", production: "https://host.example" },
       ui: { development: "local:ui", production: "https://ui.example" },
