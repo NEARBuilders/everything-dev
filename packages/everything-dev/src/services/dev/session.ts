@@ -1,4 +1,4 @@
-import { Clock, DateTime, Deferred, Effect, Exit, Fiber, Layer, Stream } from "effect";
+import { Clock, DateTime, Deferred, Effect, Exit, Fiber, Layer, type Scope, Stream } from "effect";
 import { getProcessEnv } from "../../env/process-env";
 import { ShellEnvLive } from "../../env/project-env";
 import { ownerOfPort } from "../../infra/port-ownership";
@@ -8,8 +8,9 @@ import { SupervisorLive } from "../boot/adapters";
 import { localReadinessSchedule, probeOk, remoteReadinessSchedule } from "../boot/readiness";
 import { BootFailure } from "../boot/types";
 import {
+  type ProcessCallbacks,
+  type ProcessStatus,
   Supervisor,
-  SupervisorError,
   type UnitEvent,
   type UnitHandle,
   type UnitSpec,
@@ -31,7 +32,6 @@ import {
   type LogEvent,
   resolveLogLevel,
 } from "./logs";
-import { getProcessStates, markForceExitInFlight, type ProcessCallbacks } from "./orchestrator";
 import { type DevProcessState, DevRenderer, type DevRendererHandle } from "./render";
 import {
   type AppOrchestrator,
@@ -43,6 +43,51 @@ import {
   ServiceDescriptorMap,
   ServiceDescriptorMapLive,
 } from "./service-descriptor";
+
+let forceExitInFlight = false;
+const markForceExitInFlight = () => {
+  forceExitInFlight = true;
+};
+
+const realConsoleError = console.error.bind(console);
+
+process.on("unhandledRejection", (reason) => {
+  realConsoleError("[Orchestrator] Unhandled rejection:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  realConsoleError("[Orchestrator] Uncaught exception:", err);
+  if (forceExitInFlight) process.exit(1);
+});
+
+export interface ProcessState {
+  name: string;
+  status: ProcessStatus;
+  port: number;
+  message?: string;
+  source?: "local" | "remote";
+  uiPort?: number;
+}
+
+export function getProcessStates(
+  packages: string[],
+  services: Map<string, ServiceDescriptor>,
+  portOverride?: number,
+): ProcessState[] {
+  return packages.map((pkg) => {
+    const descriptor = services.get(pkg);
+    return {
+      name: pkg,
+      status: "pending" as const,
+      port:
+        portOverride && pkg === "host"
+          ? portOverride
+          : (descriptor?.port ?? descriptor?.defaultPort ?? 0),
+      source: descriptor?.source,
+      uiPort: descriptor?.uiPort,
+    };
+  });
+}
 
 const adoptOrphanedChildren = (configDir: string): void => {
   try {
@@ -88,6 +133,8 @@ export interface DevSessionDeps {
   /** Test seam: scale the readiness deadline down (real HTTP probes against
    * nothing would otherwise burn the full window in unit tests). */
   readinessDeadlineMs?: number;
+  /** Test seam: base backoff for the development restart schedule. */
+  restartBackoffMs?: number;
 }
 
 export const runDevSession = (
@@ -180,7 +227,11 @@ export const runDevSession = (
           view?.addLog(event.source, event.line, event.level === "error");
         },
         file: (event) => {
-          if (orchestrator.noLogs) return;
+          // Log persistence is a development surface — production stacks
+          // stream to stdout (captured by the smoke) and skip the file sink
+          // entirely: the SSR host's serialized appendFile chain starves the
+          // event loop under load (ADR 0048).
+          if (runtimeConfig.env !== "development") return;
           void logger.write(event);
         },
         export: (event) => {
@@ -189,7 +240,9 @@ export const runDevSession = (
       },
     });
 
-    const useInteractive = isInteractiveSupported() && orchestrator.interactive !== false;
+    // The TUI is a development surface; production stacks render plain,
+    // streaming lines (ADR 0048).
+    const useInteractive = runtimeConfig.env === "development" && isInteractiveSupported();
     const restoreView = () => {
       if (useInteractive) view?.unmount();
     };
@@ -417,10 +470,18 @@ export const runDevSession = (
       };
     };
 
-    const pumpUnitEvents = (pkg: string, handle: UnitHandle) =>
+    const MAX_UNIT_RESTARTS = 3;
+    const restartAttempts = new Map<string, number>();
+    const restartBackoffMs = deps.restartBackoffMs ?? 1_000;
+
+    const pumpUnitEvents = (
+      spec: UnitSpec,
+      handle: UnitHandle,
+    ): Effect.Effect<void, never, Scope.Scope> =>
       Effect.forkScoped(
         Stream.runForEach((event: UnitEvent) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
+            const pkg = spec.name;
             if (event.type === "log") {
               callbacks.onLog(pkg, event.line, event.stderr);
               return;
@@ -432,8 +493,32 @@ export const runDevSession = (
               callbacks.onStatus(pkg, "error");
               return;
             }
-            callbacks.onLog(pkg, `Process exited after ready (code ${event.code})`, true);
-            callbacks.onStatus(pkg, "error", "exited");
+            if (runtimeConfig.env !== "development") {
+              // production units never restart — a dead unit is a loud,
+              // visible failure (and the host unit fails the session itself)
+              callbacks.onLog(pkg, `Process exited after ready (code ${event.code})`, true);
+              callbacks.onStatus(pkg, "error", "exited");
+              return;
+            }
+            const attempts = restartAttempts.get(pkg) ?? 0;
+            if (attempts >= MAX_UNIT_RESTARTS) {
+              callbacks.onLog(
+                pkg,
+                `restart limit reached (${MAX_UNIT_RESTARTS}) — ${pkg} stays down`,
+                true,
+              );
+              callbacks.onStatus(pkg, "error", "restart limit");
+              return;
+            }
+            const attempt = attempts + 1;
+            restartAttempts.set(pkg, attempt);
+            readyUnits.delete(pkg);
+            const delay = restartBackoffMs * 2 ** (attempt - 1);
+            callbacks.onLog(pkg, `restarting (attempt ${attempt})`, false);
+            callbacks.onStatus(pkg, "starting", `restarting (attempt ${attempt})`);
+            yield* Effect.forkScoped(
+              Effect.sleep(`${delay} millis`).pipe(Effect.andThen(startUnit(spec.name))),
+            );
           }),
         )(handle.events),
       );
@@ -468,7 +553,7 @@ export const runDevSession = (
         }
       });
 
-    const startUnit = (pkg: string) =>
+    const startUnit = (pkg: string): Effect.Effect<void, never, Scope.Scope> =>
       Effect.gen(function* () {
         const spec = unitSpecFor(pkg);
         const handle = yield* supervisor.spawn(spec).pipe(
@@ -483,7 +568,7 @@ export const runDevSession = (
         );
         if (handle === null) return;
         handles.set(pkg, handle);
-        yield* pumpUnitEvents(pkg, handle);
+        yield* pumpUnitEvents(spec, handle);
         yield* awaitUnitReady(spec);
       });
 

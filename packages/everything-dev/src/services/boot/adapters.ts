@@ -1,12 +1,9 @@
 import { Effect, Layer, Queue, Stream } from "effect";
 import type { RuntimeConfig } from "../../types";
+import { spawnRemoteHost } from "./host-module";
+import { encodeRuntimeConfig, spawnDevProcess } from "./process";
 import {
-  encodeRuntimeConfig,
-  type OrchestratorError,
-  spawnDevProcess,
-  spawnRemoteHost,
-} from "../dev/orchestrator";
-import {
+  OrchestratorError,
   Supervisor,
   SupervisorError,
   type UnitEvent,
@@ -33,7 +30,17 @@ export const SupervisorLive = (inputs: SupervisorInputs): Layer.Layer<Supervisor
     Effect.gen(function* () {
       // A composition that can't serialize is a defect — the bootstrap
       // already serialized it once; the boot only re-encodes for child env.
-      const runtimeConfigEnv = yield* encodeRuntimeConfig(inputs.runtimeConfig).pipe(Effect.orDie);
+      const runtimeConfigEnv = yield* encodeRuntimeConfig(inputs.runtimeConfig).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestratorError({
+              operation: "serialize runtime config",
+              detail: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }),
+        ),
+        Effect.orDie,
+      );
       const bridgeContext = yield* Effect.context<never>();
       const fail = (unit: UnitSpec, cause: unknown) =>
         new SupervisorError({
@@ -64,7 +71,7 @@ export const SupervisorLive = (inputs: SupervisorInputs): Layer.Layer<Supervisor
                 const handle = yield* spawnRemoteHost(
                   { key: unit.name, url: payload.remoteUrl, runtimeConfig: inputs.runtimeConfig },
                   {
-                    onLog: (name, line, isError) => {
+                    onLog: (_name: string, line: string, isError?: boolean) => {
                       // fire-and-forget bridge out of a bare callback — the
                       // layer's runtime context carries the services.
                       void Effect.runPromiseWith(bridgeContext)(
@@ -75,7 +82,7 @@ export const SupervisorLive = (inputs: SupervisorInputs): Layer.Layer<Supervisor
                     },
                     onStatus: () => {},
                   },
-                ).pipe(Effect.mapError((cause) => fail(unit, cause as OrchestratorError)));
+                ).pipe(Effect.mapError((cause) => fail(unit, cause)));
                 return {
                   pid: handle.pid,
                   events: Stream.merge(handle.events, Stream.fromQueue(logQueue)),

@@ -115,7 +115,6 @@ const startSession = (
     packages: ["service-a", "service-b"],
     description: "process-death contract",
     env: {},
-    noLogs: true,
   };
   let handle: DevSessionHandle | null = null;
   const program = Effect.scoped(

@@ -64,3 +64,32 @@ export class Supervisor extends Context.Service<
     readonly spawn: (unit: UnitSpec) => Effect.Effect<UnitHandle, SupervisorError, Scope.Scope>;
   }
 >()("everything-dev/boot/Supervisor") {}
+
+// ── spawned-unit pre-bridge shape + shared supervision types ──
+
+/** A spawned unit, pre-bridge: the adapters assemble the public `UnitHandle`
+ * (events stream, terminate) around this. Stdout is display-only — no
+ * readiness, no error classification lives here (ADR 0048). */
+export interface ProcessHandle {
+  name: string;
+  pid: number | undefined;
+  events: Stream.Stream<UnitEvent>;
+  terminate: (mode: "graceful" | "force") => Effect.Effect<void>;
+}
+
+export class OrchestratorError extends Data.TaggedError("OrchestratorError")<{
+  readonly operation: string;
+  readonly detail: string;
+  readonly cause?: unknown;
+}> {
+  override get message() {
+    return `${this.operation}: ${this.detail}`;
+  }
+}
+
+export type ProcessStatus = "pending" | "starting" | "ready" | "error";
+
+export interface ProcessCallbacks {
+  onStatus: (name: string, status: ProcessStatus, message?: string) => void;
+  onLog: (name: string, line: string, isError?: boolean) => void;
+}

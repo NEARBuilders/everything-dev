@@ -1,107 +1,14 @@
-import { spawn } from "node:child_process";
-import { Readable } from "node:stream";
-import { Data, Deferred, Effect, Queue, Schedule, Schema, Stream } from "effect";
+import { Data, Effect, Schedule, Stream } from "effect";
 import { MANIFEST_DOCUMENT_PATTERN } from "every-plugin/ui/manifest/contract";
-import { ShellEnv } from "../../env/project-env";
 import type { RuntimeConfig } from "../../types";
 import { fetchWithRetryEff } from "../../utils/http-client";
 import { pinnedManifestDocumentUrl, resolveRemoteVersion } from "../deploy/version-manifest";
 import { loadRemoteModule, registerRemote } from "../federation/service";
 import { readInImagePlatformManifest } from "../platform/manifest";
-import { stripAnsi } from "./logs";
-import { type ServiceDescriptor, ServiceDescriptorMap } from "./service-descriptor";
+import type { ProcessCallbacks, ProcessHandle } from "./units";
+import { OrchestratorError } from "./units";
 
-let forceExitInFlight = false;
-
-export const markForceExitInFlight = () => {
-  forceExitInFlight = true;
-};
-
-const realConsoleError = console.error.bind(console);
-
-process.on("unhandledRejection", (reason) => {
-  realConsoleError("[Orchestrator] Unhandled rejection:", reason);
-});
-
-process.on("uncaughtException", (err) => {
-  realConsoleError("[Orchestrator] Uncaught exception:", err);
-  if (forceExitInFlight) process.exit(1);
-});
-
-export interface ProcessCallbacks {
-  onStatus: (name: string, status: ProcessStatus, message?: string) => void;
-  onLog: (name: string, line: string, isError?: boolean) => void;
-}
-
-import type { UnitEvent } from "../boot/units";
-
-/** A spawned unit, pre-bridge: the adapters assemble the public `UnitHandle`
- * (events stream, terminate) around this. Stdout is display-only — no
- * readiness, no error classification lives here (ADR 0048). */
-export interface ProcessHandle {
-  name: string;
-  pid: number | undefined;
-  events: Stream.Stream<UnitEvent>;
-  terminate: (mode: "graceful" | "force") => Effect.Effect<void>;
-}
-
-export class OrchestratorError extends Data.TaggedError("OrchestratorError")<{
-  readonly operation: string;
-  readonly detail: string;
-  readonly cause?: unknown;
-}> {
-  override get message() {
-    return `${this.operation}: ${this.detail}`;
-  }
-}
-
-const omitUndefined = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map((item) => (item === undefined ? null : omitUndefined(item)));
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, item]) => item !== undefined)
-        .map(([key, item]) => [key, omitUndefined(item)]),
-    );
-  }
-  return value;
-};
-
-export const encodeRuntimeConfig = (runtimeConfig: unknown) =>
-  Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Json))(omitUndefined(runtimeConfig)).pipe(
-    Effect.mapError(
-      (cause) =>
-        new OrchestratorError({
-          operation: "serialize runtime config",
-          detail: cause.message,
-          cause,
-        }),
-    ),
-  );
-
-export type ProcessStatus = "pending" | "starting" | "ready" | "error";
-
-export interface ProcessState {
-  name: string;
-  status: ProcessStatus;
-  port: number;
-  message?: string;
-  source?: "local" | "remote";
-  uiPort?: number;
-}
-
-// Effect-native probe — no nested Effect.runPromise: fetchRaw's promise
-// bridge intermittently wedges when awaited from inside a running fiber
-// (the readiness fork), stalling the whole boot until the 90s deadline.
-const probeHttpOk = (url: string, timeoutMs = 400, method?: string) =>
-  fetchWithRetryEff(url, { timeout: timeoutMs, retries: 0, ...(method ? { method } : {}) }).pipe(
-    Effect.map((response) => response.ok),
-    Effect.orElseSucceed(() => false),
-  );
-
-const LOCAL_PROBE_DEADLINE_MS = 90_000;
+export { OrchestratorError };
 
 /** Remote-host boot budgets: every stage of the CDN-only boot is deadline-
  * bounded so a hung connection or a wedged module load fails loud with the
@@ -136,15 +43,6 @@ export const isTransientBootFailure = (error: OrchestratorError): boolean => {
 const MANIFEST_FETCH_DEADLINE = "10 seconds";
 const LOAD_REMOTE_DEADLINE = "60 seconds";
 const SERVER_READY_DEADLINE = "120 seconds";
-const REMOTE_HOST_BOOT_DEADLINE = "180 seconds";
-const LOCAL_PROBE_INTERVAL_MS = 200;
-
-const cleanExitSignals: Record<string, true> = { SIGTERM: true, SIGINT: true };
-
-const REMOTE_PROBE_TIMEOUT_MS = 5000;
-const REMOTE_PROBE_DEADLINE_MS = 60_000;
-const REMOTE_PROBE_BACKOFF_INITIAL_MS = 1000;
-const REMOTE_PROBE_BACKOFF_MAX_MS = 15_000;
 
 interface ServerHandle {
   ready: Promise<void>;
@@ -219,31 +117,6 @@ const patchConsole = (name: string, callbacks: ProcessCallbacks): (() => void) =
   };
 };
 
-export class HostRemoteUrlMissing extends Data.TaggedError("HostRemoteUrlMissing")<
-  Record<never, never>
-> {
-  override get message() {
-    return "remoteUrl not provided on host descriptor";
-  }
-}
-
-export class HostModuleInvalid extends Data.TaggedError("HostModuleInvalid")<Record<never, never>> {
-  override get message() {
-    return "Host module does not export runServer function";
-  }
-}
-
-export class LocalPathMissing extends Data.TaggedError("LocalPathMissing")<{ key: string }> {
-  override get message() {
-    return `No localPath for local service: ${this.key}`;
-  }
-}
-
-/** The load-failure marker the shared-singleton resolver throws with — its
- * bare package error hides the drift story (#874), so the two plane
- * identities and the remediation ride the same failure detail. */
-const SHARED_DEP_DRIFT_MARKER = "Could not resolve shared dependency";
-
 function hostSkewRemediation(
   cause: unknown,
   image: ReturnType<typeof readInImagePlatformManifest>,
@@ -259,6 +132,25 @@ function hostSkewRemediation(
     "  fix:   bos upgrade && bos deploy — move the release pin and the image together"
   );
 }
+
+export class HostRemoteUrlMissing extends Data.TaggedError("HostRemoteUrlMissing")<
+  Record<never, never>
+> {
+  override get message() {
+    return "remoteUrl not provided on host descriptor";
+  }
+}
+
+export class HostModuleInvalid extends Data.TaggedError("HostModuleInvalid")<Record<never, never>> {
+  override get message() {
+    return "Host module does not export runServer function";
+  }
+}
+
+/** The load-failure marker the shared-singleton resolver throws with — its
+ * bare package error hides the drift story (#874), so the two plane
+ * identities and the remediation ride the same failure detail. */
+const SHARED_DEP_DRIFT_MARKER = "Could not resolve shared dependency";
 
 export const spawnRemoteHost = (
   input: { readonly key: string; readonly url: string; readonly runtimeConfig: RuntimeConfig },
@@ -482,189 +374,3 @@ export const spawnRemoteHost = (
  * generated infra env, which outranks `.env`-file values inherited through
  * `processEnv`. The service's resolved port is always authoritative.
  */
-export function composeSpawnEnv(
-  processEnv: Record<string, string>,
-  generatedEnv: Record<string, string>,
-  port: number,
-  shellEnv: Record<string, string> = {},
-): Record<string, string> {
-  return {
-    ...processEnv,
-    ...mergeGeneratedOverFileEnv(generatedEnv, processEnv, shellEnv),
-    FORCE_COLOR: "1",
-    ...(port > 0 ? { PORT: String(port) } : {}),
-  };
-}
-
-/**
- * Overlay the generated infra env (ports drift, so stale `.env` values must
- * lose) while keeping every explicitly exported key from `shellEnv` intact.
- * Keys absent from both are untouched.
- *
- * Exception (ADR 0012 / plan 038): the origin keys BASE_URL and CORS_ORIGIN
- * are always generated-owned — a wrapper that sourced a stale `.env` must not
- * win over the resolved host port, in the child env or on disk.
- */
-const GENERATED_OWNED_KEYS = new Set(["BASE_URL", "CORS_ORIGIN"]);
-
-export function mergeGeneratedOverFileEnv(
-  generatedEnv: Record<string, string>,
-  processEnv: Record<string, string>,
-  shellEnv: Record<string, string> = {},
-): Record<string, string> {
-  const result: Record<string, string> = { ...processEnv };
-  for (const [key, value] of Object.entries(generatedEnv)) {
-    if (!GENERATED_OWNED_KEYS.has(key) && key in shellEnv) {
-      result[key] = shellEnv[key]!;
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
-export const spawnDevProcess = (input: {
-  readonly name: string;
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly cwd: string;
-  readonly env: Record<string, string>;
-  readonly port: number;
-  readonly generatedEnv: Record<string, string>;
-  readonly shellTier: Record<string, string>;
-  readonly runtimeConfigEnv: string;
-}) =>
-  Effect.gen(function* () {
-    const fullCwd = input.cwd;
-    const command = input.command;
-    const args = input.args;
-    const port = input.port;
-    const name = input.name;
-
-    // The descriptor's env joins the generated tier — folding it in before
-    // composeSpawnEnv keeps the documented precedence (shell > generated >
-    // .env-file); assigning after would let it outrank the shell tier (and
-    // the generated-owned keys) silently.
-    const envVars = composeSpawnEnv(
-      process.env as Record<string, string>,
-      { ...input.generatedEnv, ...input.env },
-      port,
-      input.shellTier,
-    );
-
-    envVars.BOS_RUNTIME_CONFIG = input.runtimeConfigEnv;
-
-    const logQueue = yield* Queue.unbounded<UnitEvent>();
-    let exited = false;
-    let resolveExit: (() => void) | undefined;
-    const exitPromise = new Promise<void>((resolve) => {
-      resolveExit = resolve;
-    });
-
-    const cmd = spawn(command, args, {
-      cwd: fullCwd,
-      env: envVars,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-    });
-
-    const pid = cmd.pid ?? undefined;
-
-    const offer = (event: UnitEvent) => {
-      void Effect.runPromise(Queue.offer(logQueue, event).pipe(Effect.ignore));
-    };
-
-    const markExited = (code: number, signal?: string) => {
-      if (exited) return;
-      exited = true;
-      offer({ type: "exited", code, signal: signal ?? undefined });
-      resolveExit?.();
-    };
-
-    cmd.once("exit", (code, signal) => markExited(code ?? (signal ? 1 : 0), signal ?? undefined));
-    cmd.once("error", (err) => {
-      offer({ type: "log", line: `Spawn failed: ${err.message}`, stderr: true });
-      markExited(1);
-    });
-
-    const handleLine = (line: string, isStderr: boolean) => {
-      if (!line.trim()) return;
-      const looksLikeError =
-        isStderr &&
-        /^(error|fail|fatal|exception|unhandled|reject)/i.test(stripAnsi(line)) &&
-        !line.startsWith("$");
-      offer({ type: "log", line, stderr: looksLikeError });
-    };
-
-    const wire = (source: Readable | null, isStderr: boolean) => {
-      if (!source) return;
-      const webStream = Readable.toWeb(source) as unknown as ReadableStream<Uint8Array>;
-      void Effect.runFork(
-        Stream.runForEach((line: string) => Effect.sync(() => handleLine(line, isStderr)))(
-          Stream.splitLines(
-            Stream.decodeText(
-              Stream.fromReadableStream({
-                evaluate: () => webStream,
-                onError: (cause) =>
-                  new OrchestratorError({
-                    operation: "read process output",
-                    detail: String(cause),
-                    cause,
-                  }),
-              }),
-            ),
-          ),
-        ),
-      );
-    };
-    wire(cmd.stdout, false);
-    wire(cmd.stderr, true);
-
-    const terminate = (mode: "graceful" | "force") =>
-      Effect.gen(function* () {
-        const groupSignal = (signal: NodeJS.Signals) =>
-          Effect.try(() => {
-            if (pid !== undefined) process.kill(-pid, signal);
-          }).pipe(Effect.ignore);
-        if (mode === "force") {
-          yield* groupSignal("SIGKILL");
-          yield* Effect.sleep("250 millis");
-          return;
-        }
-        yield* groupSignal("SIGTERM");
-        yield* Effect.promise(() =>
-          Promise.race([exitPromise, new Promise((r) => setTimeout(r, 3000))]),
-        );
-        if (!exited) {
-          yield* groupSignal("SIGKILL");
-          yield* Effect.sleep("250 millis");
-        }
-      }).pipe(Effect.ignore);
-
-    return {
-      name,
-      pid,
-      events: Stream.fromQueue(logQueue),
-      terminate,
-    } satisfies ProcessHandle;
-  });
-
-export function getProcessStates(
-  packages: string[],
-  services: Map<string, ServiceDescriptor>,
-  portOverride?: number,
-): ProcessState[] {
-  return packages.map((pkg) => {
-    const descriptor = services.get(pkg);
-    return {
-      name: pkg,
-      status: "pending" as const,
-      port:
-        portOverride && pkg === "host"
-          ? portOverride
-          : (descriptor?.port ?? descriptor?.defaultPort ?? 0),
-      source: descriptor?.source,
-      uiPort: descriptor?.uiPort,
-    };
-  });
-}

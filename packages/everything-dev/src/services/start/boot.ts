@@ -301,7 +301,6 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
         uiSource: "remote",
         apiSource: "remote",
         authSource: "remote",
-        interactive: input.interactive,
       },
     });
 
@@ -351,7 +350,6 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       },
       description: `${isStaging ? "Staging" : "Production"} Mode (${baseConfig.account})`,
       port: plan.resolvedPorts.host ?? port,
-      interactive: input.interactive,
       // Log persistence stays off for start stacks: the SSR host emits ~80
       // log events per page render (i18n uncompiled-catalog warnings), and
       // the file sink writes every event twice through a serialized
