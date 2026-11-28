@@ -1,491 +1,1892 @@
 import "@orpc/openapi/extensions/route";
-import { z } from "zod";
+import { Schema } from "effect";
+declare const isoDateTimeString: Schema.String;
+export { isoDateTimeString };
+export declare const listRegistryAppsInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly q?: string | undefined;
+    readonly parent?: string | undefined;
+    readonly root?: string | undefined;
+    readonly ancestor?: string | undefined;
+    readonly limit?: number | undefined;
+    readonly cursor?: string | undefined;
+}, {
+    readonly q?: string | undefined;
+    readonly parent?: string | undefined;
+    readonly root?: string | undefined;
+    readonly ancestor?: string | undefined;
+    readonly limit?: number | undefined;
+    readonly cursor?: string | undefined;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly q?: string | undefined;
+    readonly parent?: string | undefined;
+    readonly root?: string | undefined;
+    readonly ancestor?: string | undefined;
+    readonly limit?: number | undefined;
+    readonly cursor?: string | undefined;
+}, {
+    readonly q?: string | undefined;
+    readonly parent?: string | undefined;
+    readonly root?: string | undefined;
+    readonly ancestor?: string | undefined;
+    readonly limit?: number | undefined;
+    readonly cursor?: string | undefined;
+}> & Schema.Struct<{
+    readonly q: Schema.optional<Schema.String>;
+    readonly parent: Schema.optional<Schema.String>;
+    readonly root: Schema.optional<Schema.String>;
+    readonly ancestor: Schema.optional<Schema.String>;
+    readonly limit: Schema.optional<Schema.Int>;
+    readonly cursor: Schema.optional<Schema.String>;
+}>;
+export declare const getRegistryAppByHostInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly hostUrl: string;
+}, {
+    readonly hostUrl: string;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly hostUrl: string;
+}, {
+    readonly hostUrl: string;
+}> & Schema.Struct<{
+    readonly hostUrl: Schema.String;
+}>;
+export declare const getRegistryStatusOutput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly discoveredApps: number;
+    readonly metadataContractId: string;
+    readonly metadataFastKvUrl: string;
+    readonly relayEnabled: boolean;
+    readonly relayAccountId: string | null;
+    readonly timestamp: string;
+}, {
+    readonly discoveredApps: number;
+    readonly metadataContractId: string;
+    readonly metadataFastKvUrl: string;
+    readonly relayEnabled: boolean;
+    readonly relayAccountId: string | null;
+    readonly timestamp: string;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly discoveredApps: number;
+    readonly metadataContractId: string;
+    readonly metadataFastKvUrl: string;
+    readonly relayEnabled: boolean;
+    readonly relayAccountId: string | null;
+    readonly timestamp: string;
+}, {
+    readonly discoveredApps: number;
+    readonly metadataContractId: string;
+    readonly metadataFastKvUrl: string;
+    readonly relayEnabled: boolean;
+    readonly relayAccountId: string | null;
+    readonly timestamp: string;
+}> & Schema.Struct<{
+    readonly discoveredApps: Schema.Natural;
+    readonly metadataContractId: Schema.String;
+    readonly metadataFastKvUrl: Schema.String;
+    readonly relayEnabled: Schema.Boolean;
+    readonly relayAccountId: Schema.NullOr<Schema.String>;
+    readonly timestamp: Schema.String;
+}>;
+export declare const getManifestInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly ref: string;
+    readonly includeVersionRecord?: boolean | undefined;
+}, {
+    readonly ref: string;
+    readonly includeVersionRecord?: boolean | undefined;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly ref: string;
+    readonly includeVersionRecord?: boolean | undefined;
+}, {
+    readonly ref: string;
+    readonly includeVersionRecord?: boolean | undefined;
+}> & Schema.Struct<{
+    readonly ref: Schema.String;
+    readonly includeVersionRecord: Schema.optional<Schema.Boolean>;
+}>;
+export declare const resolveRuntimeInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly ref: string;
+    readonly release?: string | undefined;
+}, {
+    readonly ref: string;
+    readonly release?: string | undefined;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly ref: string;
+    readonly release?: string | undefined;
+}, {
+    readonly ref: string;
+    readonly release?: string | undefined;
+}> & Schema.Struct<{
+    readonly ref: Schema.String;
+    readonly release: Schema.optional<Schema.String>;
+}>;
+export declare const prepareRegistryMetadataWriteInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly accountId: string;
+    readonly gatewayId: string;
+    readonly claimedBy: string;
+    readonly title?: string | undefined;
+    readonly description?: string | undefined;
+    readonly repoUrl?: string | undefined;
+    readonly homepageUrl?: string | undefined;
+    readonly imageUrl?: string | undefined;
+}, {
+    readonly accountId: string;
+    readonly gatewayId: string;
+    readonly claimedBy: string;
+    readonly title?: string | undefined;
+    readonly description?: string | undefined;
+    readonly repoUrl?: string | undefined;
+    readonly homepageUrl?: string | undefined;
+    readonly imageUrl?: string | undefined;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly accountId: string;
+    readonly gatewayId: string;
+    readonly claimedBy: string;
+    readonly title?: string | undefined;
+    readonly description?: string | undefined;
+    readonly repoUrl?: string | undefined;
+    readonly homepageUrl?: string | undefined;
+    readonly imageUrl?: string | undefined;
+}, {
+    readonly accountId: string;
+    readonly gatewayId: string;
+    readonly claimedBy: string;
+    readonly title?: string | undefined;
+    readonly description?: string | undefined;
+    readonly repoUrl?: string | undefined;
+    readonly homepageUrl?: string | undefined;
+    readonly imageUrl?: string | undefined;
+}> & Schema.Struct<{
+    readonly accountId: Schema.String;
+    readonly gatewayId: Schema.String;
+    readonly claimedBy: Schema.String;
+    readonly title: Schema.optional<Schema.String>;
+    readonly description: Schema.optional<Schema.String>;
+    readonly repoUrl: Schema.optional<Schema.String>;
+    readonly homepageUrl: Schema.optional<Schema.String>;
+    readonly imageUrl: Schema.optional<Schema.String>;
+}>;
+export declare const prepareRegistryConfigWriteInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly accountId: string;
+    readonly gatewayId: string;
+    readonly config: {
+        readonly [x: string]: unknown;
+    };
+}, {
+    readonly accountId: string;
+    readonly gatewayId: string;
+    readonly config: {
+        readonly [x: string]: unknown;
+    };
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly accountId: string;
+    readonly gatewayId: string;
+    readonly config: {
+        readonly [x: string]: unknown;
+    };
+}, {
+    readonly accountId: string;
+    readonly gatewayId: string;
+    readonly config: {
+        readonly [x: string]: unknown;
+    };
+}> & Schema.Struct<{
+    readonly accountId: Schema.String;
+    readonly gatewayId: Schema.String;
+    readonly config: Schema.$Record<Schema.String, Schema.Unknown>;
+}>;
+export declare const relayRegistryMetadataWriteInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly payload: string;
+}, {
+    readonly payload: string;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly payload: string;
+}, {
+    readonly payload: string;
+}> & Schema.Struct<{
+    readonly payload: Schema.String;
+}>;
+export declare const kvGetInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly path: string;
+}, {
+    readonly path: string;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly path: string;
+}, {
+    readonly path: string;
+}> & Schema.Struct<{
+    readonly path: Schema.String;
+}>;
+export declare const kvListInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly prefix: string;
+    readonly limit?: number | undefined;
+    readonly cursor?: string | undefined;
+}, {
+    readonly prefix: string;
+    readonly limit?: number | undefined;
+    readonly cursor?: string | undefined;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly prefix: string;
+    readonly limit?: number | undefined;
+    readonly cursor?: string | undefined;
+}, {
+    readonly prefix: string;
+    readonly limit?: number | undefined;
+    readonly cursor?: string | undefined;
+}> & Schema.Struct<{
+    readonly prefix: Schema.String;
+    readonly limit: Schema.optional<Schema.Int>;
+    readonly cursor: Schema.optional<Schema.String>;
+}>;
+export declare const kvPrepareWriteInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly entries: {
+        readonly path: string;
+        readonly value: unknown;
+    }[];
+}, {
+    readonly entries: {
+        readonly path: string;
+        readonly value: unknown;
+    }[];
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly entries: {
+        readonly path: string;
+        readonly value: unknown;
+    }[];
+}, {
+    readonly entries: {
+        readonly path: string;
+        readonly value: unknown;
+    }[];
+}> & Schema.Struct<{
+    readonly entries: Schema.mutable<Schema.$Array<Schema.Struct<{
+        readonly path: Schema.String;
+        readonly value: Schema.Unknown;
+    }>>>;
+}>;
+export declare const kvRelayWriteInput: import("effect/StandardSchema").StandardJSONSchemaV1<{
+    readonly payload: string;
+}, {
+    readonly payload: string;
+}> & import("effect/StandardSchema").StandardSchemaV1<{
+    readonly payload: string;
+}, {
+    readonly payload: string;
+}> & Schema.Struct<{
+    readonly payload: Schema.String;
+}>;
 export declare const contract: {
-    listRegistryApps: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        q: z.ZodOptional<z.ZodString>;
-        parent: z.ZodOptional<z.ZodString>;
-        root: z.ZodOptional<z.ZodString>;
-        ancestor: z.ZodOptional<z.ZodString>;
-        limit: z.ZodOptional<z.ZodNumber>;
-        cursor: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodArray<z.ZodObject<{
-            accountId: z.ZodString;
-            gatewayId: z.ZodString;
-            canonicalKey: z.ZodString;
-            canonicalConfigUrl: z.ZodString;
-            startCommand: z.ZodString;
-            domain: z.ZodNullable<z.ZodString>;
-            openUrl: z.ZodNullable<z.ZodString>;
-            hostUrl: z.ZodNullable<z.ZodString>;
-            uiUrl: z.ZodNullable<z.ZodString>;
-            uiSsrUrl: z.ZodNullable<z.ZodString>;
-            apiUrl: z.ZodNullable<z.ZodString>;
-            extends: z.ZodNullable<z.ZodString>;
-            parent: z.ZodNullable<z.ZodString>;
-            root: z.ZodNullable<z.ZodString>;
-            depth: z.ZodNumber;
-            status: z.ZodEnum<{
-                invalid: "invalid";
-                ready: "ready";
-            }>;
-            metadata: z.ZodNullable<z.ZodObject<{
-                claimedBy: z.ZodNullable<z.ZodString>;
-                title: z.ZodNullable<z.ZodString>;
-                description: z.ZodNullable<z.ZodString>;
-                repoUrl: z.ZodNullable<z.ZodString>;
-                homepageUrl: z.ZodNullable<z.ZodString>;
-                imageUrl: z.ZodNullable<z.ZodString>;
-                updatedAt: z.ZodNullable<z.ZodISODateTime>;
-            }, z.core.$strip>>;
-        }, z.core.$strip>>;
-        meta: z.ZodObject<{
-            total: z.ZodNumber;
-            hasMore: z.ZodBoolean;
-            nextCursor: z.ZodNullable<z.ZodString>;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    listRegistryApps: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly q?: string | undefined;
+        readonly parent?: string | undefined;
+        readonly root?: string | undefined;
+        readonly ancestor?: string | undefined;
+        readonly limit?: number | undefined;
+        readonly cursor?: string | undefined;
+    }, {
+        readonly q?: string | undefined;
+        readonly parent?: string | undefined;
+        readonly root?: string | undefined;
+        readonly ancestor?: string | undefined;
+        readonly limit?: number | undefined;
+        readonly cursor?: string | undefined;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly q?: string | undefined;
+        readonly parent?: string | undefined;
+        readonly root?: string | undefined;
+        readonly ancestor?: string | undefined;
+        readonly limit?: number | undefined;
+        readonly cursor?: string | undefined;
+    }, {
+        readonly q?: string | undefined;
+        readonly parent?: string | undefined;
+        readonly root?: string | undefined;
+        readonly ancestor?: string | undefined;
+        readonly limit?: number | undefined;
+        readonly cursor?: string | undefined;
+    }> & Schema.Struct<{
+        readonly q: Schema.optional<Schema.String>;
+        readonly parent: Schema.optional<Schema.String>;
+        readonly root: Schema.optional<Schema.String>;
+        readonly ancestor: Schema.optional<Schema.String>;
+        readonly limit: Schema.optional<Schema.Int>;
+        readonly cursor: Schema.optional<Schema.String>;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: readonly {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }, {
+        readonly data: readonly {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: readonly {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }, {
+        readonly data: readonly {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.$Array<Schema.Struct<{
+            accountId: Schema.String;
+            gatewayId: Schema.String;
+            canonicalKey: Schema.String;
+            canonicalConfigUrl: Schema.String;
+            startCommand: Schema.String;
+            domain: Schema.NullOr<Schema.String>;
+            openUrl: Schema.NullOr<Schema.String>;
+            hostUrl: Schema.NullOr<Schema.String>;
+            uiUrl: Schema.NullOr<Schema.String>;
+            uiSsrUrl: Schema.NullOr<Schema.String>;
+            apiUrl: Schema.NullOr<Schema.String>;
+            extends: Schema.NullOr<Schema.String>;
+            parent: Schema.NullOr<Schema.String>;
+            root: Schema.NullOr<Schema.String>;
+            depth: Schema.Natural;
+            status: Schema.Literals<readonly ["ready", "invalid"]>;
+            metadata: Schema.NullOr<Schema.Struct<{
+                readonly claimedBy: Schema.NullOr<Schema.String>;
+                readonly title: Schema.NullOr<Schema.String>;
+                readonly description: Schema.NullOr<Schema.String>;
+                readonly repoUrl: Schema.NullOr<Schema.String>;
+                readonly homepageUrl: Schema.NullOr<Schema.String>;
+                readonly imageUrl: Schema.NullOr<Schema.String>;
+                readonly updatedAt: Schema.NullOr<Schema.String>;
+            }>>;
+        }>>;
+        readonly meta: Schema.Struct<{
+            readonly total: Schema.Natural;
+            readonly hasMore: Schema.Boolean;
+            readonly nextCursor: Schema.NullOr<Schema.String>;
+        }>;
+    }>, {
         BAD_REQUEST: {
             readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    getRegistryAppsByAccount: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        accountId: z.ZodString;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodArray<z.ZodObject<{
-            accountId: z.ZodString;
-            gatewayId: z.ZodString;
-            canonicalKey: z.ZodString;
-            canonicalConfigUrl: z.ZodString;
-            startCommand: z.ZodString;
-            domain: z.ZodNullable<z.ZodString>;
-            openUrl: z.ZodNullable<z.ZodString>;
-            hostUrl: z.ZodNullable<z.ZodString>;
-            uiUrl: z.ZodNullable<z.ZodString>;
-            uiSsrUrl: z.ZodNullable<z.ZodString>;
-            apiUrl: z.ZodNullable<z.ZodString>;
-            extends: z.ZodNullable<z.ZodString>;
-            parent: z.ZodNullable<z.ZodString>;
-            root: z.ZodNullable<z.ZodString>;
-            depth: z.ZodNumber;
-            status: z.ZodEnum<{
-                invalid: "invalid";
-                ready: "ready";
-            }>;
-            metadata: z.ZodNullable<z.ZodObject<{
-                claimedBy: z.ZodNullable<z.ZodString>;
-                title: z.ZodNullable<z.ZodString>;
-                description: z.ZodNullable<z.ZodString>;
-                repoUrl: z.ZodNullable<z.ZodString>;
-                homepageUrl: z.ZodNullable<z.ZodString>;
-                imageUrl: z.ZodNullable<z.ZodString>;
-                updatedAt: z.ZodNullable<z.ZodISODateTime>;
-            }, z.core.$strip>>;
-        }, z.core.$strip>>;
-        meta: z.ZodObject<{
-            total: z.ZodNumber;
-            hasMore: z.ZodBoolean;
-            nextCursor: z.ZodNullable<z.ZodString>;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    getRegistryAppsByAccount: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly accountId: string;
+    }, {
+        readonly accountId: string;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly accountId: string;
+    }, {
+        readonly accountId: string;
+    }> & Schema.Struct<{
+        readonly accountId: Schema.String;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: readonly {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }, {
+        readonly data: readonly {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: readonly {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }, {
+        readonly data: readonly {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.$Array<Schema.Struct<{
+            accountId: Schema.String;
+            gatewayId: Schema.String;
+            canonicalKey: Schema.String;
+            canonicalConfigUrl: Schema.String;
+            startCommand: Schema.String;
+            domain: Schema.NullOr<Schema.String>;
+            openUrl: Schema.NullOr<Schema.String>;
+            hostUrl: Schema.NullOr<Schema.String>;
+            uiUrl: Schema.NullOr<Schema.String>;
+            uiSsrUrl: Schema.NullOr<Schema.String>;
+            apiUrl: Schema.NullOr<Schema.String>;
+            extends: Schema.NullOr<Schema.String>;
+            parent: Schema.NullOr<Schema.String>;
+            root: Schema.NullOr<Schema.String>;
+            depth: Schema.Natural;
+            status: Schema.Literals<readonly ["ready", "invalid"]>;
+            metadata: Schema.NullOr<Schema.Struct<{
+                readonly claimedBy: Schema.NullOr<Schema.String>;
+                readonly title: Schema.NullOr<Schema.String>;
+                readonly description: Schema.NullOr<Schema.String>;
+                readonly repoUrl: Schema.NullOr<Schema.String>;
+                readonly homepageUrl: Schema.NullOr<Schema.String>;
+                readonly imageUrl: Schema.NullOr<Schema.String>;
+                readonly updatedAt: Schema.NullOr<Schema.String>;
+            }>>;
+        }>>;
+        readonly meta: Schema.Struct<{
+            readonly total: Schema.Natural;
+            readonly hasMore: Schema.Boolean;
+            readonly nextCursor: Schema.NullOr<Schema.String>;
+        }>;
+    }>, {
         NOT_FOUND: {
             readonly status: 404;
-            readonly data: z.ZodObject<{
-                resource: z.ZodOptional<z.ZodString>;
-                resourceId: z.ZodOptional<z.ZodString>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                resource: import("zod").ZodOptional<import("zod").ZodString>;
+                resourceId: import("zod").ZodOptional<import("zod").ZodString>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    getRegistryApp: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        accountId: z.ZodString;
-        gatewayId: z.ZodString;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodObject<{
-            accountId: z.ZodString;
-            gatewayId: z.ZodString;
-            canonicalKey: z.ZodString;
-            canonicalConfigUrl: z.ZodString;
-            startCommand: z.ZodString;
-            domain: z.ZodNullable<z.ZodString>;
-            openUrl: z.ZodNullable<z.ZodString>;
-            hostUrl: z.ZodNullable<z.ZodString>;
-            uiUrl: z.ZodNullable<z.ZodString>;
-            uiSsrUrl: z.ZodNullable<z.ZodString>;
-            apiUrl: z.ZodNullable<z.ZodString>;
-            extends: z.ZodNullable<z.ZodString>;
-            parent: z.ZodNullable<z.ZodString>;
-            root: z.ZodNullable<z.ZodString>;
-            depth: z.ZodNumber;
-            status: z.ZodEnum<{
-                invalid: "invalid";
-                ready: "ready";
-            }>;
-            metadata: z.ZodNullable<z.ZodObject<{
-                claimedBy: z.ZodNullable<z.ZodString>;
-                title: z.ZodNullable<z.ZodString>;
-                description: z.ZodNullable<z.ZodString>;
-                repoUrl: z.ZodNullable<z.ZodString>;
-                homepageUrl: z.ZodNullable<z.ZodString>;
-                imageUrl: z.ZodNullable<z.ZodString>;
-                updatedAt: z.ZodNullable<z.ZodISODateTime>;
-            }, z.core.$strip>>;
-            metadataKey: z.ZodString;
-            metadataContractId: z.ZodString;
-            metadataFastKvUrl: z.ZodString;
-            extendsChain: z.ZodArray<z.ZodString>;
-            resolvedConfig: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    getRegistryApp: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly accountId: string;
+        readonly gatewayId: string;
+    }, {
+        readonly accountId: string;
+        readonly gatewayId: string;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly accountId: string;
+        readonly gatewayId: string;
+    }, {
+        readonly accountId: string;
+        readonly gatewayId: string;
+    }> & Schema.Struct<{
+        readonly accountId: Schema.String;
+        readonly gatewayId: Schema.String;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+            readonly metadataKey: string;
+            readonly metadataContractId: string;
+            readonly metadataFastKvUrl: string;
+            readonly extendsChain: readonly string[];
+            readonly resolvedConfig: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }, {
+        readonly data: {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+            readonly metadataKey: string;
+            readonly metadataContractId: string;
+            readonly metadataFastKvUrl: string;
+            readonly extendsChain: readonly string[];
+            readonly resolvedConfig: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+            readonly metadataKey: string;
+            readonly metadataContractId: string;
+            readonly metadataFastKvUrl: string;
+            readonly extendsChain: readonly string[];
+            readonly resolvedConfig: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }, {
+        readonly data: {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+            readonly metadataKey: string;
+            readonly metadataContractId: string;
+            readonly metadataFastKvUrl: string;
+            readonly extendsChain: readonly string[];
+            readonly resolvedConfig: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.Struct<{
+            readonly accountId: Schema.String;
+            readonly gatewayId: Schema.String;
+            readonly canonicalKey: Schema.String;
+            readonly canonicalConfigUrl: Schema.String;
+            readonly startCommand: Schema.String;
+            readonly domain: Schema.NullOr<Schema.String>;
+            readonly openUrl: Schema.NullOr<Schema.String>;
+            readonly hostUrl: Schema.NullOr<Schema.String>;
+            readonly uiUrl: Schema.NullOr<Schema.String>;
+            readonly uiSsrUrl: Schema.NullOr<Schema.String>;
+            readonly apiUrl: Schema.NullOr<Schema.String>;
+            readonly extends: Schema.NullOr<Schema.String>;
+            readonly parent: Schema.NullOr<Schema.String>;
+            readonly root: Schema.NullOr<Schema.String>;
+            readonly depth: Schema.Natural;
+            readonly status: Schema.Literals<readonly ["ready", "invalid"]>;
+            readonly metadata: Schema.NullOr<Schema.Struct<{
+                readonly claimedBy: Schema.NullOr<Schema.String>;
+                readonly title: Schema.NullOr<Schema.String>;
+                readonly description: Schema.NullOr<Schema.String>;
+                readonly repoUrl: Schema.NullOr<Schema.String>;
+                readonly homepageUrl: Schema.NullOr<Schema.String>;
+                readonly imageUrl: Schema.NullOr<Schema.String>;
+                readonly updatedAt: Schema.NullOr<Schema.String>;
+            }>>;
+            readonly metadataKey: Schema.String;
+            readonly metadataContractId: Schema.String;
+            readonly metadataFastKvUrl: Schema.String;
+            readonly extendsChain: Schema.$Array<Schema.String>;
+            readonly resolvedConfig: Schema.$Record<Schema.String, Schema.Unknown>;
+        }>;
+    }>, {
         NOT_FOUND: {
             readonly status: 404;
-            readonly data: z.ZodObject<{
-                resource: z.ZodOptional<z.ZodString>;
-                resourceId: z.ZodOptional<z.ZodString>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                resource: import("zod").ZodOptional<import("zod").ZodString>;
+                resourceId: import("zod").ZodOptional<import("zod").ZodString>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    getRegistryAppByHost: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        hostUrl: z.ZodString;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodObject<{
-            accountId: z.ZodString;
-            gatewayId: z.ZodString;
-            canonicalKey: z.ZodString;
-            canonicalConfigUrl: z.ZodString;
-            startCommand: z.ZodString;
-            domain: z.ZodNullable<z.ZodString>;
-            openUrl: z.ZodNullable<z.ZodString>;
-            hostUrl: z.ZodNullable<z.ZodString>;
-            uiUrl: z.ZodNullable<z.ZodString>;
-            uiSsrUrl: z.ZodNullable<z.ZodString>;
-            apiUrl: z.ZodNullable<z.ZodString>;
-            extends: z.ZodNullable<z.ZodString>;
-            parent: z.ZodNullable<z.ZodString>;
-            root: z.ZodNullable<z.ZodString>;
-            depth: z.ZodNumber;
-            status: z.ZodEnum<{
-                invalid: "invalid";
-                ready: "ready";
-            }>;
-            metadata: z.ZodNullable<z.ZodObject<{
-                claimedBy: z.ZodNullable<z.ZodString>;
-                title: z.ZodNullable<z.ZodString>;
-                description: z.ZodNullable<z.ZodString>;
-                repoUrl: z.ZodNullable<z.ZodString>;
-                homepageUrl: z.ZodNullable<z.ZodString>;
-                imageUrl: z.ZodNullable<z.ZodString>;
-                updatedAt: z.ZodNullable<z.ZodISODateTime>;
-            }, z.core.$strip>>;
-            metadataKey: z.ZodString;
-            metadataContractId: z.ZodString;
-            metadataFastKvUrl: z.ZodString;
-            extendsChain: z.ZodArray<z.ZodString>;
-            resolvedConfig: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    getRegistryAppByHost: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly hostUrl: string;
+    }, {
+        readonly hostUrl: string;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly hostUrl: string;
+    }, {
+        readonly hostUrl: string;
+    }> & Schema.Struct<{
+        readonly hostUrl: Schema.String;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+            readonly metadataKey: string;
+            readonly metadataContractId: string;
+            readonly metadataFastKvUrl: string;
+            readonly extendsChain: readonly string[];
+            readonly resolvedConfig: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }, {
+        readonly data: {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+            readonly metadataKey: string;
+            readonly metadataContractId: string;
+            readonly metadataFastKvUrl: string;
+            readonly extendsChain: readonly string[];
+            readonly resolvedConfig: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+            readonly metadataKey: string;
+            readonly metadataContractId: string;
+            readonly metadataFastKvUrl: string;
+            readonly extendsChain: readonly string[];
+            readonly resolvedConfig: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }, {
+        readonly data: {
+            readonly accountId: string;
+            readonly gatewayId: string;
+            readonly canonicalKey: string;
+            readonly canonicalConfigUrl: string;
+            readonly startCommand: string;
+            readonly domain: string | null;
+            readonly openUrl: string | null;
+            readonly hostUrl: string | null;
+            readonly uiUrl: string | null;
+            readonly uiSsrUrl: string | null;
+            readonly apiUrl: string | null;
+            readonly extends: string | null;
+            readonly parent: string | null;
+            readonly root: string | null;
+            readonly depth: number;
+            readonly status: "invalid" | "ready";
+            readonly metadata: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            } | null;
+            readonly metadataKey: string;
+            readonly metadataContractId: string;
+            readonly metadataFastKvUrl: string;
+            readonly extendsChain: readonly string[];
+            readonly resolvedConfig: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.Struct<{
+            readonly accountId: Schema.String;
+            readonly gatewayId: Schema.String;
+            readonly canonicalKey: Schema.String;
+            readonly canonicalConfigUrl: Schema.String;
+            readonly startCommand: Schema.String;
+            readonly domain: Schema.NullOr<Schema.String>;
+            readonly openUrl: Schema.NullOr<Schema.String>;
+            readonly hostUrl: Schema.NullOr<Schema.String>;
+            readonly uiUrl: Schema.NullOr<Schema.String>;
+            readonly uiSsrUrl: Schema.NullOr<Schema.String>;
+            readonly apiUrl: Schema.NullOr<Schema.String>;
+            readonly extends: Schema.NullOr<Schema.String>;
+            readonly parent: Schema.NullOr<Schema.String>;
+            readonly root: Schema.NullOr<Schema.String>;
+            readonly depth: Schema.Natural;
+            readonly status: Schema.Literals<readonly ["ready", "invalid"]>;
+            readonly metadata: Schema.NullOr<Schema.Struct<{
+                readonly claimedBy: Schema.NullOr<Schema.String>;
+                readonly title: Schema.NullOr<Schema.String>;
+                readonly description: Schema.NullOr<Schema.String>;
+                readonly repoUrl: Schema.NullOr<Schema.String>;
+                readonly homepageUrl: Schema.NullOr<Schema.String>;
+                readonly imageUrl: Schema.NullOr<Schema.String>;
+                readonly updatedAt: Schema.NullOr<Schema.String>;
+            }>>;
+            readonly metadataKey: Schema.String;
+            readonly metadataContractId: Schema.String;
+            readonly metadataFastKvUrl: Schema.String;
+            readonly extendsChain: Schema.$Array<Schema.String>;
+            readonly resolvedConfig: Schema.$Record<Schema.String, Schema.Unknown>;
+        }>;
+    }>, {
         NOT_FOUND: {
             readonly status: 404;
-            readonly data: z.ZodObject<{
-                resource: z.ZodOptional<z.ZodString>;
-                resourceId: z.ZodOptional<z.ZodString>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                resource: import("zod").ZodOptional<import("zod").ZodString>;
+                resourceId: import("zod").ZodOptional<import("zod").ZodString>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    getRegistryStatus: import("@orpc/contract").ProcedureContract<import("@orpc/contract").InitialInputSchema, z.ZodObject<{
-        discoveredApps: z.ZodNumber;
-        metadataContractId: z.ZodString;
-        metadataFastKvUrl: z.ZodString;
-        relayEnabled: z.ZodBoolean;
-        relayAccountId: z.ZodNullable<z.ZodString>;
-        timestamp: z.ZodISODateTime;
-    }, z.core.$strip>, Record<never, never>>;
-    getManifest: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        ref: z.ZodString;
-        includeVersionRecord: z.ZodOptional<z.ZodBoolean>;
-    }, z.core.$strip>, z.ZodObject<{
-        ref: z.ZodString;
-        tag: z.ZodNullable<z.ZodUnknown>;
-        versionRecord: z.ZodNullable<z.ZodUnknown>;
-    }, z.core.$strip>, {
+    getRegistryStatus: import("@orpc/contract").ProcedureContract<import("@orpc/contract").InitialInputSchema, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly discoveredApps: number;
+        readonly metadataContractId: string;
+        readonly metadataFastKvUrl: string;
+        readonly relayEnabled: boolean;
+        readonly relayAccountId: string | null;
+        readonly timestamp: string;
+    }, {
+        readonly discoveredApps: number;
+        readonly metadataContractId: string;
+        readonly metadataFastKvUrl: string;
+        readonly relayEnabled: boolean;
+        readonly relayAccountId: string | null;
+        readonly timestamp: string;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly discoveredApps: number;
+        readonly metadataContractId: string;
+        readonly metadataFastKvUrl: string;
+        readonly relayEnabled: boolean;
+        readonly relayAccountId: string | null;
+        readonly timestamp: string;
+    }, {
+        readonly discoveredApps: number;
+        readonly metadataContractId: string;
+        readonly metadataFastKvUrl: string;
+        readonly relayEnabled: boolean;
+        readonly relayAccountId: string | null;
+        readonly timestamp: string;
+    }> & Schema.Struct<{
+        readonly discoveredApps: Schema.Natural;
+        readonly metadataContractId: Schema.String;
+        readonly metadataFastKvUrl: Schema.String;
+        readonly relayEnabled: Schema.Boolean;
+        readonly relayAccountId: Schema.NullOr<Schema.String>;
+        readonly timestamp: Schema.String;
+    }>, Record<never, never>>;
+    getManifest: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly ref: string;
+        readonly includeVersionRecord?: boolean | undefined;
+    }, {
+        readonly ref: string;
+        readonly includeVersionRecord?: boolean | undefined;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly ref: string;
+        readonly includeVersionRecord?: boolean | undefined;
+    }, {
+        readonly ref: string;
+        readonly includeVersionRecord?: boolean | undefined;
+    }> & Schema.Struct<{
+        readonly ref: Schema.String;
+        readonly includeVersionRecord: Schema.optional<Schema.Boolean>;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly ref: string;
+        readonly tag: unknown;
+        readonly versionRecord: unknown;
+    }, {
+        readonly ref: string;
+        readonly tag: unknown;
+        readonly versionRecord: unknown;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly ref: string;
+        readonly tag: unknown;
+        readonly versionRecord: unknown;
+    }, {
+        readonly ref: string;
+        readonly tag: unknown;
+        readonly versionRecord: unknown;
+    }> & Schema.Struct<{
+        readonly ref: Schema.String;
+        readonly tag: Schema.NullOr<Schema.Unknown>;
+        readonly versionRecord: Schema.NullOr<Schema.Unknown>;
+    }>, {
         BAD_REQUEST: {
             readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    resolveRuntime: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        ref: z.ZodString;
-        release: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>, z.ZodObject<{
-        ref: z.ZodString;
-        outcome: z.ZodUnion<readonly [z.ZodObject<{
-            state: z.ZodLiteral<"Resolved">;
-            manifest: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-            source: z.ZodObject<{
-                account: z.ZodString;
-                gateway: z.ZodString;
-            }, z.core.$strip>;
-            from: z.ZodEnum<{
-                cache: "cache";
-                manifest: "manifest";
-                version: "version";
+    resolveRuntime: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly ref: string;
+        readonly release?: string | undefined;
+    }, {
+        readonly ref: string;
+        readonly release?: string | undefined;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly ref: string;
+        readonly release?: string | undefined;
+    }, {
+        readonly ref: string;
+        readonly release?: string | undefined;
+    }> & Schema.Struct<{
+        readonly ref: Schema.String;
+        readonly release: Schema.optional<Schema.String>;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly ref: string;
+        readonly outcome: {
+            readonly state: "Resolved";
+            readonly manifest: {
+                readonly [x: string]: unknown;
+            };
+            readonly source: {
+                readonly account: string;
+                readonly gateway: string;
+            };
+            readonly from: "cache" | "manifest" | "version";
+            readonly provenance: "pointer" | "record";
+            readonly fromCache: boolean;
+        } | {
+            readonly state: "Unresolved";
+            readonly reason: "absent" | "integrityFailure" | "unreachable";
+            readonly detail?: string | undefined;
+            readonly context: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }, {
+        readonly ref: string;
+        readonly outcome: {
+            readonly state: "Resolved";
+            readonly manifest: {
+                readonly [x: string]: unknown;
+            };
+            readonly source: {
+                readonly account: string;
+                readonly gateway: string;
+            };
+            readonly from: "cache" | "manifest" | "version";
+            readonly provenance: "pointer" | "record";
+            readonly fromCache: boolean;
+        } | {
+            readonly state: "Unresolved";
+            readonly reason: "absent" | "integrityFailure" | "unreachable";
+            readonly detail?: string | undefined;
+            readonly context: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly ref: string;
+        readonly outcome: {
+            readonly state: "Resolved";
+            readonly manifest: {
+                readonly [x: string]: unknown;
+            };
+            readonly source: {
+                readonly account: string;
+                readonly gateway: string;
+            };
+            readonly from: "cache" | "manifest" | "version";
+            readonly provenance: "pointer" | "record";
+            readonly fromCache: boolean;
+        } | {
+            readonly state: "Unresolved";
+            readonly reason: "absent" | "integrityFailure" | "unreachable";
+            readonly detail?: string | undefined;
+            readonly context: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }, {
+        readonly ref: string;
+        readonly outcome: {
+            readonly state: "Resolved";
+            readonly manifest: {
+                readonly [x: string]: unknown;
+            };
+            readonly source: {
+                readonly account: string;
+                readonly gateway: string;
+            };
+            readonly from: "cache" | "manifest" | "version";
+            readonly provenance: "pointer" | "record";
+            readonly fromCache: boolean;
+        } | {
+            readonly state: "Unresolved";
+            readonly reason: "absent" | "integrityFailure" | "unreachable";
+            readonly detail?: string | undefined;
+            readonly context: {
+                readonly [x: string]: unknown;
+            };
+        };
+    }> & Schema.Struct<{
+        readonly ref: Schema.String;
+        readonly outcome: Schema.Union<readonly [Schema.Struct<{
+            readonly state: Schema.Literal<"Resolved">;
+            readonly manifest: Schema.$Record<Schema.String, Schema.Unknown>;
+            readonly source: Schema.Struct<{
+                readonly account: Schema.String;
+                readonly gateway: Schema.String;
             }>;
-            provenance: z.ZodEnum<{
-                pointer: "pointer";
-                record: "record";
+            readonly from: Schema.Literals<readonly ["version", "manifest", "cache"]>;
+            readonly provenance: Schema.Literals<readonly ["record", "pointer"]>;
+            readonly fromCache: Schema.Boolean;
+        }>, Schema.Struct<{
+            readonly state: Schema.Literal<"Unresolved">;
+            readonly reason: Schema.Literals<readonly ["absent", "unreachable", "integrityFailure"]>;
+            readonly detail: Schema.optional<Schema.String>;
+            readonly context: Schema.$Record<Schema.String, Schema.Unknown>;
+        }>]>;
+    }>, {
+        BAD_REQUEST: {
+            readonly status: 400;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
+        };
+    }>;
+    prepareRegistryMetadataWrite: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly accountId: string;
+        readonly gatewayId: string;
+        readonly claimedBy: string;
+        readonly title?: string | undefined;
+        readonly description?: string | undefined;
+        readonly repoUrl?: string | undefined;
+        readonly homepageUrl?: string | undefined;
+        readonly imageUrl?: string | undefined;
+    }, {
+        readonly accountId: string;
+        readonly gatewayId: string;
+        readonly claimedBy: string;
+        readonly title?: string | undefined;
+        readonly description?: string | undefined;
+        readonly repoUrl?: string | undefined;
+        readonly homepageUrl?: string | undefined;
+        readonly imageUrl?: string | undefined;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly accountId: string;
+        readonly gatewayId: string;
+        readonly claimedBy: string;
+        readonly title?: string | undefined;
+        readonly description?: string | undefined;
+        readonly repoUrl?: string | undefined;
+        readonly homepageUrl?: string | undefined;
+        readonly imageUrl?: string | undefined;
+    }, {
+        readonly accountId: string;
+        readonly gatewayId: string;
+        readonly claimedBy: string;
+        readonly title?: string | undefined;
+        readonly description?: string | undefined;
+        readonly repoUrl?: string | undefined;
+        readonly homepageUrl?: string | undefined;
+        readonly imageUrl?: string | undefined;
+    }> & Schema.Struct<{
+        readonly accountId: Schema.String;
+        readonly gatewayId: Schema.String;
+        readonly claimedBy: Schema.String;
+        readonly title: Schema.optional<Schema.String>;
+        readonly description: Schema.optional<Schema.String>;
+        readonly repoUrl: Schema.optional<Schema.String>;
+        readonly homepageUrl: Schema.optional<Schema.String>;
+        readonly imageUrl: Schema.optional<Schema.String>;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly key: string;
+            readonly manifest: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            };
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }, {
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly key: string;
+            readonly manifest: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            };
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly key: string;
+            readonly manifest: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            };
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }, {
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly key: string;
+            readonly manifest: {
+                readonly claimedBy: string | null;
+                readonly title: string | null;
+                readonly description: string | null;
+                readonly repoUrl: string | null;
+                readonly homepageUrl: string | null;
+                readonly imageUrl: string | null;
+                readonly updatedAt: string | null;
+            };
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.Struct<{
+            readonly contractId: Schema.String;
+            readonly methodName: Schema.Literal<"__fastdata_kv">;
+            readonly key: Schema.String;
+            readonly manifest: Schema.Struct<{
+                readonly claimedBy: Schema.NullOr<Schema.String>;
+                readonly title: Schema.NullOr<Schema.String>;
+                readonly description: Schema.NullOr<Schema.String>;
+                readonly repoUrl: Schema.NullOr<Schema.String>;
+                readonly homepageUrl: Schema.NullOr<Schema.String>;
+                readonly imageUrl: Schema.NullOr<Schema.String>;
+                readonly updatedAt: Schema.NullOr<Schema.String>;
             }>;
-            fromCache: z.ZodBoolean;
-        }, z.core.$strip>, z.ZodObject<{
-            state: z.ZodLiteral<"Unresolved">;
-            reason: z.ZodEnum<{
-                absent: "absent";
-                integrityFailure: "integrityFailure";
-                unreachable: "unreachable";
-            }>;
-            detail: z.ZodOptional<z.ZodString>;
-            context: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-        }, z.core.$strip>]>;
-    }, z.core.$strip>, {
+            readonly args: Schema.$Record<Schema.String, Schema.String>;
+            readonly gas: Schema.String;
+            readonly attachedDeposit: Schema.String;
+        }>;
+    }>, {
         BAD_REQUEST: {
             readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    prepareRegistryMetadataWrite: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        accountId: z.ZodString;
-        gatewayId: z.ZodString;
-        claimedBy: z.ZodString;
-        title: z.ZodOptional<z.ZodString>;
-        description: z.ZodOptional<z.ZodString>;
-        repoUrl: z.ZodOptional<z.ZodString>;
-        homepageUrl: z.ZodOptional<z.ZodString>;
-        imageUrl: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodObject<{
-            contractId: z.ZodString;
-            methodName: z.ZodLiteral<"__fastdata_kv">;
-            key: z.ZodString;
-            manifest: z.ZodObject<{
-                claimedBy: z.ZodNullable<z.ZodString>;
-                title: z.ZodNullable<z.ZodString>;
-                description: z.ZodNullable<z.ZodString>;
-                repoUrl: z.ZodNullable<z.ZodString>;
-                homepageUrl: z.ZodNullable<z.ZodString>;
-                imageUrl: z.ZodNullable<z.ZodString>;
-                updatedAt: z.ZodNullable<z.ZodISODateTime>;
-            }, z.core.$strip>;
-            args: z.ZodRecord<z.ZodString, z.ZodString>;
-            gas: z.ZodString;
-            attachedDeposit: z.ZodString;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    prepareRegistryConfigWrite: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly accountId: string;
+        readonly gatewayId: string;
+        readonly config: {
+            readonly [x: string]: unknown;
+        };
+    }, {
+        readonly accountId: string;
+        readonly gatewayId: string;
+        readonly config: {
+            readonly [x: string]: unknown;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly accountId: string;
+        readonly gatewayId: string;
+        readonly config: {
+            readonly [x: string]: unknown;
+        };
+    }, {
+        readonly accountId: string;
+        readonly gatewayId: string;
+        readonly config: {
+            readonly [x: string]: unknown;
+        };
+    }> & Schema.Struct<{
+        readonly accountId: Schema.String;
+        readonly gatewayId: Schema.String;
+        readonly config: Schema.$Record<Schema.String, Schema.Unknown>;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly key: string;
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }, {
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly key: string;
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly key: string;
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }, {
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly key: string;
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.Struct<{
+            readonly contractId: Schema.String;
+            readonly methodName: Schema.Literal<"__fastdata_kv">;
+            readonly key: Schema.String;
+            readonly args: Schema.$Record<Schema.String, Schema.String>;
+            readonly gas: Schema.String;
+            readonly attachedDeposit: Schema.String;
+        }>;
+    }>, {
         BAD_REQUEST: {
             readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    prepareRegistryConfigWrite: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        accountId: z.ZodString;
-        gatewayId: z.ZodString;
-        config: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodObject<{
-            contractId: z.ZodString;
-            methodName: z.ZodLiteral<"__fastdata_kv">;
-            key: z.ZodString;
-            args: z.ZodRecord<z.ZodString, z.ZodString>;
-            gas: z.ZodString;
-            attachedDeposit: z.ZodString;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
-        BAD_REQUEST: {
-            readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+    relayRegistryMetadataWrite: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly payload: string;
+    }, {
+        readonly payload: string;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly payload: string;
+    }, {
+        readonly payload: string;
+    }> & Schema.Struct<{
+        readonly payload: Schema.String;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: {
+            readonly transactionHash: string | null;
+            readonly relayerAccountId: string;
+            readonly senderId: string;
         };
-    }>;
-    relayRegistryMetadataWrite: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        payload: z.ZodString;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodObject<{
-            transactionHash: z.ZodNullable<z.ZodString>;
-            relayerAccountId: z.ZodString;
-            senderId: z.ZodString;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    }, {
+        readonly data: {
+            readonly transactionHash: string | null;
+            readonly relayerAccountId: string;
+            readonly senderId: string;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: {
+            readonly transactionHash: string | null;
+            readonly relayerAccountId: string;
+            readonly senderId: string;
+        };
+    }, {
+        readonly data: {
+            readonly transactionHash: string | null;
+            readonly relayerAccountId: string;
+            readonly senderId: string;
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.Struct<{
+            readonly transactionHash: Schema.NullOr<Schema.String>;
+            readonly relayerAccountId: Schema.String;
+            readonly senderId: Schema.String;
+        }>;
+    }>, {
         BAD_REQUEST: {
             readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
         };
         FORBIDDEN: {
             readonly status: 403;
-            readonly data: z.ZodObject<{
-                requiredPermissions: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                action: z.ZodOptional<z.ZodString>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                requiredPermissions: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                action: import("zod").ZodOptional<import("zod").ZodString>;
+            }, import("zod/v4/core").$strip>;
         };
         UNAUTHORIZED: {
             readonly status: 401;
-            readonly data: z.ZodObject<{
-                apiKeyProvided: z.ZodBoolean;
-                provider: z.ZodOptional<z.ZodString>;
-                authType: z.ZodOptional<z.ZodEnum<{
+            readonly data: import("zod").ZodObject<{
+                apiKeyProvided: import("zod").ZodBoolean;
+                provider: import("zod").ZodOptional<import("zod").ZodString>;
+                authType: import("zod").ZodOptional<import("zod").ZodEnum<{
                     apiKey: "apiKey";
                     oauth: "oauth";
                     token: "token";
                 }>>;
-            }, z.core.$strip>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    kvGet: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        path: z.ZodString;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodNullable<z.ZodUnknown>;
-    }, z.core.$strip>, {
+    kvGet: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly path: string;
+    }, {
+        readonly path: string;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly path: string;
+    }, {
+        readonly path: string;
+    }> & Schema.Struct<{
+        readonly path: Schema.String;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: unknown;
+    }, {
+        readonly data: unknown;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: unknown;
+    }, {
+        readonly data: unknown;
+    }> & Schema.Struct<{
+        readonly data: Schema.NullOr<Schema.Unknown>;
+    }>, {
         NOT_FOUND: {
             readonly status: 404;
-            readonly data: z.ZodObject<{
-                resource: z.ZodOptional<z.ZodString>;
-                resourceId: z.ZodOptional<z.ZodString>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                resource: import("zod").ZodOptional<import("zod").ZodString>;
+                resourceId: import("zod").ZodOptional<import("zod").ZodString>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    kvList: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        prefix: z.ZodString;
-        limit: z.ZodOptional<z.ZodNumber>;
-        cursor: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodArray<z.ZodObject<{
-            key: z.ZodString;
-            value: z.ZodUnknown;
-            blockHeight: z.ZodOptional<z.ZodNumber>;
-            blockTimestamp: z.ZodOptional<z.ZodNumber>;
-            txHash: z.ZodOptional<z.ZodString>;
-            signerId: z.ZodOptional<z.ZodString>;
-        }, z.core.$strip>>;
-        meta: z.ZodObject<{
-            total: z.ZodNumber;
-            hasMore: z.ZodBoolean;
-            nextCursor: z.ZodNullable<z.ZodString>;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    kvList: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly prefix: string;
+        readonly limit?: number | undefined;
+        readonly cursor?: string | undefined;
+    }, {
+        readonly prefix: string;
+        readonly limit?: number | undefined;
+        readonly cursor?: string | undefined;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly prefix: string;
+        readonly limit?: number | undefined;
+        readonly cursor?: string | undefined;
+    }, {
+        readonly prefix: string;
+        readonly limit?: number | undefined;
+        readonly cursor?: string | undefined;
+    }> & Schema.Struct<{
+        readonly prefix: Schema.String;
+        readonly limit: Schema.optional<Schema.Int>;
+        readonly cursor: Schema.optional<Schema.String>;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: readonly {
+            readonly key: string;
+            readonly value: unknown;
+            readonly blockHeight?: number | undefined;
+            readonly blockTimestamp?: number | undefined;
+            readonly txHash?: string | undefined;
+            readonly signerId?: string | undefined;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }, {
+        readonly data: readonly {
+            readonly key: string;
+            readonly value: unknown;
+            readonly blockHeight?: number | undefined;
+            readonly blockTimestamp?: number | undefined;
+            readonly txHash?: string | undefined;
+            readonly signerId?: string | undefined;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: readonly {
+            readonly key: string;
+            readonly value: unknown;
+            readonly blockHeight?: number | undefined;
+            readonly blockTimestamp?: number | undefined;
+            readonly txHash?: string | undefined;
+            readonly signerId?: string | undefined;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }, {
+        readonly data: readonly {
+            readonly key: string;
+            readonly value: unknown;
+            readonly blockHeight?: number | undefined;
+            readonly blockTimestamp?: number | undefined;
+            readonly txHash?: string | undefined;
+            readonly signerId?: string | undefined;
+        }[];
+        readonly meta: {
+            readonly total: number;
+            readonly hasMore: boolean;
+            readonly nextCursor: string | null;
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.$Array<Schema.Struct<{
+            readonly key: Schema.String;
+            readonly value: Schema.Unknown;
+            readonly blockHeight: Schema.optional<Schema.Number>;
+            readonly blockTimestamp: Schema.optional<Schema.Number>;
+            readonly txHash: Schema.optional<Schema.String>;
+            readonly signerId: Schema.optional<Schema.String>;
+        }>>;
+        readonly meta: Schema.Struct<{
+            readonly total: Schema.Natural;
+            readonly hasMore: Schema.Boolean;
+            readonly nextCursor: Schema.NullOr<Schema.String>;
+        }>;
+    }>, {
         BAD_REQUEST: {
             readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    kvPrepareWrite: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        entries: z.ZodArray<z.ZodObject<{
-            path: z.ZodString;
-            value: z.ZodUnknown;
-        }, z.core.$strip>>;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodObject<{
-            contractId: z.ZodString;
-            methodName: z.ZodLiteral<"__fastdata_kv">;
-            args: z.ZodRecord<z.ZodString, z.ZodString>;
-            gas: z.ZodString;
-            attachedDeposit: z.ZodString;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    kvPrepareWrite: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly entries: {
+            readonly path: string;
+            readonly value: unknown;
+        }[];
+    }, {
+        readonly entries: {
+            readonly path: string;
+            readonly value: unknown;
+        }[];
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly entries: {
+            readonly path: string;
+            readonly value: unknown;
+        }[];
+    }, {
+        readonly entries: {
+            readonly path: string;
+            readonly value: unknown;
+        }[];
+    }> & Schema.Struct<{
+        readonly entries: Schema.mutable<Schema.$Array<Schema.Struct<{
+            readonly path: Schema.String;
+            readonly value: Schema.Unknown;
+        }>>>;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }, {
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }, {
+        readonly data: {
+            readonly contractId: string;
+            readonly methodName: "__fastdata_kv";
+            readonly args: {
+                readonly [x: string]: string;
+            };
+            readonly gas: string;
+            readonly attachedDeposit: string;
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.Struct<{
+            readonly contractId: Schema.String;
+            readonly methodName: Schema.Literal<"__fastdata_kv">;
+            readonly args: Schema.$Record<Schema.String, Schema.String>;
+            readonly gas: Schema.String;
+            readonly attachedDeposit: Schema.String;
+        }>;
+    }>, {
         BAD_REQUEST: {
             readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
-    kvRelayWrite: import("@orpc/contract").ProcedureContract<z.ZodObject<{
-        payload: z.ZodString;
-    }, z.core.$strip>, z.ZodObject<{
-        data: z.ZodObject<{
-            transactionHash: z.ZodNullable<z.ZodString>;
-            relayerAccountId: z.ZodString;
-            senderId: z.ZodString;
-        }, z.core.$strip>;
-    }, z.core.$strip>, {
+    kvRelayWrite: import("@orpc/contract").ProcedureContract<import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly payload: string;
+    }, {
+        readonly payload: string;
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly payload: string;
+    }, {
+        readonly payload: string;
+    }> & Schema.Struct<{
+        readonly payload: Schema.String;
+    }>, import("effect/StandardSchema").StandardJSONSchemaV1<{
+        readonly data: {
+            readonly transactionHash: string | null;
+            readonly relayerAccountId: string;
+            readonly senderId: string;
+        };
+    }, {
+        readonly data: {
+            readonly transactionHash: string | null;
+            readonly relayerAccountId: string;
+            readonly senderId: string;
+        };
+    }> & import("effect/StandardSchema").StandardSchemaV1<{
+        readonly data: {
+            readonly transactionHash: string | null;
+            readonly relayerAccountId: string;
+            readonly senderId: string;
+        };
+    }, {
+        readonly data: {
+            readonly transactionHash: string | null;
+            readonly relayerAccountId: string;
+            readonly senderId: string;
+        };
+    }> & Schema.Struct<{
+        readonly data: Schema.Struct<{
+            readonly transactionHash: Schema.NullOr<Schema.String>;
+            readonly relayerAccountId: Schema.String;
+            readonly senderId: Schema.String;
+        }>;
+    }>, {
         BAD_REQUEST: {
             readonly status: 400;
-            readonly data: z.ZodObject<{
-                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                    field: z.ZodString;
-                    message: z.ZodString;
-                    code: z.ZodOptional<z.ZodString>;
-                }, z.core.$strip>>>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                invalidFields: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                validationErrors: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodObject<{
+                    field: import("zod").ZodString;
+                    message: import("zod").ZodString;
+                    code: import("zod").ZodOptional<import("zod").ZodString>;
+                }, import("zod/v4/core").$strip>>>;
+            }, import("zod/v4/core").$strip>;
         };
         FORBIDDEN: {
             readonly status: 403;
-            readonly data: z.ZodObject<{
-                requiredPermissions: z.ZodOptional<z.ZodArray<z.ZodString>>;
-                action: z.ZodOptional<z.ZodString>;
-            }, z.core.$strip>;
+            readonly data: import("zod").ZodObject<{
+                requiredPermissions: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString>>;
+                action: import("zod").ZodOptional<import("zod").ZodString>;
+            }, import("zod/v4/core").$strip>;
         };
         UNAUTHORIZED: {
             readonly status: 401;
-            readonly data: z.ZodObject<{
-                apiKeyProvided: z.ZodBoolean;
-                provider: z.ZodOptional<z.ZodString>;
-                authType: z.ZodOptional<z.ZodEnum<{
+            readonly data: import("zod").ZodObject<{
+                apiKeyProvided: import("zod").ZodBoolean;
+                provider: import("zod").ZodOptional<import("zod").ZodString>;
+                authType: import("zod").ZodOptional<import("zod").ZodEnum<{
                     apiKey: "apiKey";
                     oauth: "oauth";
                     token: "token";
                 }>>;
-            }, z.core.$strip>;
+            }, import("zod/v4/core").$strip>;
         };
     }>;
 };
