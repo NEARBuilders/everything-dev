@@ -1,0 +1,2330 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./api 1`] = `
+[
+  {
+    "kind": "interface",
+    "name": "AuthContextShape",
+  },
+  {
+    "kind": "function",
+    "name": "createAuthMiddleware",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./auth/near-signer 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "checkPublishBalance",
+  },
+  {
+    "kind": "function",
+    "name": "checkPublishKeyHealth",
+  },
+  {
+    "kind": "function",
+    "name": "classifyPublishBalance",
+  },
+  {
+    "kind": "function",
+    "name": "classifyTransactionOutcome",
+  },
+  {
+    "kind": "function",
+    "name": "describePublishRejection",
+  },
+  {
+    "kind": "function",
+    "name": "describeSigningStrategy",
+  },
+  {
+    "kind": "function",
+    "name": "formatNearAmount",
+  },
+  {
+    "kind": "function",
+    "name": "hasLocalSigningKey",
+  },
+  {
+    "kind": "const",
+    "name": "PUBLISH_ATTACHED_GAS",
+  },
+  {
+    "kind": "const",
+    "name": "PUBLISH_ATTACHED_GAS_UNITS",
+  },
+  {
+    "kind": "function",
+    "name": "resolveNearReadRpcUrl",
+  },
+  {
+    "kind": "function",
+    "name": "resolveSigningKey",
+  },
+  {
+    "kind": "function",
+    "name": "resolveSigningStrategy",
+  },
+  {
+    "kind": "type",
+    "name": "SigningStrategy",
+  },
+  {
+    "kind": "function",
+    "name": "submitRegistryWrite",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./config 1`] = `
+[
+  {
+    "kind": "reexport-type",
+    "name": "BosConfig",
+  },
+  {
+    "kind": "reexport",
+    "name": "BosConfigSchema",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "BosEnv",
+  },
+  {
+    "kind": "reexport",
+    "name": "buildRuntimeConfig",
+  },
+  {
+    "kind": "reexport",
+    "name": "buildRuntimeConfigEffect",
+  },
+  {
+    "kind": "reexport",
+    "name": "buildRuntimePluginsForConfig",
+  },
+  {
+    "kind": "reexport",
+    "name": "CircularExtendsError",
+  },
+  {
+    "kind": "reexport",
+    "name": "ConfigLoadError",
+  },
+  {
+    "kind": "reexport",
+    "name": "ConfigVersionManifestError",
+  },
+  {
+    "kind": "reexport",
+    "name": "defaultConfigEnv",
+  },
+  {
+    "kind": "reexport",
+    "name": "DevOverlayError",
+  },
+  {
+    "kind": "reexport",
+    "name": "findConfigPath",
+  },
+  {
+    "kind": "reexport",
+    "name": "getHostDevelopmentPort",
+  },
+  {
+    "kind": "reexport",
+    "name": "getResolvedConfigPath",
+  },
+  {
+    "kind": "reexport",
+    "name": "isAppDescriptorPath",
+  },
+  {
+    "kind": "reexport",
+    "name": "loadAppDescriptorConfig",
+  },
+  {
+    "kind": "reexport",
+    "name": "loadGeneratedResolvedConfig",
+  },
+  {
+    "kind": "reexport",
+    "name": "localConfigEntryPath",
+  },
+  {
+    "kind": "reexport",
+    "name": "mergeBosConfigWithExtends",
+  },
+  {
+    "kind": "reexport",
+    "name": "MISSING_CONFIG_MESSAGE",
+  },
+  {
+    "kind": "reexport",
+    "name": "readAuthoredConfigInput",
+  },
+  {
+    "kind": "reexport",
+    "name": "readBosConfigForBuild",
+  },
+  {
+    "kind": "reexport",
+    "name": "readLocalAuthoredConfigInput",
+  },
+  {
+    "kind": "reexport",
+    "name": "resetConfigPathCache",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveBosConfigPath",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveConfigComposableEntries",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveExtendsRef",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveLocalDevelopmentPath",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveUiRuntimeName",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RuntimeConfig",
+  },
+  {
+    "kind": "reexport",
+    "name": "writeResolvedConfig",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./dag 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "buildDependencyDAG",
+  },
+  {
+    "kind": "interface",
+    "name": "DependencyDAG",
+  },
+  {
+    "kind": "function",
+    "name": "getDependenciesForNode",
+  },
+  {
+    "kind": "function",
+    "name": "getImplicitApiDependencies",
+  },
+  {
+    "kind": "function",
+    "name": "getSingletonKey",
+  },
+  {
+    "kind": "function",
+    "name": "manifestPluginsToNodes",
+  },
+  {
+    "kind": "function",
+    "name": "mergeManifestNodes",
+  },
+  {
+    "kind": "function",
+    "name": "normalizeToNodes",
+  },
+  {
+    "kind": "function",
+    "name": "topologicalSort",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./db 1`] = `
+[
+  {
+    "kind": "reexport",
+    "name": "createDatabaseDriver",
+  },
+  {
+    "kind": "reexport",
+    "name": "DatabaseError",
+  },
+  {
+    "kind": "reexport",
+    "name": "databaseLayer",
+  },
+  {
+    "kind": "reexport",
+    "name": "detectDrift",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "DriftReport",
+  },
+  {
+    "kind": "reexport",
+    "name": "getMigrationStorage",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "LoadedMigrations",
+  },
+  {
+    "kind": "reexport",
+    "name": "loadMigrations",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "LoadMigrationsOptions",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "Migration",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "MigrationDatabase",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "MigrationReport",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "MigrationStorage",
+  },
+  {
+    "kind": "reexport",
+    "name": "PGLITE_DEFAULT_URL",
+  },
+  {
+    "kind": "reexport",
+    "name": "pgliteDefaultUrlForSlug",
+  },
+  {
+    "kind": "reexport",
+    "name": "pluginMigrationSlug",
+  },
+  {
+    "kind": "reexport",
+    "name": "pluginSchemaName",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveDatabaseUrl",
+  },
+  {
+    "kind": "reexport",
+    "name": "runMigrations",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RunMigrationsOptions",
+  },
+  {
+    "kind": "reexport",
+    "name": "suppressPgQueryQueueDeprecation",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "WorkspaceIdentity",
+  },
+  {
+    "kind": "reexport",
+    "name": "workspaceIdentityFromModuleUrl",
+  },
+  {
+    "kind": "reexport",
+    "name": "workspaceIdentityFromWorkspaceDir",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./deploy/rollback 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "buildRollbackPayload",
+  },
+  {
+    "kind": "reexport",
+    "name": "collectRemoteDescriptors",
+  },
+  {
+    "kind": "interface",
+    "name": "RollbackRemoteCheck",
+  },
+  {
+    "kind": "interface",
+    "name": "RollbackVerification",
+  },
+  {
+    "kind": "function",
+    "name": "summarizeRemoteDigests",
+  },
+  {
+    "kind": "function",
+    "name": "verifyRollbackSnapshot",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./descriptor 1`] = `
+[
+  {
+    "kind": "reexport",
+    "name": "API",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ApiInput",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ApiRef",
+  },
+  {
+    "kind": "reexport",
+    "name": "ApiRefSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "App",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "AppDeployEntry",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "AppDescriptor",
+  },
+  {
+    "kind": "reexport",
+    "name": "AppDescriptorSchema",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "AppInput",
+  },
+  {
+    "kind": "reexport",
+    "name": "applyDevOverlay",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "AppRegistry",
+  },
+  {
+    "kind": "reexport",
+    "name": "ATTACHMENT_FIELDS",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "AttachmentInput",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "AttachmentRef",
+  },
+  {
+    "kind": "reexport",
+    "name": "AttachmentRefSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "configInputToDescriptor",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "DeployMap",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "HostInput",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "HostRef",
+  },
+  {
+    "kind": "reexport",
+    "name": "HostRefSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "LOCAL_PREFIX",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "PipelineFields",
+  },
+  {
+    "kind": "reexport",
+    "name": "PipelineFieldsSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "Plugin",
+  },
+  {
+    "kind": "reexport",
+    "name": "PLUGIN_ATTACHMENT_FIELDS",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "PluginAttachmentRef",
+  },
+  {
+    "kind": "reexport",
+    "name": "PluginAttachmentRefSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveApp",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveApps",
+  },
+  {
+    "kind": "reexport",
+    "name": "serializeAppDescriptorSource",
+  },
+  {
+    "kind": "reexport",
+    "name": "SLOT_INPUT_FIELDS",
+  },
+  {
+    "kind": "reexport",
+    "name": "toConfigInput",
+  },
+  {
+    "kind": "reexport",
+    "name": "UI",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "UiInput",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "UiRef",
+  },
+  {
+    "kind": "reexport",
+    "name": "UiRefSchema",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./dev-adopt 1`] = `
+[
+  {
+    "kind": "interface",
+    "name": "AdoptObservation",
+  },
+  {
+    "kind": "interface",
+    "name": "AdoptState",
+  },
+  {
+    "kind": "const",
+    "name": "advanceAdopt",
+  },
+  {
+    "kind": "interface",
+    "name": "BackendDistFingerprint",
+  },
+  {
+    "kind": "const",
+    "name": "createBackendFingerprintSampler",
+  },
+  {
+    "kind": "const",
+    "name": "DEV_ADOPT_POLL_MS",
+  },
+  {
+    "kind": "const",
+    "name": "DEV_ADOPT_SETTLE_MS",
+  },
+  {
+    "kind": "const",
+    "name": "fingerprintContentOf",
+  },
+  {
+    "kind": "const",
+    "name": "initialAdoptState",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./dev-log-pipeline 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "classifyEvent",
+  },
+  {
+    "kind": "function",
+    "name": "createDevLogger",
+  },
+  {
+    "kind": "function",
+    "name": "createLogPipeline",
+  },
+  {
+    "kind": "type",
+    "name": "EffectLogLevel",
+  },
+  {
+    "kind": "function",
+    "name": "formatLogLine",
+  },
+  {
+    "kind": "function",
+    "name": "isDebug",
+  },
+  {
+    "kind": "interface",
+    "name": "LogEvent",
+  },
+  {
+    "kind": "interface",
+    "name": "LogLevelEnv",
+  },
+  {
+    "kind": "interface",
+    "name": "LogPipeline",
+  },
+  {
+    "kind": "function",
+    "name": "normalizeLines",
+  },
+  {
+    "kind": "function",
+    "name": "pruneDatedLogs",
+  },
+  {
+    "kind": "interface",
+    "name": "RawLogLine",
+  },
+  {
+    "kind": "function",
+    "name": "readDevLatestLog",
+  },
+  {
+    "kind": "function",
+    "name": "resolveDevLatestFile",
+  },
+  {
+    "kind": "function",
+    "name": "resolveLogLevel",
+  },
+  {
+    "kind": "const",
+    "name": "stripAnsi",
+  },
+  {
+    "kind": "function",
+    "name": "toEffectLogLevel",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./digest 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "deploymentDigest",
+  },
+  {
+    "kind": "function",
+    "name": "digestOfParts",
+  },
+  {
+    "kind": "function",
+    "name": "pointerDigest",
+  },
+  {
+    "kind": "function",
+    "name": "remoteDigests",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./federation 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "checkFederationCompat",
+  },
+  {
+    "kind": "function",
+    "name": "checkUiCompositionCompat",
+  },
+  {
+    "kind": "function",
+    "name": "createPluginRuntime",
+  },
+  {
+    "kind": "function",
+    "name": "getFederationInstance",
+  },
+  {
+    "kind": "function",
+    "name": "installIntegrityFetchHook",
+  },
+  {
+    "kind": "function",
+    "name": "loadRemoteModule",
+  },
+  {
+    "kind": "function",
+    "name": "patchManifestFetchForSsrPublicPath",
+  },
+  {
+    "kind": "function",
+    "name": "registerRemote",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./hosting 1`] = `
+[
+  {
+    "kind": "interface",
+    "name": "DeployedInstance",
+  },
+  {
+    "kind": "class",
+    "name": "DeployFailed",
+  },
+  {
+    "kind": "class",
+    "name": "HealthTimeout",
+  },
+  {
+    "kind": "class",
+    "name": "HostingAdapter",
+  },
+  {
+    "kind": "type",
+    "name": "HostingAdapterService",
+  },
+  {
+    "kind": "class",
+    "name": "HostingOperationFailed",
+  },
+  {
+    "kind": "class",
+    "name": "InstanceNotFound",
+  },
+  {
+    "kind": "interface",
+    "name": "InstanceSnapshot",
+  },
+  {
+    "kind": "interface",
+    "name": "RuntimeDescriptor",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./hosting/docker 1`] = `
+[
+  {
+    "kind": "const",
+    "name": "dockerHostingAdapterLayer",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./hosting/secrets 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "descriptorRuntime",
+  },
+  {
+    "kind": "function",
+    "name": "isReservedSecretName",
+  },
+  {
+    "kind": "function",
+    "name": "isValidSecretName",
+  },
+  {
+    "kind": "const",
+    "name": "SECRET_NAME_PATTERN",
+  },
+  {
+    "kind": "function",
+    "name": "withSecrets",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./integrity 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "applyDeployResults",
+  },
+  {
+    "kind": "function",
+    "name": "computeSriHash",
+  },
+  {
+    "kind": "function",
+    "name": "computeSriHashForUrl",
+  },
+  {
+    "kind": "interface",
+    "name": "DeployResultEntry",
+  },
+  {
+    "kind": "class",
+    "name": "IntegrityRegistry",
+  },
+  {
+    "kind": "function",
+    "name": "resolveEntryUrl",
+  },
+  {
+    "kind": "function",
+    "name": "verifyConfigAgainstChain",
+  },
+  {
+    "kind": "function",
+    "name": "verifySriForUrl",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./lockfile 1`] = `
+[
+  {
+    "kind": "type",
+    "name": "CompositionLockfile",
+  },
+  {
+    "kind": "function",
+    "name": "digestOfLockfile",
+  },
+  {
+    "kind": "const",
+    "name": "LOCKFILE_NAME",
+  },
+  {
+    "kind": "function",
+    "name": "lockfileOf",
+  },
+  {
+    "kind": "function",
+    "name": "lockfilePath",
+  },
+  {
+    "kind": "function",
+    "name": "lockfilePointerDigest",
+  },
+  {
+    "kind": "function",
+    "name": "parseLockfile",
+  },
+  {
+    "kind": "function",
+    "name": "readLockfileIfExists",
+  },
+  {
+    "kind": "function",
+    "name": "serializeLockfile",
+  },
+  {
+    "kind": "function",
+    "name": "writeLockfile",
+  },
+  {
+    "kind": "function",
+    "name": "writeLockfileSync",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./registry 1`] = `
+[
+  {
+    "kind": "reexport-type",
+    "name": "ConfigConfirmLeg",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ConfirmLeg",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ConfirmLegKind",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ConfirmOptions",
+  },
+  {
+    "kind": "reexport",
+    "name": "confirmPublish",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ConfirmVerdict",
+  },
+  {
+    "kind": "reexport",
+    "name": "CUTOVER_RELEASE",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "DeadEndContext",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "DeployRecord",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "DeployRecordLockfile",
+  },
+  {
+    "kind": "reexport",
+    "name": "DeployRecordLockfileSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "DeployRecordSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "deployRecordTsOf",
+  },
+  {
+    "kind": "reexport",
+    "name": "describeConfirmTimeout",
+  },
+  {
+    "kind": "reexport",
+    "name": "digestOfManifest",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ExtendsChainNode",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ExtendsChainWalk",
+  },
+  {
+    "kind": "reexport",
+    "name": "keyPathOf",
+  },
+  {
+    "kind": "reexport",
+    "name": "latestUrlFor",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "Manifest",
+  },
+  {
+    "kind": "reexport",
+    "name": "MANIFEST_CACHE_TTL_MS",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ManifestCacheRead",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ManifestCacheRecord",
+  },
+  {
+    "kind": "reexport",
+    "name": "ManifestSchema",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ManifestTag",
+  },
+  {
+    "kind": "reexport",
+    "name": "manifestTagOf",
+  },
+  {
+    "kind": "reexport",
+    "name": "ManifestTagSchema",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "NetworkId",
+  },
+  {
+    "kind": "reexport",
+    "name": "networkIdForAccount",
+  },
+  {
+    "kind": "reexport",
+    "name": "parseRuntimeRef",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "PlatformManifestCache",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "PlatformManifestPin",
+  },
+  {
+    "kind": "reexport",
+    "name": "PlatformManifestPinSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "readManifestCache",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ReadManifestCacheOptions",
+  },
+  {
+    "kind": "reexport",
+    "name": "registryBaseUrlForNetwork",
+  },
+  {
+    "kind": "reexport",
+    "name": "RegistryClient",
+  },
+  {
+    "kind": "reexport",
+    "name": "registryClientShape",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RegistryClientShape",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RegistryEntry",
+  },
+  {
+    "kind": "reexport",
+    "name": "RegistryError",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RegistryHistoryEntry",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RegistryKey",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RegistryListInput",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RegistryListResult",
+  },
+  {
+    "kind": "reexport",
+    "name": "registryNamespaceForNetwork",
+  },
+  {
+    "kind": "reexport",
+    "name": "RegistryRefError",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ResolutionContext",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ResolutionOutcome",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ResolutionQuery",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ResolutionSeams",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ResolvedPlatformManifest",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolvePlatformManifest",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ResolvePlatformManifestOptions",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveRelease",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RuntimeRef",
+  },
+  {
+    "kind": "reexport",
+    "name": "runtimeRefOf",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RuntimeRefParts",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "TagServes",
+  },
+  {
+    "kind": "reexport",
+    "name": "TX_UNKNOWN_GRACE_MS",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "TxStatus",
+  },
+  {
+    "kind": "reexport",
+    "name": "walkExtendsChain",
+  },
+  {
+    "kind": "reexport",
+    "name": "writeManifestCache",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "WriteManifestCacheOptions",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./registry/fastkv 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "buildRegistryConfigUrlForNetwork",
+  },
+  {
+    "kind": "interface",
+    "name": "ConfigHistoryEntry",
+  },
+  {
+    "kind": "interface",
+    "name": "DeployManifestEntry",
+  },
+  {
+    "kind": "class",
+    "name": "FastKVRegistryService",
+  },
+  {
+    "kind": "function",
+    "name": "fetchBosConfigFromFastKv",
+  },
+  {
+    "kind": "function",
+    "name": "fetchConfigHistory",
+  },
+  {
+    "kind": "function",
+    "name": "fetchDeployManifests",
+  },
+  {
+    "kind": "function",
+    "name": "fetchPublishedConfigFromFastKv",
+  },
+  {
+    "kind": "function",
+    "name": "fetchRegistryKey",
+  },
+  {
+    "kind": "function",
+    "name": "fetchRegistryKeyOrNull",
+  },
+  {
+    "kind": "function",
+    "name": "fetchRemotePluginManifest",
+  },
+  {
+    "kind": "function",
+    "name": "getRegistryNamespaceForAccount",
+  },
+  {
+    "kind": "function",
+    "name": "getRegistryNamespaceForNetwork",
+  },
+  {
+    "kind": "type",
+    "name": "NetworkId",
+  },
+  {
+    "kind": "function",
+    "name": "parseFastKvConfigValue",
+  },
+  {
+    "kind": "interface",
+    "name": "PluginManifest",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./resolution 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "openResolution",
+  },
+  {
+    "kind": "interface",
+    "name": "ResolutionIo",
+  },
+  {
+    "kind": "class",
+    "name": "ResolutionSession",
+  },
+  {
+    "kind": "class",
+    "name": "ResolutionSessionService",
+  },
+  {
+    "kind": "function",
+    "name": "resolveMergedConfigInput",
+  },
+  {
+    "kind": "function",
+    "name": "walkExtendsChain",
+  },
+  {
+    "kind": "interface",
+    "name": "WalkLink",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./resolver 1`] = `
+[
+  {
+    "kind": "interface",
+    "name": "BundleNamespace",
+  },
+  {
+    "kind": "class",
+    "name": "BundleResolver",
+  },
+  {
+    "kind": "function",
+    "name": "bundleUrlToLocalPath",
+  },
+  {
+    "kind": "function",
+    "name": "bundleUrlToStagedPath",
+  },
+  {
+    "kind": "function",
+    "name": "installBundleFetchFromEnv",
+  },
+  {
+    "kind": "function",
+    "name": "installGlobalBundleFetch",
+  },
+  {
+    "kind": "function",
+    "name": "resolveContained",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./snapshot 1`] = `
+[
+  {
+    "kind": "type",
+    "name": "BootSnapshot",
+  },
+  {
+    "kind": "class",
+    "name": "BootSnapshotIntegrityError",
+  },
+  {
+    "kind": "function",
+    "name": "bootSnapshotOf",
+  },
+  {
+    "kind": "const",
+    "name": "BootSnapshotSchema",
+  },
+  {
+    "kind": "function",
+    "name": "parseBootSnapshot",
+  },
+  {
+    "kind": "function",
+    "name": "readBootSnapshot",
+  },
+  {
+    "kind": "type",
+    "name": "RemoteDigest",
+  },
+  {
+    "kind": "const",
+    "name": "RemoteDigestSchema",
+  },
+  {
+    "kind": "function",
+    "name": "snapshotDigestMatches",
+  },
+  {
+    "kind": "function",
+    "name": "snapshotPath",
+  },
+  {
+    "kind": "function",
+    "name": "verifiedBootSnapshot",
+  },
+  {
+    "kind": "function",
+    "name": "writeBootSnapshot",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./types 1`] = `
+[
+  {
+    "kind": "type",
+    "name": "BosConfig",
+  },
+  {
+    "kind": "interface",
+    "name": "BosConfigInput",
+  },
+  {
+    "kind": "const",
+    "name": "BosConfigInputSchema",
+  },
+  {
+    "kind": "const",
+    "name": "BosConfigSchema",
+  },
+  {
+    "kind": "type",
+    "name": "BosPluginRef",
+  },
+  {
+    "kind": "type",
+    "name": "ClientRuntimeConfig",
+  },
+  {
+    "kind": "const",
+    "name": "ClientRuntimeConfigSchema",
+  },
+  {
+    "kind": "type",
+    "name": "ClientRuntimeInfo",
+  },
+  {
+    "kind": "type",
+    "name": "Extends",
+  },
+  {
+    "kind": "type",
+    "name": "ExtendsConfig",
+  },
+  {
+    "kind": "const",
+    "name": "FederationEntrySchema",
+  },
+  {
+    "kind": "const",
+    "name": "HostConfigSchema",
+  },
+  {
+    "kind": "interface",
+    "name": "JsonObject",
+  },
+  {
+    "kind": "const",
+    "name": "JsonObjectSchema",
+  },
+  {
+    "kind": "type",
+    "name": "JsonValue",
+  },
+  {
+    "kind": "interface",
+    "name": "ParentStarterConfig",
+  },
+  {
+    "kind": "type",
+    "name": "PluginEntryValue",
+  },
+  {
+    "kind": "type",
+    "name": "PublishConfig",
+  },
+  {
+    "kind": "type",
+    "name": "RemoteDigest",
+  },
+  {
+    "kind": "const",
+    "name": "RemoteDigestSchema",
+  },
+  {
+    "kind": "type",
+    "name": "RuntimeConfig",
+  },
+  {
+    "kind": "const",
+    "name": "RuntimeConfigSchema",
+  },
+  {
+    "kind": "type",
+    "name": "RuntimeDependencyNode",
+  },
+  {
+    "kind": "type",
+    "name": "RuntimePluginConfig",
+  },
+  {
+    "kind": "type",
+    "name": "SeedConfig",
+  },
+  {
+    "kind": "const",
+    "name": "SeedConfigSchema",
+  },
+  {
+    "kind": "type",
+    "name": "SeedOwnerAdmin",
+  },
+  {
+    "kind": "type",
+    "name": "SharedConfig",
+  },
+  {
+    "kind": "type",
+    "name": "SharedDepConfig",
+  },
+  {
+    "kind": "const",
+    "name": "SharedDepMapSchema",
+  },
+  {
+    "kind": "type",
+    "name": "SourceMode",
+  },
+  {
+    "kind": "const",
+    "name": "SourceModeSchema",
+  },
+  {
+    "kind": "type",
+    "name": "StarterLevel",
+  },
+  {
+    "kind": "const",
+    "name": "StarterLevelSchema",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/api 1`] = `
+[
+  {
+    "kind": "type",
+    "name": "ApiClient",
+  },
+  {
+    "kind": "type",
+    "name": "ApiConnectionErrorCopy",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ClientRouterContext",
+  },
+  {
+    "kind": "interface",
+    "name": "ClientServiceConfig",
+  },
+  {
+    "kind": "function",
+    "name": "createApiClient",
+  },
+  {
+    "kind": "function",
+    "name": "createPluginApiClient",
+  },
+  {
+    "kind": "function",
+    "name": "createServiceClients",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RouterContract",
+  },
+  {
+    "kind": "function",
+    "name": "useApiClient",
+  },
+  {
+    "kind": "function",
+    "name": "useOrpc",
+  },
+  {
+    "kind": "function",
+    "name": "usePluginClients",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/auth 1`] = `
+[
+  {
+    "kind": "type",
+    "name": "AuthClient",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "AuthContext",
+  },
+  {
+    "kind": "function",
+    "name": "cancelPasskeyCeremony",
+  },
+  {
+    "kind": "reexport",
+    "name": "clearAuthenticatedQueries",
+  },
+  {
+    "kind": "function",
+    "name": "createAccountWithPasskey",
+  },
+  {
+    "kind": "function",
+    "name": "createAuthClient",
+  },
+  {
+    "kind": "type",
+    "name": "CreateAuthClientOptions",
+  },
+  {
+    "kind": "reexport",
+    "name": "createWorkspaceSynchronization",
+  },
+  {
+    "kind": "function",
+    "name": "getDeviceLinkClientId",
+  },
+  {
+    "kind": "function",
+    "name": "isPasskeyCeremonyAborted",
+  },
+  {
+    "kind": "function",
+    "name": "isUnsupportedAuthenticatorError",
+  },
+  {
+    "kind": "interface",
+    "name": "Organization",
+  },
+  {
+    "kind": "interface",
+    "name": "Passkey",
+  },
+  {
+    "kind": "reexport",
+    "name": "pluginHref",
+  },
+  {
+    "kind": "reexport",
+    "name": "pluginPath",
+  },
+  {
+    "kind": "reexport",
+    "name": "pluginSearch",
+  },
+  {
+    "kind": "interface",
+    "name": "ReferralDashboard",
+  },
+  {
+    "kind": "interface",
+    "name": "ReferralListResult",
+  },
+  {
+    "kind": "function",
+    "name": "refreshSessionCache",
+  },
+  {
+    "kind": "reexport",
+    "name": "reportWorkspaceRefreshError",
+  },
+  {
+    "kind": "reexport",
+    "name": "requireAdmin",
+  },
+  {
+    "kind": "reexport",
+    "name": "requireSession",
+  },
+  {
+    "kind": "function",
+    "name": "resolveSessionFromCache",
+  },
+  {
+    "kind": "type",
+    "name": "SessionData",
+  },
+  {
+    "kind": "const",
+    "name": "sessionQueryKey",
+  },
+  {
+    "kind": "function",
+    "name": "sessionQueryOptions",
+  },
+  {
+    "kind": "function",
+    "name": "signInWithPasskey",
+  },
+  {
+    "kind": "reexport",
+    "name": "teamWorkspaceQueryKey",
+  },
+  {
+    "kind": "function",
+    "name": "useAuthClient",
+  },
+  {
+    "kind": "function",
+    "name": "useRelayHistory",
+  },
+  {
+    "kind": "reexport",
+    "name": "WorkspaceRefreshError",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "WorkspaceRefreshStage",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "WorkspaceSynchronization",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "WorkspaceSynchronizationDependencies",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "WorkspaceSynchronizationOptions",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/compose 1`] = `
+[
+  {
+    "kind": "const",
+    "name": "constructTree",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/entry 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "runEntry",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/head 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "getBaseStyles",
+  },
+  {
+    "kind": "function",
+    "name": "getHydrateScript",
+  },
+  {
+    "kind": "function",
+    "name": "getRemotePreloadLinks",
+  },
+  {
+    "kind": "function",
+    "name": "getRemoteScripts",
+  },
+  {
+    "kind": "function",
+    "name": "getThemeInitScript",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/hydrate 1`] = `
+[
+  {
+    "kind": "reexport-type",
+    "name": "AppRouterFactory",
+  },
+  {
+    "kind": "default",
+    "name": "default",
+  },
+  {
+    "kind": "function",
+    "name": "hydrate",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/i18n 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "createLocaleRuntime",
+  },
+  {
+    "kind": "reexport",
+    "name": "createMessageCatalogs",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "LocaleOptions",
+  },
+  {
+    "kind": "reexport",
+    "name": "matchLocale",
+  },
+  {
+    "kind": "reexport",
+    "name": "readAcceptLanguage",
+  },
+  {
+    "kind": "reexport",
+    "name": "readLocaleCookie",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveLocale",
+  },
+  {
+    "kind": "reexport",
+    "name": "serializeLocaleCookie",
+  },
+  {
+    "kind": "reexport",
+    "name": "Trans",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/manifest 1`] = `
+[
+  {
+    "kind": "reexport",
+    "name": "App",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "AppInput",
+  },
+  {
+    "kind": "reexport",
+    "name": "compareNavItems",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ComposePayload",
+  },
+  {
+    "kind": "reexport",
+    "name": "ComposePayloadSchema",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ComposeRemote",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ConstructedTree",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ConstructInput",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ConstructPluginRef",
+  },
+  {
+    "kind": "reexport",
+    "name": "constructTree",
+  },
+  {
+    "kind": "reexport",
+    "name": "CORE_UI_PLUGIN_KEY",
+  },
+  {
+    "kind": "reexport",
+    "name": "digestOf",
+  },
+  {
+    "kind": "reexport",
+    "name": "entryUrls",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "EntryUrls",
+  },
+  {
+    "kind": "reexport",
+    "name": "isManifestDocumentUrl",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "KnownPlugins",
+  },
+  {
+    "kind": "reexport",
+    "name": "MANIFEST_DOCUMENT_PATTERN",
+  },
+  {
+    "kind": "reexport",
+    "name": "MANIFEST_FILENAME",
+  },
+  {
+    "kind": "reexport",
+    "name": "MANIFEST_VERSION",
+  },
+  {
+    "kind": "reexport",
+    "name": "manifestBaseOf",
+  },
+  {
+    "kind": "reexport",
+    "name": "ManifestSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "MOUNT_ALIASES",
+  },
+  {
+    "kind": "reexport",
+    "name": "MOUNT_REGISTRY",
+  },
+  {
+    "kind": "reexport",
+    "name": "MOUNT_REGISTRY_VERSION",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "MountDef",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "MountId",
+  },
+  {
+    "kind": "reexport",
+    "name": "MOUNTS",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "NavDeclaration",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "NavItem",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "NavManifest",
+  },
+  {
+    "kind": "reexport",
+    "name": "parsePluginManifest",
+  },
+  {
+    "kind": "reexport",
+    "name": "Plugin",
+  },
+  {
+    "kind": "reexport",
+    "name": "PLUGIN_UI_SHARED_EXPOSES",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "PluginManifest",
+  },
+  {
+    "kind": "reexport",
+    "name": "PluginManifestSchema",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "PluginRef",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "PluginRefInput",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RemoteEntry",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RemoteSource",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveApp",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ResolvedApp",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ResolvedPlugin",
+  },
+  {
+    "kind": "reexport",
+    "name": "resolveMountSegment",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RouteConfigModule",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RouteConfigRef",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RouteOptionsBundle",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "RouteRecord",
+  },
+  {
+    "kind": "reexport",
+    "name": "RouteRecordSchema",
+  },
+  {
+    "kind": "reexport",
+    "name": "sanitizeContainerName",
+  },
+  {
+    "kind": "reexport",
+    "name": "SUPPORTED_MANIFEST_VERSION",
+  },
+  {
+    "kind": "reexport",
+    "name": "UI_EXPOSES",
+  },
+  {
+    "kind": "reexport",
+    "name": "UI_REMOTE_ENTRY_FILENAME",
+  },
+  {
+    "kind": "reexport",
+    "name": "UI_REMOTE_SERVER_ENTRY_FILENAME",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/manifest-generator 1`] = `
+[
+  {
+    "kind": "reexport",
+    "name": "generateUiManifest",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ManifestGeneratorOptions",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/metadata 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "getSocialImageMeta",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/router-client 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "createRouter",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/router-error 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "RouterError",
+  },
+  {
+    "kind": "function",
+    "name": "shouldShowErrorDetails",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/router-server 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "createServerRouterModule",
+  },
+  {
+    "kind": "function",
+    "name": "pickAuthForwardHeaders",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/runtime 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "buildPublishedAccountHref",
+  },
+  {
+    "kind": "function",
+    "name": "buildPublishedGatewayHref",
+  },
+  {
+    "kind": "function",
+    "name": "buildRuntimeHref",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ClientRuntimeInfo",
+  },
+  {
+    "kind": "function",
+    "name": "getAppName",
+  },
+  {
+    "kind": "function",
+    "name": "getCspNonce",
+  },
+  {
+    "kind": "function",
+    "name": "getRuntimeConfig",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/tenant 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "buildDraftFromResolvedConfig",
+  },
+  {
+    "kind": "function",
+    "name": "buildTenantUrl",
+  },
+  {
+    "kind": "interface",
+    "name": "BuildTenantUrlOptions",
+  },
+  {
+    "kind": "function",
+    "name": "computeSsrEntryIntegrity",
+  },
+  {
+    "kind": "function",
+    "name": "computeSubresourceIntegrity",
+  },
+  {
+    "kind": "function",
+    "name": "computeUiEntryIntegrity",
+  },
+  {
+    "kind": "function",
+    "name": "createTenantConfigDraftSchema",
+  },
+  {
+    "kind": "function",
+    "name": "diffDraft",
+  },
+  {
+    "kind": "function",
+    "name": "draftUiOverride",
+  },
+  {
+    "kind": "const",
+    "name": "emptyTenantConfigDraft",
+  },
+  {
+    "kind": "function",
+    "name": "gatewayForAccount",
+  },
+  {
+    "kind": "type",
+    "name": "IntegrityCheckResult",
+  },
+  {
+    "kind": "function",
+    "name": "isLocalHostname",
+  },
+  {
+    "kind": "function",
+    "name": "normalizeBundleBaseUrl",
+  },
+  {
+    "kind": "function",
+    "name": "resolveClientEntryUrl",
+  },
+  {
+    "kind": "function",
+    "name": "resolveServerEntryUrl",
+  },
+  {
+    "kind": "type",
+    "name": "TenantConfigDraft",
+  },
+  {
+    "kind": "const",
+    "name": "tenantConfigDraftSchema",
+  },
+  {
+    "kind": "function",
+    "name": "tenantLabel",
+  },
+  {
+    "kind": "interface",
+    "name": "TenantUiOverride",
+  },
+  {
+    "kind": "function",
+    "name": "verifySsrIntegrity",
+  },
+  {
+    "kind": "function",
+    "name": "verifyUiDigest",
+  },
+  {
+    "kind": "function",
+    "name": "verifyUiIntegrity",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/types 1`] = `
+[
+  {
+    "kind": "type",
+    "name": "AppRouterFactory",
+  },
+  {
+    "kind": "interface",
+    "name": "CreateRouterOptions",
+  },
+  {
+    "kind": "interface",
+    "name": "HeadData",
+  },
+  {
+    "kind": "type",
+    "name": "HeadLink",
+  },
+  {
+    "kind": "type",
+    "name": "HeadMeta",
+  },
+  {
+    "kind": "type",
+    "name": "HeadScript",
+  },
+  {
+    "kind": "interface",
+    "name": "RenderOptions",
+  },
+  {
+    "kind": "interface",
+    "name": "RenderOptionsWithApi",
+  },
+  {
+    "kind": "interface",
+    "name": "RenderResult",
+  },
+  {
+    "kind": "interface",
+    "name": "RouterContext",
+  },
+  {
+    "kind": "interface",
+    "name": "RouterContextWithApi",
+  },
+  {
+    "kind": "interface",
+    "name": "RouterModule",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./ui/version-check 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "startVersionWatch",
+  },
+  {
+    "kind": "interface",
+    "name": "VersionWatchHandle",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./verify 1`] = `
+[
+  {
+    "kind": "reexport",
+    "name": "asDigest",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "ChainDepth",
+  },
+  {
+    "kind": "reexport",
+    "name": "clearVerifiedCache",
+  },
+  {
+    "kind": "reexport",
+    "name": "computeSri",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "Digest",
+  },
+  {
+    "kind": "reexport",
+    "name": "fetchVerified",
+  },
+  {
+    "kind": "reexport",
+    "name": "formatChainFailures",
+  },
+  {
+    "kind": "reexport",
+    "name": "isVerifyError",
+  },
+  {
+    "kind": "reexport",
+    "name": "mark",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "Verified",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "VerifiedBytes",
+  },
+  {
+    "kind": "reexport",
+    "name": "Verifier",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "VerifyCallOptions",
+  },
+  {
+    "kind": "reexport",
+    "name": "verifyChain",
+  },
+  {
+    "kind": "reexport",
+    "name": "verifyDocument",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "VerifyError",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "VerifyRemoteResult",
+  },
+  {
+    "kind": "reexport-type",
+    "name": "VerifyReport",
+  },
+]
+`;
+
+exports[`public-surface guard > symbol list per entry matches the snapshot (update it in the same PR as the export change) > ./version-manifest-resolve 1`] = `
+[
+  {
+    "kind": "function",
+    "name": "clearRemoteVersionCache",
+  },
+  {
+    "kind": "function",
+    "name": "composeWorkspaceVersionManifest",
+  },
+  {
+    "kind": "function",
+    "name": "pinnedManifestDocumentUrl",
+  },
+  {
+    "kind": "function",
+    "name": "readBuildReport",
+  },
+  {
+    "kind": "interface",
+    "name": "RemoteDigest",
+  },
+  {
+    "kind": "function",
+    "name": "resolvedIntegrityMap",
+  },
+  {
+    "kind": "interface",
+    "name": "ResolvedRemoteVersion",
+  },
+  {
+    "kind": "function",
+    "name": "resolveRemoteVersion",
+  },
+]
+`;
