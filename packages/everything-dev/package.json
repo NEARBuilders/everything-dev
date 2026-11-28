@@ -108,15 +108,6 @@
       "import": "./dist/services/hosting/secrets.mjs",
       "require": "./dist/services/hosting/secrets.cjs"
     },
-    "./bundle-cache": {
-      "development": {
-        "types": "./src/services/registry/bundle-cache.ts",
-        "import": "./src/services/registry/bundle-cache.ts"
-      },
-      "types": "./dist/services/registry/bundle-cache.d.mts",
-      "import": "./dist/services/registry/bundle-cache.mjs",
-      "require": "./dist/services/registry/bundle-cache.cjs"
-    },
     "./snapshot": {
       "development": {
         "types": "./src/services/snapshot/schema.ts",
@@ -180,15 +171,6 @@
       "import": "./dist/services/resolution/resolver.mjs",
       "require": "./dist/services/resolution/resolver.cjs"
     },
-    "./contract.meta": {
-      "development": {
-        "types": "./src/contract.meta.ts",
-        "import": "./src/contract.meta.ts"
-      },
-      "types": "./dist/contract.meta.d.mts",
-      "import": "./dist/contract.meta.mjs",
-      "require": "./dist/contract.meta.cjs"
-    },
     "./dev-log-pipeline": {
       "development": {
         "types": "./src/services/dev/logs.ts",
@@ -215,51 +197,6 @@
       "types": "./dist/services/deploy/integrity.d.mts",
       "import": "./dist/services/deploy/integrity.mjs",
       "require": "./dist/services/deploy/integrity.cjs"
-    },
-    "./plugin": {
-      "development": {
-        "types": "./src/plugin.ts",
-        "import": "./src/plugin.ts"
-      },
-      "types": "./dist/plugin.d.mts",
-      "import": "./dist/plugin.mjs",
-      "require": "./dist/plugin.cjs"
-    },
-    "./sdk": {
-      "development": {
-        "types": "./src/sdk.ts",
-        "import": "./src/sdk.ts"
-      },
-      "types": "./dist/sdk.d.mts",
-      "import": "./dist/sdk.mjs",
-      "require": "./dist/sdk.cjs"
-    },
-    "./cli": {
-      "development": {
-        "types": "./src/cli.ts",
-        "import": "./src/cli.ts"
-      },
-      "types": "./dist/cli.d.mts",
-      "import": "./dist/cli.mjs",
-      "require": "./dist/cli.cjs"
-    },
-    "./cli/init": {
-      "development": {
-        "types": "./src/cli/init.ts",
-        "import": "./src/cli/init.ts"
-      },
-      "types": "./dist/cli/init.d.mts",
-      "import": "./dist/cli/init.mjs",
-      "require": "./dist/cli/init.cjs"
-    },
-    "./ui": {
-      "development": {
-        "types": "./src/ui/index.ts",
-        "import": "./src/ui/index.ts"
-      },
-      "types": "./dist/ui/index.d.mts",
-      "import": "./dist/ui/index.mjs",
-      "require": "./dist/ui/index.cjs"
     },
     "./ui/types": {
       "development": {
@@ -305,15 +242,6 @@
       "types": "./dist/ui/metadata.d.mts",
       "import": "./dist/ui/metadata.mjs",
       "require": "./dist/ui/metadata.cjs"
-    },
-    "./ui/router": {
-      "development": {
-        "types": "./src/ui/router.ts",
-        "import": "./src/ui/router.ts"
-      },
-      "types": "./dist/ui/router.d.mts",
-      "import": "./dist/ui/router.mjs",
-      "require": "./dist/ui/router.cjs"
     },
     "./ui/api": {
       "development": {
@@ -395,15 +323,6 @@
       "types": "./dist/ui/router-error.d.mts",
       "import": "./dist/ui/router-error.mjs",
       "require": "./dist/ui/router-error.cjs"
-    },
-    "./ui/router-defaults": {
-      "development": {
-        "types": "./src/ui/router-defaults.tsx",
-        "import": "./src/ui/router-defaults.tsx"
-      },
-      "types": "./dist/ui/router-defaults.d.mts",
-      "import": "./dist/ui/router-defaults.mjs",
-      "require": "./dist/ui/router-defaults.cjs"
     },
     "./ui/manifest": {
       "development": {
