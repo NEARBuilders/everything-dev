@@ -1,5 +1,23 @@
+import { join } from "node:path";
+import { globSync } from "glob";
 import { describe, expect, it } from "vitest";
-import { buildPluginRouteExclusions } from "../../src/cli/init";
+import { buildPluginRouteExclusions, STARTER_PRODUCT_EXCLUSIONS } from "../../src/cli/init";
+
+describe("STARTER_PRODUCT_EXCLUSIONS — list/tree coherence", () => {
+  it("every exclusion glob matches a real route file", () => {
+    const routesDir = join(import.meta.dirname, "../../../../ui/src/routes");
+    const stale: string[] = [];
+    for (const entry of STARTER_PRODUCT_EXCLUSIONS) {
+      const matches = globSync(entry, { cwd: routesDir, nodir: true, dot: true });
+      if (matches.length === 0) stale.push(entry);
+    }
+    expect(
+      stale,
+      "stale exclusion globs — the route was removed from the template tree; " +
+        "delete the entry (or re-register the route if it returned)",
+    ).toEqual([]);
+  });
+});
 
 describe("buildPluginRouteExclusions", () => {
   it("returns empty array when parentConfig is undefined", () => {

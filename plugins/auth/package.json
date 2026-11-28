@@ -102,5 +102,10 @@
     "test:ui": "vitest run --project ui",
     "test:ui:watch": "vitest --project ui",
     "typecheck:ui": "tsc --noEmit -p ui/tsconfig.json"
+  },
+  "every-plugin": {
+    "additionalExports": [
+      "src/auth-export.ts"
+    ]
   }
 }

@@ -274,6 +274,25 @@ export function composeRuntimeMap(
             );
           }
           if (!mounts.has(mount)) {
+            if (source.kind !== "core") {
+              // Inherited plugin routes mounting into an area this runtime
+              // does not declare (the simple level strips _authenticated,
+              // #935): omit the subtree instead of failing composition —
+              // they cannot render here. Core sources keep the throw: a
+              // mount typo in the runtime's own ui is a genuine config
+              // error. Mirrors the engine-side omit in construct.ts.
+              shadowedIds.add(record.id);
+              shadowed.push({
+                id: record.id,
+                owner: source.key,
+                kind: "route",
+                reason: `mount "${mount}" is not declared by this runtime`,
+              });
+              pending.splice(index, 1);
+              index -= 1;
+              progressed = true;
+              continue;
+            }
             throw new Error(
               `mount "${mount}" is not declared by any source (route "${record.id}" in "${source.key}")`,
             );
