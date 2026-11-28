@@ -1,10 +1,19 @@
-import { Clock, DateTime, Deferred, Effect, Exit, Fiber, Layer } from "effect";
+import { Clock, DateTime, Deferred, Effect, Exit, Fiber, Layer, Stream } from "effect";
 import { getProcessEnv } from "../../env/process-env";
 import { ShellEnvLive } from "../../env/project-env";
 import { ownerOfPort } from "../../infra/port-ownership";
 import { probePortBindable } from "../../infra/ports";
 import type { RuntimeConfig } from "../../types";
+import { SupervisorLive } from "../boot/adapters";
+import { localReadinessSchedule, probeOk, remoteReadinessSchedule } from "../boot/readiness";
 import { BootFailure } from "../boot/types";
+import {
+  Supervisor,
+  SupervisorError,
+  type UnitEvent,
+  type UnitHandle,
+  type UnitSpec,
+} from "../boot/units";
 import { reapGroup } from "../processes/kill";
 import {
   isPidAlive,
@@ -22,13 +31,7 @@ import {
   type LogEvent,
   resolveLogLevel,
 } from "./logs";
-import {
-  getProcessStates,
-  makeDevProcess,
-  markForceExitInFlight,
-  type ProcessCallbacks,
-  type ProcessHandle,
-} from "./orchestrator";
+import { getProcessStates, markForceExitInFlight, type ProcessCallbacks } from "./orchestrator";
 import { type DevProcessState, DevRenderer, type DevRendererHandle } from "./render";
 import {
   type AppOrchestrator,
@@ -73,23 +76,6 @@ const isInteractiveSupported = (): boolean => {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
 };
 
-const STARTUP_ORDER = ["ui", "auth", "api", "plugin", "host-build", "host"];
-
-const sortByOrder = (packages: string[]): string[] => {
-  return [...packages].sort((a, b) => {
-    const aIdx = a.startsWith("plugin:")
-      ? STARTUP_ORDER.indexOf("plugin")
-      : STARTUP_ORDER.indexOf(a);
-    const bIdx = b.startsWith("plugin:")
-      ? STARTUP_ORDER.indexOf("plugin")
-      : STARTUP_ORDER.indexOf(b);
-    if (aIdx === -1 && bIdx === -1) return 0;
-    if (aIdx === -1) return 1;
-    if (bIdx === -1) return -1;
-    return aIdx - bIdx;
-  });
-};
-
 export interface DevSessionHandle {
   shutdown: (mode: "graceful" | "force") => void;
 }
@@ -99,6 +85,9 @@ export interface DevSessionDeps {
   forceTimeoutMs?: number;
   reap?: (pid: number) => void;
   ppid?: () => number;
+  /** Test seam: scale the readiness deadline down (real HTTP probes against
+   * nothing would otherwise burn the full window in unit tests). */
+  readinessDeadlineMs?: number;
 }
 
 export const runDevSession = (
@@ -112,7 +101,7 @@ export const runDevSession = (
     const services = yield* ServiceDescriptorMap;
     const runtimeConfig = yield* DevRuntimeConfig;
     const renderer = yield* DevRenderer;
-    const orderedPackages = sortByOrder(orchestrator.packages);
+    const orderedPackages = [...new Set(orchestrator.packages)];
     const initialProcesses: DevProcessState[] = getProcessStates(
       orderedPackages,
       services,
@@ -180,8 +169,10 @@ export const runDevSession = (
 
     const logLevel = resolveLogLevel();
     const allLogs: LogEvent[] = [];
-    const spawned: ProcessHandle[] = [];
     const startFailures: string[] = [];
+    const readyUnits = new Set<string>();
+    const exitedBeforeReady = new Set<string>();
+    const handles = new Map<string, UnitHandle>();
     const pipeline = createLogPipeline({
       level: logLevel,
       sinks: {
@@ -224,7 +215,7 @@ export const runDevSession = (
         pipeline.flush();
       } catch {}
       console.log("\n[Dev] Force exit");
-      for (const handle of spawned) {
+      for (const handle of handles.values()) {
         if (handle.pid === undefined) continue;
         try {
           reap(handle.pid);
@@ -282,9 +273,11 @@ export const runDevSession = (
       Effect.gen(function* () {
         yield* armForce;
 
-        yield* Effect.forEach(spawned, (h) => h.kill.pipe(Effect.ignore), {
-          concurrency: "unbounded",
-        });
+        yield* Effect.forEach(
+          [...handles.values()],
+          (h) => h.terminate("graceful").pipe(Effect.ignore),
+          { concurrency: "unbounded" },
+        );
 
         yield* Effect.sleep("200 millis");
 
@@ -369,78 +362,137 @@ export const runDevSession = (
 
     onSessionReady?.(sessionHandle);
 
-    const startProcess = (pkg: string) => {
-      const portOverride = pkg === "host" ? orchestrator.port : undefined;
-      return makeDevProcess(pkg, callbacks, portOverride).pipe(
-        Effect.tap((handle) => Effect.sync(() => spawned.push(handle))),
-        Effect.flatMap((handle) =>
-          Effect.acquireRelease(Effect.succeed(handle), () => handle.kill.pipe(Effect.ignore)),
-        ),
-        Effect.tapError((err) =>
-          Effect.sync(() => {
-            startFailures.push(pkg);
-            callbacks.onLog(pkg, `Failed to start: ${String(err)}`, true);
-            callbacks.onStatus(pkg, "error");
-          }),
-        ),
-        Effect.orElseSucceed(
-          () =>
-            ({
-              name: pkg,
-              pid: undefined,
-              kill: Effect.void,
-              waitForReady: Effect.void,
-              waitForExit: Effect.never,
-            }) satisfies ProcessHandle,
-        ),
-      );
+    const supervisor = yield* Supervisor;
+    const readinessDeadlineMs = deps.readinessDeadlineMs ?? null;
+
+    const unitSpecFor = (pkg: string): UnitSpec => {
+      const descriptor = services.get(pkg)!;
+      const phase = pkg === "host" ? 2 : 1;
+      const port =
+        pkg === "host" && orchestrator.port
+          ? orchestrator.port
+          : (descriptor.port ?? descriptor.defaultPort);
+      if (pkg === "host" && descriptor.source === "remote") {
+        return {
+          name: pkg,
+          phase,
+          payload: { _tag: "host-module", remoteUrl: descriptor.url, port },
+          readiness: {
+            urls: [`http://127.0.0.1:${port}/health`],
+            deadlineMs: readinessDeadlineMs ?? 180_000,
+          },
+        };
+      }
+      if (descriptor.source !== "local" || !descriptor.localPath) {
+        const baseUrl = descriptor.url.replace(/\/$/, "");
+        const manifestUrl = `${baseUrl}/mf-manifest.json`;
+        const probeUrl =
+          descriptor.readinessUrl ??
+          (descriptor.readinessPath === "/health" ? `${baseUrl}/health` : manifestUrl);
+        return {
+          name: pkg,
+          phase,
+          payload: { _tag: "probe", url: baseUrl },
+          readiness: {
+            urls: [probeUrl, `${baseUrl}${descriptor.readinessPath}`],
+            method: descriptor.readinessMethod,
+            deadlineMs: readinessDeadlineMs ?? 60_000,
+          },
+        };
+      }
+      return {
+        name: pkg,
+        phase,
+        payload: {
+          _tag: "process",
+          command: descriptor.command ?? "pnpm",
+          args: descriptor.args ?? ["run", "dev"],
+          cwd: descriptor.localPath,
+          port,
+        },
+        readiness: {
+          urls: [`http://127.0.0.1:${port}${descriptor.readinessPath}`],
+          deadlineMs: readinessDeadlineMs ?? 90_000,
+        },
+      };
     };
 
-    const startGroup = (packages: string[]) =>
-      Effect.forEach(packages, startProcess, { concurrency: "unbounded" });
-
-    const awaitReady = (pkg: string, handle: ProcessHandle) =>
-      handle.waitForReady.pipe(
-        Effect.timeout("120 seconds"),
-        Effect.catch((err) =>
+    const pumpUnitEvents = (pkg: string, handle: UnitHandle) =>
+      Effect.forkScoped(
+        Stream.runForEach((event: UnitEvent) =>
           Effect.sync(() => {
-            startFailures.push(pkg);
-            callbacks.onLog(
-              pkg,
-              `Timed out or failed: ${err instanceof Error ? err.message : String(err)}`,
-              true,
-            );
+            if (event.type === "log") {
+              callbacks.onLog(pkg, event.line, event.stderr);
+              return;
+            }
+            if (!readyUnits.has(pkg)) {
+              startFailures.push(pkg);
+              exitedBeforeReady.add(pkg);
+              callbacks.onLog(pkg, `Process exited before ready (code ${event.code})`, true);
+              callbacks.onStatus(pkg, "error");
+              return;
+            }
+            callbacks.onLog(pkg, `Process exited after ready (code ${event.code})`, true);
+            callbacks.onStatus(pkg, "error", "exited");
           }),
-        ),
+        )(handle.events),
       );
 
-    const nonHostPackages = orderedPackages.filter((pkg) => pkg !== "host");
-    const hostPackages = orderedPackages.filter((pkg) => pkg === "host");
+    const awaitUnitReady = (spec: UnitSpec) =>
+      Effect.gen(function* () {
+        const schedule =
+          spec.payload._tag === "process" ? localReadinessSchedule : remoteReadinessSchedule;
+        // deadline as a race, not a timeout: the poll is display-adjacent and
+        // must never fail — false just means the deadline lapsed.
+        const ready = yield* Effect.race(
+          Effect.repeat(
+            Effect.gen(function* () {
+              if (readyUnits.has(spec.name) || exitedBeforeReady.has(spec.name)) return true;
+              const ok = yield* probeOk(spec.readiness.urls, spec.readiness.method);
+              if (ok) {
+                readyUnits.add(spec.name);
+                callbacks.onStatus(spec.name, "ready");
+                return true;
+              }
+              return false;
+            }),
+            { schedule, until: (done) => done },
+          ).pipe(Effect.as(true)),
+          Effect.sleep(`${spec.readiness.deadlineMs} millis`).pipe(Effect.as(false)),
+        );
+        if (ready) return;
+        if (!readyUnits.has(spec.name) && !exitedBeforeReady.has(spec.name)) {
+          startFailures.push(spec.name);
+          callbacks.onLog(spec.name, `Readiness deadline exceeded: ${spec.name}`, true);
+          callbacks.onStatus(spec.name, "error", "readiness deadline");
+        }
+      });
+
+    const startUnit = (pkg: string) =>
+      Effect.gen(function* () {
+        const spec = unitSpecFor(pkg);
+        const handle = yield* supervisor.spawn(spec).pipe(
+          Effect.tapError((err) =>
+            Effect.sync(() => {
+              startFailures.push(pkg);
+              callbacks.onLog(pkg, `Failed to start: ${err.message}`, true);
+              callbacks.onStatus(pkg, "error");
+            }),
+          ),
+          Effect.orElseSucceed(() => null),
+        );
+        if (handle === null) return;
+        handles.set(pkg, handle);
+        yield* pumpUnitEvents(pkg, handle);
+        yield* awaitUnitReady(spec);
+      });
+
+    const startGroup = (packages: string[]) =>
+      Effect.forEach(packages, startUnit, { concurrency: "unbounded" });
 
     const startupPhase = Effect.gen(function* () {
-      const nonHostHandles = yield* startGroup(nonHostPackages);
-
-      yield* Effect.forEach(
-        nonHostHandles.map((handle, index) => ({
-          handle,
-          pkg: nonHostPackages[index] ?? handle.name,
-        })),
-        ({ handle, pkg }) => awaitReady(pkg, handle),
-        { concurrency: "unbounded" },
-      );
-
-      const hostHandles = yield* startGroup(hostPackages);
-
-      yield* Effect.forEach(
-        hostHandles.map((handle, index) => ({
-          handle,
-          pkg: hostPackages[index] ?? handle.name,
-        })),
-        ({ handle, pkg }) => awaitReady(pkg, handle),
-        { concurrency: "unbounded" },
-      );
-
-      return { nonHostHandles, hostHandles };
+      yield* startGroup(orderedPackages.filter((pkg) => pkg !== "host"));
+      yield* startGroup(orderedPackages.filter((pkg) => pkg === "host"));
     });
 
     const startup = yield* Effect.raceFirst(
@@ -450,7 +502,7 @@ export const runDevSession = (
 
     if (startup === null) return;
 
-    const allHandles = [...startup.nonHostHandles, ...startup.hostHandles];
+    const allHandles = [...handles.values()];
 
     // KEEP: production-like boots (start command — the runtime image's PID 1)
     // fail non-zero when any service failed to start or never became ready,
@@ -515,6 +567,11 @@ const runApp = (
         DevGeneratedEnvLive(data.envGenerated),
         ShellEnvLive(data.shellEnv),
         rendererLayer,
+        SupervisorLive({
+          generatedEnv: data.envGenerated,
+          shellTier: data.shellEnv,
+          runtimeConfig: data.runtimeConfig,
+        }),
       ),
     ),
     Effect.catchDefect((defect) =>

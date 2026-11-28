@@ -59,8 +59,6 @@ export interface ServiceDescriptor {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
-  readyPatterns?: RegExp[];
-  errorPatterns?: RegExp[];
   /** folder-form plugin UI port — the UI build is a child of this dev process (BOS_UI_PORT) */
   uiPort?: number;
 }
@@ -81,15 +79,6 @@ export class DevGeneratedEnv extends Context.Service<DevGeneratedEnv, Record<str
 export const DevGeneratedEnvLive = (env: Record<string, string>) =>
   Layer.succeed(DevGeneratedEnv, env);
 
-const PLUGIN_READY_PATTERNS = [/ready in/i, /compiled.*successfully/i, /listening/i, /started/i];
-
-const PLUGIN_ERROR_PATTERNS = [
-  /\bERROR in\b/,
-  /failed to compile/i,
-  /Module not found/i,
-  /Cannot find module/i,
-];
-
 const SERVICE_CONFIGS = {
   host: {
     command: "pnpm",
@@ -102,41 +91,30 @@ const SERVICE_CONFIGS = {
     // their .mjs config evaluation resolves dist (freshness is the
     // prerequisite train's job, ADR 0022).
     env: { NODE_OPTIONS: "--conditions=development" },
-    readyPatterns: [/Host (dev|production) server running at/i, /Server running at/i],
-    errorPatterns: [/\berror\b(?!s)/i, /\bfailed to\b/i, /\bbuild failed\b/i, /exception/i],
     defaultPort: 3000,
     readinessPath: "/health",
   },
   auth: {
     command: "pnpm",
     args: ["run", "dev"],
-    readyPatterns: PLUGIN_READY_PATTERNS,
-    errorPatterns: PLUGIN_ERROR_PATTERNS,
     defaultPort: 3002,
     readinessPath: "/remoteEntry.js",
   },
   ui: {
     command: "pnpm",
     args: ["run", "dev"],
-    readyPatterns: [/\bready\s+built in\b/i, /\bLocal:\b/i, /\bcompiled\b.*successfully/i],
-    errorPatterns: [/\berror\b(?!s)/i, /\bfailed to\b/i, /\bbuild failed\b/i],
     defaultPort: 3003,
     readinessPath: "/remoteEntry.js",
   },
   api: {
     command: "pnpm",
     args: ["run", "dev"],
-    readyPatterns: PLUGIN_READY_PATTERNS,
-    errorPatterns: PLUGIN_ERROR_PATTERNS,
     defaultPort: 3001,
     readinessPath: "/remoteEntry.js",
   },
 } as const satisfies Record<
   string,
-  Pick<
-    ServiceDescriptor,
-    "command" | "args" | "env" | "readyPatterns" | "errorPatterns" | "defaultPort" | "readinessPath"
-  >
+  Pick<ServiceDescriptor, "command" | "args" | "env" | "defaultPort" | "readinessPath">
 >;
 
 export function buildServiceDescriptorMap(
@@ -260,8 +238,6 @@ export function buildServiceDescriptorMap(
           args: callOnly ? undefined : ["run", "dev"],
           env: isFolderFormUi ? { BOS_UI_PORT: String(folderUiPort) } : undefined,
           uiPort: isFolderFormUi ? folderUiPort : undefined,
-          readyPatterns: PLUGIN_READY_PATTERNS,
-          errorPatterns: PLUGIN_ERROR_PATTERNS,
           defaultPort: resolvedPort,
           readinessPath: callOnly ? "/" : "/remoteEntry.js",
           // call-only entries probe the TRAFFIC endpoint (the live app
@@ -305,8 +281,6 @@ export function buildServiceDescriptorMap(
           integrity: pluginConfig.ui.integrity,
           command: "pnpm",
           args: ["run", "dev"],
-          readyPatterns: PLUGIN_READY_PATTERNS,
-          errorPatterns: PLUGIN_ERROR_PATTERNS,
           defaultPort: uiPort,
           readinessPath: "/remoteEntry.js",
         });
