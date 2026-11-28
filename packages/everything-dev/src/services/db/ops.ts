@@ -78,7 +78,7 @@ export class DbOpsService extends Context.Service<
               const binding = await Effect.runPromise(bindings.forPluginKey(plugin));
 
               const { repairPlugin } = await import("./repair");
-              const result = await repairPlugin(binding, mode, drizzleKit);
+              const result = await repairPlugin(binding, mode);
 
               return {
                 ...result,

@@ -12,6 +12,8 @@ const DEFAULT_MIGRATION_JOURNAL = {
   table: "__drizzle_migrations",
 } as const;
 
+export { DEFAULT_MIGRATION_JOURNAL };
+
 /**
  * ADR 0045: journals are per-workspace (`__drizzle_migrations_<slug>`), so
  * "every row in my journal is mine" holds by construction and the
