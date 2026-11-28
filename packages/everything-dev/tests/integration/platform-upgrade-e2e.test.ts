@@ -3,13 +3,16 @@
  * in-memory FastKV registry, no network, no spawns:
  *
  *   R1 root publishes vA → C1 child upgrade pins vA → C-deploy derives the
- *   image pin → R2 root publishes vB (pinned child still resolves vA through
- *   the fresh 24h cache) → stale fail-loud (cache deleted / TTL expired, pin
- *   unresolvable) → C2 upgrade ignores the pin, re-pins the latest release →
- *   #546 replay (drifted-react republish: the composition gate names the
- *   skewed remotes, `bos manifest --check` flags the drift) → the
- *   mixed-tree replay (a caret-authored root publishes exact catalog rows,
- *   the child upgrade consumes them verbatim, a drifted install fails loud).
+ *   image pin → R2 root publishes vB (the pointer now serves vB, but the
+ *   child's vA pin keeps resolving forever from the immutable
+ *   versions/<v>.json record — provenance "record", no cache) → a pin whose
+ *   record never published fails loud (#568 class) → C2 upgrade ignores the
+ *   pin, re-pins the latest release → #546 replay (drifted-react republish:
+ *   the composition gate names the skewed remotes, `bos manifest --check`
+ *   flags the drift) → the mixed-tree replay (a caret-authored root publishes
+ *   exact catalog rows, the child upgrade consumes them verbatim, a drifted
+ *   install fails loud) → the #874 replay (a root republish cannot move the
+ *   bytes a pinned child boots — the boot registers the pin's generation).
  *
  * The deploy legs are proxies for the real train: composition of the
  * manifest.json thin-tag registry entry (the publish half) and the derived image

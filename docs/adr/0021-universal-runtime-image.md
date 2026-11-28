@@ -54,7 +54,13 @@ the identity selects the tier at boot.**
    deploy — the floating ref for the prerelease train (npm's `rc` dist-tag
    mirror); it freezes at the last rc-train build once a stable version
    ships. Deployments should pin the digest either way; the floating tags
-   are convenience pull targets.
+   are convenience pull targets. Amended 2026-10-24, #571: version and
+   floating tags are **release-conditional** — `sha-<short>` moves on every
+   deploy, while `v<version>` / `v<major>` / `:latest` / `:rc` move only on
+   the release leg (`conditionImageTags`); a non-release deploy pushes the
+   sha tag alone, which is what makes the version tags genuinely
+   append-only — the property pinned children's digest derivation depends
+   on.
 5. **Boot resilience env (amended):** the image sets no cache env — a
    self-activating stale-if-error cache could serve pre-reset bundles after a
    deploy or rollback, so `BOS_BUNDLE_CACHE_DIR` is an operator opt-in.
@@ -112,14 +118,24 @@ It is deleted (and dropped from the `bos init` scaffold); the healthcheck
 (`/health`, ~300s timeout, restart policy ON_FAILURE ×10) is a dashboard
 service setting.
 
-Byte-exactness in practice: `:rc` is written only by the deploy train and
-pushed immediately before the redeploy, so the pulled image is what this
-train validated. Two divergence moments are accepted: an overlapping train
-could pull a newer (still CI-validated) image, and at the stable transition
-`:rc` is frozen — the source is repinned to `:latest` once. Rollback is
-unaffected: Railway's deployment history pins the exact digest each
-deployment pulled. The public GHCR image needs no registry credentials on
-Railway.
+Byte-exactness in practice, amended 2026-10-24/25 (#571, #626): the float-timing
+argument below is retired — bytes-exactness no longer leans on when a
+floating tag moved. The root's deploy train repoints the Railway service
+source to `ref@sha256:<digest>` after the green smoke (workspace-scoped
+token; a project-token-only root keeps the plain redeploy with a notice), so
+the deployed service runs exactly the bytes this train validated and the
+dashboard-connected floating ref cannot be auto-redeployed outside the
+train; children pin by tag from the platform manifest on their own deploys
+(the 2026-10-21 amendment), and non-release deploys move no version tags at
+all, so a tag's digest is stable between releases. Railway's deployment
+history still pins the exact digest each deployment pulled — rollback is
+unaffected. The public GHCR image needs no registry credentials on Railway.
+
+What this amendment originally decided (2026-10-13): `:rc` was written only
+by the deploy train and pushed immediately before the redeploy, so the pulled
+image was what this train validated; two divergence moments were accepted (an
+overlapping train could pull a newer still-CI-validated image, and at the
+stable transition `:rc` froze — the source was repinned to `:latest` once).
 
 ## Amendment (2026-10-13): the image carries no dists and no config — the CDN is the single distribution source
 
@@ -169,8 +185,9 @@ the tag's digest from the OCI distribution API, repoints the Railway service
 source to the pinned ref (`railway service source connect --image <ref:tag>`
 — project-scoped token, same context as the redeploy it already authorizes),
 then runs `redeploy --from-source`. The pin is by tag: the train's
-version/sha tags are append-only, and Railway's deployment history pins the
-exact digest each deployment pulled. With no manifest resolving (the additive
+version/sha tags are append-only (literally true since 2026-10-24, #571 —
+version tags move only on the release leg), and Railway's deployment history
+pins the exact digest each deployment pulled. With no manifest resolving (the additive
 fallback), the child keeps today's float redeploy. `--smoke` boots the pinned
 `image@digest` against the just-published config — "pulled bytes are what
 this train validated" now holds for children too. The decision table lives

@@ -176,7 +176,7 @@ Two related caveats the template already handles:
 - `paths-ignore` is deliberately absent from the `pull_request` trigger — a paths-ignored PR never runs CI, so the required check is never reported and docs-only PRs are permanently blocked once branch protection is on. `push` keeps `paths-ignore` (it gates Deploy via `workflow_run`).
 - The gate uses `if: always()`: a plain `needs`-skip would report the gate as "skipped" instead of failed when the CI call fails, which some branch-protection configurations treat as non-blocking. With `always()`, a failed or skipped `ci` job fails the gate explicitly.
 
-**Pinning:** child wrappers currently reference `@main` — the same trust model `bos sync` already applies to all framework-owned files (children track the parent's `main`, snapshot conflict detection guards local edits). Upgrading to a maintained version tag is recorded as a follow-up in `docs/plans/049-workflow-hardening-and-consumer-reusable-workflows.md`.
+**Pinning:** the framework's reusable-workflow wrappers are `@main` in the template source, but children never track `main` — when a release manifest resolves, `applyReleaseRefs` (ADR 0034 pt 4) rewrites the framework's own wrapper refs to the resolved release tag (`@v<version>`) at content-build time, so a child's wrappers pin the release it upgraded to; third-party `@main` actions are deliberately untouched.
 
 ## Required secrets
 

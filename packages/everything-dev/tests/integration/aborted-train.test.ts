@@ -219,8 +219,9 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
       const url = new URL(inputUrl);
       if (url.hostname.endsWith("fastnear.com")) {
         // Registry reads degrade by design: a missing config reads as "first
-        // publish", a failed manifest read skips the manifest leg, and empty
-        // history means no rollback base.
+        // publish", an absent (404) pointer classifies the release leg from
+        // live state — a read *failure* hard-fails the train, never skips it
+        // (#573) — and empty history means no rollback base.
         return Promise.resolve(new Response(null, { status: 404 }));
       }
       if (url.origin === "https://cdn.example.test") {
@@ -548,8 +549,9 @@ describe("a pipelined folder-form plugin ui upload started mid-build", () => {
       const url = new URL(inputUrl);
       if (url.hostname.endsWith("fastnear.com")) {
         // Registry reads degrade by design: a missing config reads as "first
-        // publish", a failed manifest read skips the manifest leg, and empty
-        // history means no rollback base.
+        // publish", an absent (404) pointer classifies the release leg from
+        // live state — a read *failure* hard-fails the train, never skips it
+        // (#573) — and empty history means no rollback base.
         return Promise.resolve(new Response(null, { status: 404 }));
       }
       if (url.origin === "https://cdn.example.test") {

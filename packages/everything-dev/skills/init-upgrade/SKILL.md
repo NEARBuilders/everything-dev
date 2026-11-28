@@ -194,12 +194,12 @@ The upgrade (and the sync it drives) fetches the parent template at the **releas
 
 ## the `platform` pin (ADR 0034)
 
-A child records **one** field in `bos.app.ts`:
+A child records **one** field in `bos.app.ts` (the authored key is `release:` — the original `platform` key still parses and `bos upgrade` rewrites it):
 
 ```ts
 export default App({
   // …
-  platform: "2.0.0-rc.14",
+  release: "2.0.0-rc.14",
 });
 ```
 
@@ -209,7 +209,7 @@ Rules:
 - The pin is **exact** — no ranges. Resolution picks one manifest.
 - Field absent → latest manifest found via the `extends` chain (nearest wins). Offline, the cached `.bos/manifest.json` (gitignored) resolves.
 - An explicit pin the chain cannot satisfy **fails loud** — publish the release or clear the pin.
-- **Pin lifecycle (#546):** the `manifest.json` thin tag is a pointer — a root republish overwrites it. A stale child pin resolves only while the fresh cache (24h TTL) stands in, then fails loud (`platform pin <version> not found in the extends chain`). The repair is exactly this command: `bos upgrade` re-pins to the latest release. Deleting `.bos/manifest.json` defeats the cache when diagnosing.
+- **Pin lifecycle (#574, slot-first):** the `manifest.json` thin tag is a pointer — a root republish overwrites it, but your release resolves from the release's immutable `versions/<v>.json` record, which never changes: an old pin keeps resolving forever, no cache needed. Only a pin whose record never published fails loud (`platform pin <version>: no version record in the extends chain — the release's manifest leg never published it; re-run the release deploy (or \`bos upgrade\` to re-pin)`). This command is also how you move forward: `bos upgrade` re-pins to the latest release.
 - Inspect what resolves: `bos manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations — it also reports release drift as "parent release is X (published), you target Y" instead of the raw error.
 - `bos init` without `--source` stamps the pin from the resolved manifest; a local-template init (source dir) leaves the pin off — the next `bos upgrade` stamps it from whatever release then resolves.
 

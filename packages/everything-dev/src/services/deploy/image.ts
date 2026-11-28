@@ -296,11 +296,11 @@ export function resolveDeployImagePlan(input: {
 }
 
 /**
- * Image leg (ADR 0021): build the runtime stage, tag `sha-<short>` + version
- * tags, push them, capture the digest, then push the floating refs — `:latest`
- * unless the version is a prerelease, and `:rc` when it is. Callers skip the
- * leg with a notice when no image is configured (child repos get
- * build+upload+publish only).
+ * Image leg (ADR 0021, tags release-conditional per #571): build the runtime
+ * stage, tag it, push, capture the digest, then push the floating refs the
+ * release leg owes (see `conditionImageTags`). Callers skip the leg with a
+ * notice when no image is configured (child repos get build+upload+publish
+ * only).
  */
 /**
  * Release-conditional tags (#571): on the release leg the computed tags move

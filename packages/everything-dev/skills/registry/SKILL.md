@@ -22,7 +22,7 @@ Consequences:
 
 ```
 apps/<account>/<gateway>/bos.config.json          # a published runtime config
-apps/<account>/<gateway>/manifest.json            # the release thin tag: {schemaVersion, version, digest} (ADR 0040, full trains only)
+apps/<account>/<gateway>/manifest.json            # the release thin tag: {schemaVersion, version, digest} (ADR 0040, release legs only)
 apps/<account>/<gateway>/versions/<v>.json         # the immutable per-release manifest record (written once, never republished)
 apps/<account>/<gateway>/deploys/<ts>.json         # per-deploy audit trail (cross-references the other keys by SRI)
 nostr/<account>                                    # (contextual.near) NEAR↔nostr identity binding
@@ -37,7 +37,7 @@ https://kv.test.fastnear.com/...                                            # te
 
 Or in code: `registryClientShape.read({ kind: "runtimeConfig", ref: "bos://<account>/<gateway>" })` from `everything-dev/registry`.
 
-The thin tag names `versions/<v>.json`, which carries the platform release manifest (ADR 0034): framework/every-plugin versions, the release catalog, exact shared-dep versions, the hashed template inventory, and the compat floor — image `ref` + tags, never the digest. The record is immutable: a divergent republish of the same version is refused, loud (ADR 0040). It is written by the deploy train on the **same atomic transaction** as the config and the audit manifest (the tag and record ride the same atomic transaction as the config and the audit trail — all land or none do), rides only framework-rooted production trains (children and config-only publishes write nothing), and its compat floor derives from the previous release: a registry failure reading that release skips the manifest for that deploy rather than publishing a wrong window. Children resolve it through the extends chain like the catalog — the root runtime owns it.
+The thin tag names `versions/<v>.json`, which carries the platform release manifest (ADR 0034): framework/every-plugin versions, the release catalog, exact shared-dep versions, the hashed template inventory, the compat floor, and the release's slot-pin map (`remotes`, ADR 0034's release-scoped inheritance) — image `ref` + tags, never the digest. The record is immutable: a divergent republish of the same version is refused, loud (ADR 0040), and a record that once published resolves forever — release pins never go stale when the thin tag flips. The release leg writes both keys on the **same atomic transaction** as the config and the audit manifest (the tag and record ride the same atomic transaction as the config and the audit trail — all land or none do); only release legs write them (children, config-only publishes, staging, and non-release deploys write nothing), and the pointer read that classifies the leg is a hard gate — a registry failure publishes nothing rather than guessing the compat floor. Children resolve it through the extends chain like the catalog — the root runtime owns it.
 
 ## Writing (bos publish)
 
