@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CappedStore, clientKeyOf } from "../../src/middleware/security";
+import { CappedStore } from "../../src/middleware/security";
 
 describe("CappedStore", () => {
   it("counts hits within a window", () => {
@@ -65,20 +65,5 @@ describe("CappedStore", () => {
     expect(store.get("a")).toBeUndefined();
     store.resetAll();
     expect(store.get("b")).toBeUndefined();
-  });
-});
-
-describe("clientKeyOf", () => {
-  const ctxWithHeader = (forwarded?: string) =>
-    ({
-      req: { header: (name: string) => (name === "x-forwarded-for" ? forwarded : undefined) },
-    }) as never;
-
-  it("trusts the LAST x-forwarded-for hop (proxy-appended), not the client-controlled first", () => {
-    expect(clientKeyOf(ctxWithHeader("spoofed.example, 203.0.113.7"))).toBe("203.0.113.7");
-  });
-
-  it("ignores whitespace around hops", () => {
-    expect(clientKeyOf(ctxWithHeader("spoofed.example ,  203.0.113.7 "))).toBe("203.0.113.7");
   });
 });

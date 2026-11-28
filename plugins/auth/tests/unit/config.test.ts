@@ -352,8 +352,8 @@ describe("normalizeAuthConfig", () => {
     });
   });
 
-  it("compacts the ipAddress mapping — default header, opt-in trusted proxies (#338)", () => {
-    expect(compactIpAddress(undefined)).toEqual({ ipAddressHeaders: ["x-forwarded-for"] });
+  it("compacts the ipAddress mapping — no forwarded-header trust by default, opt-in trusted proxies (#338)", () => {
+    expect(compactIpAddress(undefined)).toEqual({ ipAddressHeaders: [] });
     expect(compactIpAddress({ ipAddressHeaders: ["cf-connecting-ip"] })).toEqual({
       ipAddressHeaders: ["cf-connecting-ip"],
     });

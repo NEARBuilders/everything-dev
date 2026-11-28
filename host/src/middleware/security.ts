@@ -16,6 +16,7 @@ export const RATE_LIMIT_STORE_MAX_ENTRIES =
   Number(process.env.RATE_LIMIT_STORE_MAX_ENTRIES) || 10_000;
 export const BODY_LIMIT_MAX = Number(process.env.BODY_LIMIT_MAX) || 10 * 1024 * 1024;
 export const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS) || 30_000;
+export const CLIENT_IP_HEADER = process.env.BOS_CLIENT_IP_HEADER?.trim() || "";
 
 const DEFAULT_MAX_BUNDLE_UPLOAD_BYTES = 64 * 1024 * 1024;
 
@@ -43,21 +44,50 @@ export const STATIC_ASSET_PATTERN =
  */
 const SENSITIVE_MUTATION_EXEMPT_PREFIXES = ["/api/rpc/", "/api/auth/", "/api/mcp"];
 
+let warnedSocketFallback = false;
+
+/**
+ * Rate-limit identity resolution. The trusted header must be set by the edge,
+ * which replaces any client-sent value — requests key on what the proxy wrote
+ * (Better Auth's documented "a proxy puts the client address in its own
+ * header" row). Without configuration the socket address is the identity:
+ * spoof-proof on a directly exposed host, and a shared per-socket bucket
+ * behind a proxy (Better Auth's documented "clients connect directly"
+ * trade-off) — warn once in production so the misconfiguration surfaces
+ * instead of silently collapsing all clients into one bucket.
+ */
+export function clientIpOf(
+  headers: Record<string, string | undefined>,
+  socketAddress: string,
+  trustedHeader: string,
+): string {
+  if (trustedHeader) {
+    const value = headers[trustedHeader.toLowerCase()]?.trim();
+    if (value) return value;
+  }
+  return socketAddress;
+}
+
 export function clientKeyOf(c: HonoContext): string {
-  // The trusted proxy appends the real client address as the LAST hop;
-  // earlier entries are client-controlled and must not be trusted as an
-  // identity (rotating a spoofed first hop would mint unlimited keys).
-  const forwarded = c.req.header("x-forwarded-for");
-  if (forwarded) {
-    const hops = forwarded.split(",");
-    return hops[hops.length - 1]!.trim();
-  }
+  let socketAddress = "unknown";
   try {
-    const info = getConnInfo(c);
-    return info.remote.address ?? "unknown";
+    socketAddress = getConnInfo(c).remote.address ?? "unknown";
   } catch {
-    return "unknown";
+    socketAddress = "unknown";
   }
+  const identity = clientIpOf(c.req.header(), socketAddress, CLIENT_IP_HEADER);
+  if (
+    identity === socketAddress &&
+    !CLIENT_IP_HEADER &&
+    !warnedSocketFallback &&
+    process.env.NODE_ENV === "production"
+  ) {
+    warnedSocketFallback = true;
+    logger.warn(
+      "[Security] BOS_CLIENT_IP_HEADER is not set: rate limits key on the socket address. Behind a proxy this collapses all clients into one shared bucket — set BOS_CLIENT_IP_HEADER to the header your edge overwrites (e.g. cf-connecting-ip).",
+    );
+  }
+  return identity;
 }
 
 export class CappedStore implements Store {

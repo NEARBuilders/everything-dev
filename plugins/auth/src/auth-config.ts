@@ -64,7 +64,9 @@ export interface AuthRateLimitConfig {
 /** Client-IP resolution for rate limiting (#688, trust boundary #338):
  * `ipAddressHeaders` names a single header the proxy overwrites (e.g.
  * `cf-connecting-ip`); `trustedProxies` opts into forwarded-chain walking —
- * list your proxies' own addresses, never a range that also covers clients. */
+ * list your proxies' own addresses, never a range that also covers clients.
+ * Unset config trusts no forwarded header (socket fallback — a shared bucket
+ * behind a proxy), so proxy-fronted deployments must set one of the two. */
 export interface AuthIpAddressConfig {
   ipAddressHeaders?: string[];
   trustedProxies?: string[];
