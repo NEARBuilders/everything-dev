@@ -19,6 +19,16 @@ export const DocSummarySchema = z.object({
   description: z.string().optional().describe("Frontmatter description, if authored"),
   tags: z.array(z.string()).describe("Frontmatter tags, empty by default"),
   order: z.number().describe("Sort weight, frontmatter order or 100"),
+  status: z
+    .string()
+    .optional()
+    .describe(
+      "Lifecycle status parsed from the doc header's Status line (accepted, proposed, superseded)",
+    ),
+  statusNote: z
+    .string()
+    .optional()
+    .describe("Qualifier from the Status line's parenthetical, e.g. which ADR superseded this one"),
 });
 
 export const DocSchema = DocSummarySchema.extend({

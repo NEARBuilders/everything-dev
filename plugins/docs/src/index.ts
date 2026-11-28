@@ -18,6 +18,8 @@ const compiledRecordSchema = z.object({
   description: z.string().optional(),
   tags: z.array(z.string()).optional(),
   order: z.number().optional(),
+  status: z.string().optional(),
+  statusNote: z.string().optional(),
   raw: z.string().optional(),
   search: z.string().optional(),
 });
@@ -34,6 +36,8 @@ const toRecord = (doc: CompiledRecord): DocRecord => {
     description,
     tags: doc.tags ?? [],
     order: doc.order ?? 100,
+    status: doc.status,
+    statusNote: doc.statusNote,
     raw: raw ?? "",
     search,
   };

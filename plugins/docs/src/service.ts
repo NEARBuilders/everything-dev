@@ -10,6 +10,8 @@ export interface DocRecord {
   readonly description?: string;
   readonly tags: string[];
   readonly order: number;
+  readonly status?: string;
+  readonly statusNote?: string;
   readonly raw: string;
   readonly search?: string;
 }

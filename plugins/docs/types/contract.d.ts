@@ -7,6 +7,8 @@ export declare const DocSummarySchema: z.ZodObject<{
     description: z.ZodOptional<z.ZodString>;
     tags: z.ZodArray<z.ZodString>;
     order: z.ZodNumber;
+    status: z.ZodOptional<z.ZodString>;
+    statusNote: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const DocSchema: z.ZodObject<{
     slug: z.ZodString;
@@ -15,6 +17,8 @@ export declare const DocSchema: z.ZodObject<{
     description: z.ZodOptional<z.ZodString>;
     tags: z.ZodArray<z.ZodString>;
     order: z.ZodNumber;
+    status: z.ZodOptional<z.ZodString>;
+    statusNote: z.ZodOptional<z.ZodString>;
     raw: z.ZodString;
 }, z.core.$strip>;
 export declare const ListDocsSchema: z.ZodObject<{
@@ -25,6 +29,8 @@ export declare const ListDocsSchema: z.ZodObject<{
         description: z.ZodOptional<z.ZodString>;
         tags: z.ZodArray<z.ZodString>;
         order: z.ZodNumber;
+        status: z.ZodOptional<z.ZodString>;
+        statusNote: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>>;
     meta: z.ZodObject<{
         total: z.ZodNumber;
@@ -63,6 +69,8 @@ export declare const contract: {
             description: z.ZodOptional<z.ZodString>;
             tags: z.ZodArray<z.ZodString>;
             order: z.ZodNumber;
+            status: z.ZodOptional<z.ZodString>;
+            statusNote: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>>;
         meta: z.ZodObject<{
             total: z.ZodNumber;
@@ -80,6 +88,8 @@ export declare const contract: {
             description: z.ZodOptional<z.ZodString>;
             tags: z.ZodArray<z.ZodString>;
             order: z.ZodNumber;
+            status: z.ZodOptional<z.ZodString>;
+            statusNote: z.ZodOptional<z.ZodString>;
             raw: z.ZodString;
         }, z.core.$strip>;
     }, z.core.$strip>, {

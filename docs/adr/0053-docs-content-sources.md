@@ -89,7 +89,12 @@ and, later, a draft preview — parity by construction): `rehype-slug` ids back
 the in-page TOC and deep links, and syntax highlighting runs on shiki's
 JavaScript regex engine (no WASM) against a lazily built singleton with a fixed
 common-language set. A leading `# Title` that restates the doc's title is
-dropped, since the reader header already renders it.
+dropped, since the reader header already renders it. ADR headers'
+`Status:` lines parse at compile time into structured `status`/`statusNote`
+(the phrase plus its parenthetical or dash qualifier) and render in the reader
+header as a color-coded badge — accepted/proposed/superseded/rejected — with
+the qualifier in a popover, so lifecycle state is visible without re-reading
+prose.
 
 ## Consequences
 

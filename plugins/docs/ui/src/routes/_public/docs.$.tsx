@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { dedupeLeadingTitle } from "@/components/docs/doc-links";
 import { extractToc, MarkdownRenderer } from "@/components/docs/markdown-renderer";
 import { NavTree } from "@/components/docs/nav-tree";
+import { StatusBadge } from "@/components/docs/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { resolveDocsClient } from "@/lib/api";
@@ -152,8 +153,12 @@ function DocPage() {
             <h1 className="text-3xl font-semibold" data-testid="docs.reader-title">
               {doc.title}
             </h1>
-            {doc.tags.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5" data-testid="docs.reader-tags">
+            {(doc.tags.length > 0 || doc.status) && (
+              <div
+                className="mt-3 flex flex-wrap items-center gap-1.5"
+                data-testid="docs.reader-tags"
+              >
+                <StatusBadge status={doc.status} statusNote={doc.statusNote} />
                 {doc.tags.map((tag) => (
                   <Badge key={tag} variant="secondary">
                     {tag}
