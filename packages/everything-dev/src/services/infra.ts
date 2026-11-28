@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pgliteDefaultUrlForSlug } from "../db/binding";
 import defaults from "../db/defaults.json";
+import { DEFAULT_HOST_PORT } from "../infra/ports";
 import type { RuntimeConfig } from "../types";
 import { frameworkOwnedHeaderComment } from "./scaffold/ownership";
 
@@ -176,12 +177,12 @@ function defaultSecretValue(
 
   if (secret === "CORS_ORIGIN") {
     if (options.forExample) {
-      return "http://localhost:3000";
+      return `http://localhost:${DEFAULT_HOST_PORT}`;
     }
     if (typeof options.devHostPort === "number") {
       return `http://localhost:${options.devHostPort}`;
     }
-    return "http://localhost:3000";
+    return `http://localhost:${DEFAULT_HOST_PORT}`;
   }
 
   // Zero-config dev (plan 055 ticket 11): substrate URLs are opt-in — the

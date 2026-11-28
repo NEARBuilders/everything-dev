@@ -2,7 +2,8 @@ import { dirname } from "node:path";
 import process from "node:process";
 import * as p from "@clack/prompts";
 import { Context, Effect, Layer } from "effect";
-import { buildScoped, buildScopedContext } from "every-plugin";
+import { buildScoped, buildScopedContext, createPlugin } from "every-plugin";
+import { z } from "zod";
 import { cliDeployTrainRender } from "./cli/render/deploy-train";
 import { cliWorkspaceBuildRender } from "./cli/render/workspace-build";
 import { bosContract } from "./contract";
@@ -29,7 +30,6 @@ import { registerSmoke } from "./handlers/smoke";
 import { registerTypesGen } from "./handlers/types-gen";
 import { registerUpgrade } from "./handlers/upgrade";
 import { registerVerify } from "./handlers/verify";
-import { createPlugin, z } from "./sdk";
 import { DeviceLoginService } from "./services/auth/device-login";
 import { SessionStore } from "./services/auth/session-store";
 import { SignerService } from "./services/auth/signer";
@@ -46,6 +46,8 @@ import { ProcessesService } from "./services/processes/service";
 import { openResolution, ResolutionSessionService } from "./services/resolution/session";
 import { InitFlowService } from "./services/scaffold/init-flow";
 import { BuildTrainService, WorkspaceBuildRenderService } from "./services/workspace/build-train";
+import { regenerationRemedy } from "./utils/checkout-bootstrap";
+import { formatUnknownError } from "./utils/errors";
 
 export { resolveRemoteConfigChain } from "./handlers/config";
 export { type ProgressEvent, pluginEvents } from "./services/dev/progress";
@@ -81,7 +83,16 @@ export default createPlugin({
       // dotenv never overrides already-set keys, so every consumer in this
       // process must see the repaired file (ADR 0044).
       yield* migrateLegacyComposeState(dirname(configPath ?? process.cwd()));
-      const session = yield* Effect.promise(() => openResolution({ path: configPath }));
+      const session = yield* Effect.tryPromise({
+        try: () => openResolution({ path: configPath }),
+        catch: (error) => {
+          const remedy = regenerationRemedy(dirname(configPath ?? process.cwd()), error);
+          if (remedy === null) {
+            return error instanceof Error ? error : new Error(formatUnknownError(error));
+          }
+          return new Error(remedy);
+        },
+      });
 
       const projectEnv = yield* buildScoped(ProjectEnv, ProjectEnvLive);
       const effectContext = yield* Effect.context();

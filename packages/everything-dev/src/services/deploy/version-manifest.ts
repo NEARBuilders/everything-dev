@@ -11,6 +11,7 @@ import {
   type WorkspaceVersionManifest,
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
+import { BUILD_REPORT_FILENAME } from "../../infra/filenames";
 import { bundleUrlToStagedPath, resolveContained } from "../resolution/resolver";
 import {
   asDigest,
@@ -23,7 +24,7 @@ import { manifestDocumentUrl, reasonOf } from "./manifest-verify";
 
 /** Read a workspace dist's build-report.json (ticket 01's entry-name report). */
 export function readBuildReport(distRoot: string): BuildEntryReport | null {
-  const reportPath = join(distRoot, "build-report.json");
+  const reportPath = join(distRoot, BUILD_REPORT_FILENAME);
   if (!existsSync(reportPath)) return null;
   try {
     return BuildEntryReportSchema.parse(JSON.parse(readFileSync(reportPath, "utf8")));

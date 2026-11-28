@@ -189,22 +189,22 @@ catalogs:
       specifier: 2.0.0-beta.5
       version: 2.0.0-beta.5
     '@module-federation/enhanced':
-      specifier: ^2.9.2
+      specifier: 2.9.2
       version: 2.9.2
     '@module-federation/node':
-      specifier: ^2.7.52
+      specifier: 2.7.52
       version: 2.7.52
     '@module-federation/rsbuild-plugin':
-      specifier: ^2.9.2
+      specifier: 2.9.2
       version: 2.9.2
     '@module-federation/runtime':
-      specifier: ^2.9.2
+      specifier: 2.9.2
       version: 2.9.2
     '@module-federation/runtime-core':
-      specifier: ^2.9.2
+      specifier: 2.9.2
       version: 2.9.2
     '@module-federation/runtime-tools':
-      specifier: ^2.9.2
+      specifier: 2.9.2
       version: 2.9.2
     '@near-intents-agent-api/sdk':
       specifier: ^0.4.1

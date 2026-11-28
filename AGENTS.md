@@ -236,6 +236,7 @@ This document provides operational guidance for AI agents working in the parent 
 
 **Start Development:**
 ```bash
+pnpm run setup   # One command from a fresh clone: install + prepare (self-healing toolchain + hooks) + generated types + a fast verify — idempotent, safe to re-run
 pnpm install
 pnpm run dev
 
@@ -434,7 +435,8 @@ Run your own host instance on your own NEAR account while inheriting the base pl
 ### Making Changes
 - **Host Changes**: Edit `host/src/` when changing runtime resolution, auth wiring, SSR, proxying, or plugin mounting
 - **UI Changes**: Edit `ui/src/` files → hot reload automatically
-- **API Changes**: Edit `api/src/` files → hot reload automatically
+- **Plugin Changes**: Edit `plugins/<id>/src/` files → the dev adopt picks the rebuilt generation up without a restart (ADR 0051): the host reloads the in-process plugin and swaps the serving router, the dev session replaces the plugin child. The `api` and `auth` app slots keep their boot-frozen serving on the host — restart `bos dev` for those
+- **API Changes**: Edit `api/src/` files → the api child replaces on rebuild; host-mediated `/api/*` serving still needs a restart (ADR 0051)
 - **CLI/Scaffolding Changes**: Edit `packages/everything-dev/` when changing init/dev/publish flows or child-project scaffolding
 - **New Components**: Create in `ui/src/components/ui/`, export from `ui/src/components/index.ts`
 - **New Routes**: Create file in `ui/src/routes/`, TanStack Router auto-generates tree
@@ -585,6 +587,7 @@ The repo standardizes on the Effect v4 dev toolchain ([docs](https://effect.webs
 
 - **TypeScript 7 (native, Go port) + Effect LSP** — `typescript` is `^7` in the catalog. `@effect/tsgo` is a root devDependency; `pnpm install` runs `prepare: effect-tsgo patch --oxlint`, which patches the native `tsc` and Oxlint with Effect diagnostics. Every workspace tsconfig enables the language-service plugin with `diagnostics: false` (Oxlint reports Effect rules to avoid duplication; `tsc --noEmit` still surfaces them as regular TS diagnostics).
 - **Effect lint** — `pnpm run lint` = Biome (format/style) + `pnpm run lint:effect` (`oxlint --type-aware`, Effect rules from `@effect/tsgo`'s recommended preset in `.oxlintrc.json`; CI runs the same script). "Effect parity" rules that demand rewriting imperative code (`node-builtin-import`, `async-function`, `global-console`, `process-env`, `global-date`, `global-fetch`, `new-promise`, `crypto-random-uuid`, `global-timers`, `global-random`) are intentionally off — this is a mixed Effect/non-Effect codebase. Note `node-builtin-import`, `async-function`, and `new-promise` have no `-in-effect` variants in the preset, so turning them off removes even in-Effect coverage for those. Rules that are **errors** must be fixed in code, not suppressed.
+- **Toolchain self-heal** — `scripts/ensure-effect-toolchain.mjs` (called by `prepare` with `--as-prepare`, and ahead of both pre-push commands without it) no-ops when the vendored clone, the `@effect/oxc` link, and the patch markers are healthy, repairs locally otherwise — and on CI runners when invoked with the flag — and fails loud with `pnpm install && pnpm run prepare` when a CI hook hits a network repair it must refuse.
 - **CI** — because CI installs with `--ignore-scripts`, the `lint-and-typecheck` job runs `pnpm run prepare` explicitly before lint/typecheck. `oxlint` and `oxlint-tsgolint` are version-locked to `@effect/tsgo` (e.g. tsgo 0.45.0 supports exactly oxlint 1.81/1.82 and oxlint-tsgolint 7.0.2001) — bump all three **together**; a Renovate/renovate-style PR bumping one alone breaks the `prepare` patch and must be rejected.
 - **Editor** — install the Effect VS Code/Cursor extension (`effectful-tech.effect-vscode`, recommended in `.vscode/extensions.json`) for fiber inspection, span stack, and pause-on-defect. The language service requires the **workspace** TypeScript version, not the editor-bundled one.
 - When adding Effect code, follow the enforced conventions: `Context.Service<TagName, Shape>()` tags, `return yield* new SomeTaggedError({...})` for definitive failure exits inside `Effect.gen` (tagged errors are yieldable directly; `Effect.fail` is reserved for plain/untagged errors).
@@ -808,7 +811,7 @@ The MCP server (`host/src/services/mcp.ts`) generates tools from the API's OpenA
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/<feature>/`; published to GitHub (repo read fresh from the authored config's `repository`) once ready. See `docs/agents/issue-tracker.md`.
+Issues live as local markdown files under `.scratch/<feature>/`; published to GitHub (repo read fresh from the authored config's `repository`) once ready. See `docs/agents/issue-tracker.md`. Before spawning an agent stream for an issue, run the spawn gate there (verify it still reproduces, scan recent merged PRs for its fix, re-check blockers, narrow partial fixes first).
 
 ### Triage labels
 

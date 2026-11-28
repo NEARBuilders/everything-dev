@@ -10,6 +10,7 @@ import {
   buildAndPushImage,
   deployImageToRailway,
   hasDocker,
+  IMAGE_SKIP_REASON,
   imageRefWithDigest,
   type ResolvedImageRef,
   repointServiceSource,
@@ -145,8 +146,7 @@ export function resolveDeployPlan(input: {
   } else if (!input.imageRef) {
     image = {
       action: "skip",
-      reason:
-        "set BOS_IMAGE (or repository in bos.config.json) to build and push the runtime image",
+      reason: IMAGE_SKIP_REASON,
     };
   } else if (!input.hasDocker) {
     image = { action: "skip", reason: "docker is not available" };

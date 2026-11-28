@@ -59,6 +59,26 @@ export { sanitizeContainerName };
  */
 const NODE_ROUTE_TREE_SCRATCH = "./node_modules/.cache/manifest-compose/routeTree.node.gen.ts";
 
+const SSR_DIST_DIRNAME = "ssr";
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Clean policy for a build that excludes the node environment (#940): the web
+ * dist root contains `dist/ssr` — a running dev stack's SSR container — and
+ * rsbuild's clean empties the whole root, so the excluded subtree rides
+ * `cleanDistPath.keep` verbatim. Undefined when the node environment builds:
+ * its own dist root (`dist/ssr`) is cleaned and re-emitted by the build.
+ */
+export function ssrContainerCleanKeep(
+  includeNodeEnv: boolean,
+  ssrDistRoot: string,
+): { enable: "auto"; keep: RegExp[] } | undefined {
+  if (includeNodeEnv) return undefined;
+  const posixRoot = ssrDistRoot.split(path.sep).join("/");
+  return { enable: "auto", keep: [new RegExp(`^${escapeRegExp(posixRoot)}(/|$)`)] };
+}
+
 export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildConfig {
   const {
     workspaceRoot,
@@ -82,6 +102,18 @@ export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildC
   const uiSharedVersions = sharedVersionRecord(uiSharedDeps);
 
   const isBuild = isBuildInvocation();
+
+  // Dev without SSR skips the node environment: it exists for the host's dev
+  // SSR container and nothing else. Builds always emit both.
+  const includeNodeEnv =
+    process.env.BOS_SSR === "1" ||
+    process.env.DEPLOY === "true" ||
+    process.env.NODE_ENV !== "development";
+
+  const ssrKeep = ssrContainerCleanKeep(
+    includeNodeEnv,
+    path.join(workspaceRootAbsolute, "dist", SSR_DIST_DIRNAME),
+  );
 
   const webEnvironment: EnvironmentConfig = {
     plugins: [
@@ -162,15 +194,9 @@ export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildC
         ...copy,
         { from: path.join(workspaceRootAbsolute, "src", MANIFEST_FILENAME), to: "./" },
       ],
+      ...(ssrKeep ? { cleanDistPath: ssrKeep } : {}),
     },
   };
-
-  // Dev without SSR skips the node environment: it exists for the host's dev
-  // SSR container and nothing else. Builds always emit both.
-  const includeNodeEnv =
-    process.env.BOS_SSR === "1" ||
-    process.env.DEPLOY === "true" ||
-    process.env.NODE_ENV !== "development";
 
   const nodeEnvironment: EnvironmentConfig = {
     plugins: [

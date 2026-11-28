@@ -1,3 +1,4 @@
+import { UPSTREAM_ISSUE_URL } from "../../services/scaffold/upgrade";
 import { colors } from "../../utils/theme";
 
 /**
@@ -5,7 +6,7 @@ import { colors } from "../../utils/theme";
  * allowed, sync backs the divergent copy up, and an upstream issue makes the
  * change permanent.
  */
-export const UPSTREAM_ISSUE_URL = "https://github.com/NEARBuilders/everything-dev/issues";
+export { UPSTREAM_ISSUE_URL };
 
 export function printUpstreamIssueProtocol(backupDir?: string | null) {
   console.log(

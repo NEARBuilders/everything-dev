@@ -41,7 +41,7 @@ export * from "./upgrade-migration";
 export * from "./upgrade-packages";
 export * from "./upgrade-source";
 
-const UPSTREAM_ISSUE_URL = "https://github.com/NEARBuilders/everything-dev/issues";
+export const UPSTREAM_ISSUE_URL = "https://github.com/NEARBuilders/everything-dev/issues";
 
 /** The interactive upgrade's post-step (`bos clean`): prune the regenerable
  * sediment an upgrade leaves behind — never the sync backups this run just

@@ -20,14 +20,14 @@ catalog:
   "@lingui/message-utils": 5.9.0
   "@lingui/react": 5.9.0
   "@modelcontextprotocol/server": 2.0.0-beta.5
-  "@module-federation/dts-plugin": ^2.9.2
-  "@module-federation/enhanced": ^2.9.2
-  "@module-federation/node": ^2.7.52
-  "@module-federation/rsbuild-plugin": ^2.9.2
-  "@module-federation/runtime": ^2.9.2
-  "@module-federation/runtime-core": ^2.9.2
-  "@module-federation/runtime-tools": ^2.9.2
-  "@module-federation/sdk": ^2.9.2
+  "@module-federation/dts-plugin": 2.9.2
+  "@module-federation/enhanced": 2.9.2
+  "@module-federation/node": 2.7.52
+  "@module-federation/rsbuild-plugin": 2.9.2
+  "@module-federation/runtime": 2.9.2
+  "@module-federation/runtime-core": 2.9.2
+  "@module-federation/runtime-tools": 2.9.2
+  "@module-federation/sdk": 2.9.2
   "@near-intents-agent-api/sdk": ^0.4.1
   "@opentelemetry/api": ^1.9.0
   "@orpc/client": 2.0.0-beta.45

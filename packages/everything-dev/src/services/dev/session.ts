@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Clock, DateTime, Deferred, Effect, Exit, Fiber, Layer, type Scope, Stream } from "effect";
 import { getProcessEnv } from "../../env/process-env";
 import { ShellEnvLive } from "../../env/project-env";
@@ -25,11 +26,21 @@ import {
   writeRegistry,
 } from "../processes/registry";
 import {
+  type AdoptState,
+  advanceAdopt,
+  type BackendDistFingerprint,
+  createBackendFingerprintSampler,
+  DEV_ADOPT_POLL_MS,
+  DEV_ADOPT_SETTLE_MS,
+  initialAdoptState,
+} from "./adopt";
+import {
   createDevLogger,
   createLogPipeline,
   formatLogLine,
   isDebug,
   type LogEvent,
+  type LogPipeline,
   resolveLogLevel,
 } from "./logs";
 import { type DevProcessState, DevRenderer, type DevRendererHandle } from "./render";
@@ -474,6 +485,7 @@ export const runDevSession = (
           args: descriptor.args ?? ["run", "dev"],
           cwd: descriptor.localPath,
           port,
+          env: descriptor.env,
         },
         readiness: {
           urls: [`http://127.0.0.1:${port}${descriptor.readinessPath}`],
@@ -494,6 +506,7 @@ export const runDevSession = (
         Stream.runForEach((event: UnitEvent) =>
           Effect.gen(function* () {
             const pkg = spec.name;
+            if (handles.get(pkg) !== handle) return;
             if (event.type === "log") {
               callbacks.onLog(pkg, event.line, event.stderr);
               return;
@@ -587,6 +600,19 @@ export const runDevSession = (
     const startGroup = (packages: string[]) =>
       Effect.forEach(packages, startUnit, { concurrency: "unbounded" });
 
+    const replaceUnit = (pkg: string): Effect.Effect<void, never, Scope.Scope> =>
+      Effect.gen(function* () {
+        const handle = handles.get(pkg);
+        if (handle) {
+          handles.delete(pkg);
+          yield* handle.terminate("graceful").pipe(Effect.ignore);
+          readyUnits.delete(pkg);
+          exitedBeforeReady.delete(pkg);
+        }
+        restartAttempts.delete(pkg);
+        yield* startUnit(pkg);
+      });
+
     const startupPhase = Effect.gen(function* () {
       yield* startGroup(orderedPackages.filter((pkg) => pkg !== "host"));
       yield* startGroup(orderedPackages.filter((pkg) => pkg === "host"));
@@ -632,7 +658,87 @@ export const runDevSession = (
       });
     }
 
+    yield* forkBackendAdopt({
+      configDir,
+      services,
+      runtimeConfig,
+      replaceUnit,
+      pipeline,
+    });
+
     yield* Deferred.await(shutdown);
+  });
+
+/**
+ * The dev supervisor's backend adopt loop (issue #942): watch the built dists
+ * of the local `api`, `auth`, and `plugin:*` children with the shared settle
+ * state machine, and on a stable generation move REPLACE the affected child
+ * through the spawn machinery (`replaceUnit` — the same path a crash restart
+ * takes). The child replacement refreshes the child's own serving surface;
+ * the host's dev adopt (host/src/services/dev-plugin-adopt.ts) is the plane
+ * that moves host-mediated serving — the two watchers share the fingerprint
+ * and settle semantics from `./adopt`, and stay otherwise independent.
+ * Development only: production stacks never adopt (a dead unit stays a loud
+ * failure there, ADR 0048).
+ */
+const forkBackendAdopt = (input: {
+  configDir: string;
+  services: Map<string, ServiceDescriptor>;
+  runtimeConfig: RuntimeConfig;
+  replaceUnit: (pkg: string) => Effect.Effect<void, never, Scope.Scope>;
+  pipeline: LogPipeline;
+}): Effect.Effect<void, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    if (input.runtimeConfig.env !== "development") return;
+
+    const samplers = new Map<string, () => Promise<BackendDistFingerprint | null>>();
+    const labels = new Map<string, string>();
+    for (const [key, descriptor] of input.services.entries()) {
+      if (descriptor.source !== "local" || !descriptor.localPath) continue;
+      if (key !== "api" && key !== "auth" && !key.startsWith("plugin:")) continue;
+      samplers.set(key, createBackendFingerprintSampler(descriptor.localPath));
+      const relative = path.relative(input.configDir, descriptor.localPath);
+      labels.set(
+        key,
+        relative && !relative.startsWith("..") ? relative : path.basename(descriptor.localPath),
+      );
+    }
+    if (samplers.size === 0) return;
+
+    let state: AdoptState = initialAdoptState;
+    yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        while (true) {
+          yield* Effect.sleep(`${DEV_ADOPT_POLL_MS} millis`);
+          const outcome = yield* Effect.gen(function* () {
+            const observations = [];
+            for (const [key, sample] of samplers) {
+              observations.push({ key, fingerprint: yield* Effect.promise(sample) });
+            }
+            const advanced = advanceAdopt(state, {
+              now: Date.now(),
+              settleMs: DEV_ADOPT_SETTLE_MS,
+              observations,
+            });
+            for (const move of advanced.moves) {
+              yield* input.replaceUnit(move.key);
+              input.pipeline.ingest({
+                source: "dev",
+                line: `${labels.get(move.key) ?? move.key} moved to generation ${move.generation}`,
+                level: "warn",
+              });
+              input.pipeline.flushSource("dev");
+            }
+            return advanced.state;
+          }).pipe(
+            Effect.catchDefect((defect) =>
+              Effect.logError("[Dev] backend adopt tick failed:", defect).pipe(Effect.as(state)),
+            ),
+          );
+          state = outcome;
+        }
+      }),
+    );
   });
 
 const runApp = (

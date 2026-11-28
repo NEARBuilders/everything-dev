@@ -6,12 +6,13 @@ import {
   type AuthRemoteShape,
   buildDescription,
   isAuthMirrorPluginEntry,
+  isFolderFormUiSource,
 } from "../services/dev/service-descriptor";
 import { loadPortState, savePortState } from "../services/infra";
 import type { RuntimeConfig } from "../types";
 import { shouldPersistPortState } from "./materializer";
 import { ownerOfPort } from "./port-ownership";
-import { PortAllocator, type PortBlockEntry } from "./ports";
+import { DEFAULT_HOST_PORT, PortAllocator, type PortBlockEntry } from "./ports";
 import type {
   ClaimRecord,
   CliPorts,
@@ -22,8 +23,6 @@ import type {
   ServiceDescriptorPlan,
 } from "./types";
 import { InfraError } from "./types";
-
-const DEFAULT_HOST_PORT = 3000;
 
 export function workspaceKey(configDir: string): string {
   const hash = createHash("sha256").update(resolve(configDir)).digest("hex");
@@ -304,28 +303,18 @@ export function buildServiceDescriptors(
           localPath: undefined,
         });
       }
-      if (p?.ui && pluginCfg.ui?.source === "local") {
-        // Folder-form UI (ui dir inside the plugin workspace, no own
-        // package.json): the plugin's own dev process serves the UI build
-        // via BOS_UI_PORT — no standalone plugin-ui unit, so this list stays
-        // in lockstep with buildServiceDescriptorMap (the map the dev
-        // session actually spawns from). The port stays allocated; the
-        // assigned runtime config carries it on the ui slot.
-        const uiLocalPath = pluginCfg.ui?.localPath;
-        const isFolderFormUi = Boolean(
-          uiLocalPath &&
-            existsSync(join(uiLocalPath, "src", "routes")) &&
-            !existsSync(join(uiLocalPath, "package.json")),
-        );
-        if (!isFolderFormUi) {
-          descriptors.push({
-            key: `plugin-ui:${pluginId}`,
-            source: "local",
-            url: `http://localhost:${p.ui}`,
-            port: p.ui,
-            localPath: pluginCfg.ui?.localPath,
-          });
-        }
+      if (
+        p?.ui &&
+        pluginCfg.ui?.source === "local" &&
+        !isFolderFormUiSource(pluginCfg.ui.localPath)
+      ) {
+        descriptors.push({
+          key: `plugin-ui:${pluginId}`,
+          source: "local",
+          url: `http://localhost:${p.ui}`,
+          port: p.ui,
+          localPath: pluginCfg.ui?.localPath,
+        });
       }
     }
   }
@@ -339,7 +328,9 @@ export function buildLaunchSpec(
 ): RuntimeLaunchSpec {
   const hostPort =
     runtimeConfig.host?.source === "local" ? resolvedPorts.host : runtimeConfig.host?.port;
-  const corsOrigin = hostPort ? `http://localhost:${hostPort}` : `http://localhost:3000`;
+  const corsOrigin = hostPort
+    ? `http://localhost:${hostPort}`
+    : `http://localhost:${DEFAULT_HOST_PORT}`;
 
   return {
     port: resolvedPorts.host,

@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { Effect } from "effect";
 import { MANIFEST_FILENAME, sanitizeContainerName } from "every-plugin/ui/manifest/contract";
 import { getProcessEnv } from "../../env/process-env";
+import { DEFAULT_HOST_PORT } from "../../infra/ports";
 import type {
   BosConfig,
   BosPluginRef,
@@ -36,8 +37,6 @@ import { type BosEnv, isPlainObject, resolveExtendsRef } from "./merge";
 const warnOutsideEffect = (...args: unknown[]): void => {
   console.warn(...args);
 };
-
-const DEFAULT_HOST_PORT = 3000;
 
 interface RuntimeTarget {
   source: "local" | "remote";
@@ -952,6 +951,6 @@ export function parsePort(url: string): number {
     const parsed = new URL(url);
     return parsed.port ? parseInt(parsed.port, 10) : parsed.protocol === "https:" ? 443 : 80;
   } catch {
-    return 3000;
+    return DEFAULT_HOST_PORT;
   }
 }

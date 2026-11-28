@@ -109,6 +109,10 @@ export interface HostPluginEntry {
    * `/api/rpc/{key}/*` to this target; composed plugins leave it unset. The
    * credential is redacted — unredact at the header-set site. */
   proxy?: { target: string; apiKey?: Redacted.Redacted<string> };
+  /** The exact usePlugin args this instance loaded with — the dev adopt's
+   * reload re-uses them so the eviction's cache key and the fresh
+   * initialization see byte-identical inputs (issue #942). */
+  loadArgs?: { runtimeId: string; config: unknown; plugins?: Record<string, unknown> };
 }
 
 /**
@@ -638,7 +642,17 @@ const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (para
       ? result.initialized.warnings
       : defaultMissingSecretWarnings(entry.key, entry.config.secrets ?? [], Object.keys(secrets));
 
-  return { key: entry.key, name: entry.config.name, warnings: pluginWarnings, ...result };
+  return {
+    key: entry.key,
+    name: entry.config.name,
+    warnings: pluginWarnings,
+    ...result,
+    loadArgs: {
+      runtimeId: entry.runtimeId,
+      config: args[0],
+      plugins: pluginsClient,
+    },
+  };
 });
 
 export const initializePlugins = Effect.fn("initializePlugins")(

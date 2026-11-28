@@ -39,6 +39,21 @@ Sprint issues live as files under `.scratch/<feature>/issues/`:
 
 **PRs as a request surface: no.**
 
+## Spawn gate: before spawning an agent for an issue
+
+The tracker is load-bearing agent infrastructure — triage labels and evidence-bearing bodies drive spawn decisions, so a stale issue wastes a whole agent stream (the 2026-11-28 sweep nearly rebuilt #936's fix because its issue was still open). Run this gate before spawning any stream for a GitHub issue:
+
+1. **Verify the issue still reproduces on latest main.** Read the issue's repro; run it if it's cheap.
+2. **Scan the last ~2 weeks of merged PRs for its fix.** The issue may be closed in fact but not in law: `gh pr list --state merged --limit 50 --json number,title,body` and grep the bodies for `Fixes`/`Closes`/`Resolves #N` (and the issue number in titles).
+3. **Re-check the blockers are actually open.** A `Blocked by: #n` line only means something while #n is open; closed blockers mean the issue is unblocked whether or not anyone updated the body.
+4. **Narrow partial fixes with a comment first.** If part of the scope landed, comment with what landed (PR + date) and cut the issue down to the remainder — the #683/#860 pattern — then spawn for the remainder only.
+
+If the issue is already fully fixed, close it with credit to the fixing PR and spawn nothing.
+
+## Automated reconciliation sweep
+
+A daily read-only workflow (`.github/workflows/issue-reconcile.yml`) runs the same checks between human sweeps: merged PRs since the previous run → closing-keyword references to still-open issues, open issues whose `Blocked by:` blockers closed, and `needs-triage` issues older than 7 days. The run summary is the report; `auto-close` (with the credit-comment pattern above) and posting the report on a tracking issue are `workflow_dispatch` opt-ins. The sweep keeps the tracker honest — it does not gate a spawn decision; the spawn gate above is still mandatory.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue with `gh issue create`, or write a local file under `.scratch/<feature>/issues/` depending on the workflow context.

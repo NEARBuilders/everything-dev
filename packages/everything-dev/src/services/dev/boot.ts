@@ -296,12 +296,9 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
 
     const services = buildServiceDescriptorMapFromPlan(plan, { ssr, proxy });
 
-    // The unit list must be the descriptor map the session actually runs
-    // with: plan.serviceDescriptors (the port planner's view) still lists
-    // standalone plugin-ui units for folder-form UIs, which the session map
-    // folds into their plugin's dev process (BOS_UI_PORT) — deriving the
-    // list from the planner alone made every folder-form boot name a unit
-    // that `services.get` could never resolve.
+    // The unit list is the spawnable set — the session looks every unit up in
+    // this map (`unitSpecFor`), so the planner's phantom keys (folder-form
+    // plugin ui, which the plugin's own process builds) must never ride.
     const packages = [...services.keys()];
     if (isDebug(getProcessEnv("DEBUG"))) {
       yield* Effect.logError(`[DEBUG dev] services keys: ${packages.join(", ")}`);

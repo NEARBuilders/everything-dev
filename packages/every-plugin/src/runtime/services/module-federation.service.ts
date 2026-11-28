@@ -2,6 +2,7 @@ import { createInstance, getInstance } from "@module-federation/enhanced/runtime
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { Context, Effect, Layer } from "effect";
 import { DEV_ENTRY_FILENAME } from "../../build/artifact-names";
+import { purgeRemoteEntryCache } from "../../remote-entry";
 import type { AnyPlugin } from "../../types";
 import { isManifestDocumentUrl } from "../../ui/manifest/contract";
 import { ModuleFederationError } from "../errors";
@@ -124,6 +125,17 @@ const resolveRemoteSelfName = (pluginId: string, url: string) =>
 
 export interface ModuleFederationServiceShape {
   registerRemote: (pluginId: string, url: string) => Effect.Effect<void, ModuleFederationError>;
+  /**
+   * Drop one remote's loaded state so its next load re-fetches fresh bytes —
+   * the dev reload's purge step (issue #942). The runtime's remote handler
+   * clears every memoized slot for the remote: the registration, the module
+   * cache, the evaluated entry exports (`globalThis[entryGlobalName]`), and
+   * the process-global entry-load promise (`__GLOBAL_LOADING_REMOTE_ENTRY__`,
+   * mirrored here through `purgeRemoteEntryCache`). Best effort: a remote
+   * that was never registered (module-registered plugins) is a no-op, and a
+   * failed removal degrades to a stale container on the next load.
+   */
+  unregisterRemote: (pluginId: string, url: string) => Effect.Effect<void, ModuleFederationError>;
   loadRemoteConstructor: (
     pluginId: string,
     url: string,
@@ -201,6 +213,34 @@ export const ModuleFederationServiceDefault = Layer.effect(
           });
 
           yield* Effect.logInfo(`[MF][${pluginId}] ✅ Registered`);
+        }),
+
+      unregisterRemote: (pluginId: string, url: string) =>
+        Effect.gen(function* () {
+          const remoteName = yield* resolveRemoteSelfName(pluginId, url);
+          purgeRemoteEntryCache(url);
+          yield* Effect.try({
+            try: () => {
+              const registered = mf.options.remotes.find((remote) => remote.name === remoteName);
+              if (!registered) return;
+              const handler = (
+                mf as unknown as {
+                  remoteHandler?: { removeRemote?: (remote: unknown) => void };
+                }
+              ).remoteHandler;
+              handler?.removeRemote?.(registered);
+              (mf as unknown as { moduleCache?: Map<string, unknown> }).moduleCache?.delete(
+                remoteName,
+              );
+            },
+            catch: (error): ModuleFederationError =>
+              new ModuleFederationError({
+                pluginId,
+                remoteUrl: url,
+                cause: error instanceof Error ? error : new Error(String(error)),
+              }),
+          });
+          yield* Effect.logDebug(`[MF][${pluginId}] Unregistered (dev reload purge)`);
         }),
 
       loadRemoteConstructor: (pluginId: string, url: string) =>

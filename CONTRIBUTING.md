@@ -119,33 +119,37 @@ git commit -m "test(ui): add coverage for login flow"
 
 ### Changesets
 
-We use [Changesets](https://github.com/changesets/changesets) for versioning.
+We use [Changesets](https://github.com/changesets/changesets) for versioning — but only for the **publishable framework packages**: `every-plugin`, `everything-dev`, and `better-near-auth` (everything under `packages/`). Private workspaces (`host`, `ui`, `api`, `plugins/*`) are changesets-ignored and never version.
 
 **When to add a changeset:**
-- Any user-facing change (features, fixes, deprecations)
+- Any user-facing change (features, fixes, deprecations) to the publishable packages
 - Breaking changes
 - Skip for: docs-only changes, internal refactors, test-only changes
+
+**The release-capture rule (#572):** a changeset written against `everything-dev` means "cut a release including everything merged so far" — it is the release lever, not a per-package changelog entry. Small changes ride continuous deploys and are swept up by the next release; don't write one just to log a small fix.
+
+**The CI guard:** `scripts/changeset-guard.mjs` rejects any changeset that names only private workspaces — a changeset on `host`/`ui`/`api`/`plugins/*` versions nothing and would be silently consumed. Target a publishable package, or don't write one.
 
 **Create a changeset:**
 ```bash
 pnpm run changeset
-# Follow prompts to select packages and write description
+# Follow prompts to select a publishable package and write a description
 ```
 
 **Changeset file format:**
 ```markdown
 ---
-"api": minor
-"ui": patch
+"everything-dev": minor
 ---
 
-Added new endpoint for user profiles
+Added new capability to the framework CLI
 ```
 
 **The release workflow:**
-1. Changesets action creates a "Version Packages" PR on merge to main
-2. On merge of that PR, GitHub releases are created for api/ui
-3. Deployments happen automatically via CI
+1. Changesets opens/updates a "Version Packages" PR on merge to main
+2. Merging that PR publishes the packages to npm (under the `rc` dist-tag while prerelease mode is active) and creates GitHub Releases
+3. Deployments are content-addressed, not version-gated — deploys between releases run `main` code
+4. Children have no changesets: `bos init` scaffolds no `.changeset/` and no `version`/`release` scripts, and child package versions feed nothing mechanically
 
 ### Pull Request Process
 
@@ -170,7 +174,7 @@ Added new endpoint for user profiles
 
 4. **After merge:**
    - Delete your branch
-   - Changesets action will handle versioning
+   - Changesets drafts the Version Packages PR; merging it publishes the packages
 
 ## Contributing Code
 
@@ -210,7 +214,7 @@ Use [GitHub Issues](https://github.com/NEARBuilders/everything-dev/issues) with:
 - **Clear description** of the problem
 - **Steps to reproduce** the issue
 - **Expected behavior** vs **actual behavior**
-- **Environment details** (OS, Node/Bun version, browser, etc.)
+- **Environment details** (OS, Node version, browser, etc.)
 
 ## Getting Help
 

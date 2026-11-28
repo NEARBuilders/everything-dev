@@ -248,18 +248,49 @@ export function loadMigrations(
 ): Effect.Effect<LoadedMigrations, DatabaseError> {
   return Effect.gen(function* () {
     if (opts.virtual) {
-      const mod = yield* Effect.tryPromise({
+      const virtual = yield* Effect.tryPromise({
         try: () => opts.virtual!(),
         catch: (cause) => new DatabaseError({ stage: "load", cause }),
-      }).pipe(Effect.option);
-      const migrations = Option.getOrUndefined(mod)?.default;
-      if (migrations?.length) {
-        yield* Effect.logInfo(
-          `[Database] Loaded ${migrations.length} migration(s) from virtual module`,
-        );
-        return { migrations, source: "virtual" as const };
+      }).pipe(
+        Effect.match({
+          onFailure: (cause) => ({ _tag: "failed" as const, cause }),
+          onSuccess: (mod) => ({ _tag: "loaded" as const, mod }),
+        }),
+      );
+      if (virtual._tag === "loaded") {
+        const migrations = virtual.mod?.default;
+        if (migrations?.length) {
+          yield* Effect.logInfo(
+            `[Database] Loaded ${migrations.length} migration(s) from virtual module`,
+          );
+          return { migrations, source: "virtual" as const };
+        }
+        yield* Effect.logDebug("[Database] Virtual migrations empty, loading from disk");
       }
-      yield* Effect.logDebug("[Database] Virtual migrations unavailable, loading from disk");
+      // A FAILED virtual load falls through to the disk fallback — that is the
+      // correct path for source-run consumers, where `fromDir` resolves. In a
+      // bundled consumer the fallback cannot resolve the workspace's
+      // migrations, so an empty disk result here means the bundled
+      // migrations were authored but never reached this instance: fail loud
+      // rather than boot the schema missing and let every query against it
+      // fail with "relation does not exist" (issue #942: a dev adopt must
+      // not commit an instance whose migrations never reached it).
+      const disk = yield* loadMigrationsFromDisk(opts.fromDir).pipe(
+        Effect.match({
+          onFailure: () => ({ _tag: "none" as const }),
+          onSuccess: (loaded) => ({ _tag: "some" as const, loaded }),
+        }),
+      );
+      if (disk._tag === "some" && disk.loaded.length > 0) {
+        return { migrations: disk.loaded, source: "disk" as const };
+      }
+      if (virtual._tag === "failed") {
+        return yield* virtual.cause;
+      }
+      yield* Effect.logWarning(
+        "[Database] No migrations found from virtual or disk — schema may be missing",
+      );
+      return { migrations: [], source: "disk" as const };
     }
 
     const diskMigrations = Option.getOrUndefined(
@@ -308,9 +339,7 @@ function loadMigrationsFromDisk(fromDir?: string): Effect.Effect<Migration[], Da
             throw new Error(`Migration SQL file not found: ${sqlPath}`);
           }
           const raw = readFileSync(sqlPath, "utf8");
-          const sqlStatements = raw
-            .split("--> statement-breakpoint")
-            .map((statement) => statement.trim());
+          const sqlStatements = splitMigrationSql(raw);
           const hash = createHash("sha256").update(raw).digest("hex");
           return { idx: entry.idx, when: entry.when, tag: entry.tag, hash, sql: sqlStatements };
         },
@@ -322,6 +351,31 @@ function loadMigrationsFromDisk(fromDir?: string): Effect.Effect<Migration[], Da
 
 function journalRef(s: MigrationStorage): ReturnType<typeof sql> {
   return sql.raw(`"${s.schema}"."${s.table}"`);
+}
+
+/**
+ * Statement splitting for disk-loaded migration SQL. Marker-split files are
+ * canonical; a file authored without `--> statement-breakpoint` markers must
+ * still execute statement-by-statement — PGlite refuses multi-command
+ * prepared statements, and the bundler's virtual module splits the same file
+ * on statement boundaries, so the disk loader must agree with what the
+ * bundled instance executes.
+ */
+export function splitMigrationSql(raw: string): string[] {
+  const statements = raw
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split(/(?:--> statement-breakpoint|\r?\n\s*\r?\n)+/g)
+    .flatMap((chunk) =>
+      chunk
+        .split("\n")
+        .map((line) => (line.trim().startsWith("--") ? "" : line.trim()))
+        .join("\n")
+        .split(";")
+        .map((statement) => statement.trim())
+        .filter(Boolean),
+    )
+    .map((statement) => statement.replace(/\s+/g, " "));
+  return statements.length > 0 ? statements : [raw];
 }
 
 /**

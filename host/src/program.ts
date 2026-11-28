@@ -3,6 +3,7 @@ import {
   Cause,
   Clock,
   Config,
+  ConfigProvider,
   Effect,
   Exit,
   Fiber,
@@ -23,14 +24,17 @@ import { getSnapshotBootHealth, type HealthLoadingState } from "./routes/health"
 import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
+import { forkDevPluginAdopt } from "./services/dev-plugin-adopt";
 import { HostServerError } from "./services/errors";
 import { FederationContainers } from "./services/federation/containers";
 import { FederationLifecycle } from "./services/federation/lifecycle";
 import { FederationLoader } from "./services/federation/loader";
+import { InstanceReplacement } from "./services/instance-replacement";
 import { closeMcpServer } from "./services/mcp";
 import { PluginsService } from "./services/plugins";
 import { deploymentDigest, RuntimeSnapshot } from "./services/runtime-snapshot";
 import { SnapshotCoordinator } from "./services/snapshot-coordinator";
+import { SnapshotReconciler } from "./services/snapshot-reconciler";
 import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
 import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
 import { minimumLogLevel } from "./utils/effect-run";
@@ -177,6 +181,14 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
           ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
+          ...(devAdopt.generations.size > 0
+            ? {
+                devAdopt: {
+                  generations: Object.fromEntries(devAdopt.generations),
+                  note: "dev plugin adopt (ADR 0051) — in-process plugin generations the dev serving plane has adopted past the boot build",
+                },
+              }
+            : {}),
         },
         compositionHealth.status === "failed" ? 503 : 200,
       );
@@ -266,9 +278,11 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     }
 
     registerAuthHandler(app, plugins);
-    yield* Effect.promise(() =>
+    const rpcServing = yield* Effect.promise(() =>
       setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState),
     );
+
+    const devAdopt = yield* forkDevPluginAdopt({ config, plugins, serving: rpcServing });
 
     app.use("/*", sessionMiddleware);
 
@@ -405,15 +419,32 @@ export const runServer = (input: ServerInput): ServerHandle => {
     Layer.provide(SnapshotLive),
     Layer.provide(ConfigLive),
   );
+  const ReconcilerLive = SnapshotReconciler.layer(watchIntervalMs()).pipe(
+    Layer.provide(CoordinatorLive),
+    Layer.provide(ConfigLive),
+    Layer.provide(InstanceReplacement.layer),
+  );
   const ServerLive = Layer.mergeAll(
     Layer.provideMerge(SecurityMiddleware.Live, AppLive),
     FederationLifecycle.layer,
     Layer.provideMerge(CoordinatorLive, SnapshotLive),
     WatchLive,
+    ReconcilerLive,
     Layer.succeed(References.MinimumLogLevel, minimumLogLevel()),
   );
 
-  const runtime = ManagedRuntime.make(ServerLive);
+  // Each runtime reads the env as of its own make: the default ConfigProvider
+  // is a Context.Reference whose fromEnv() default snapshots process.env once
+  // per process, so a second runServer in the same process (integration
+  // fixtures) would otherwise read the first server's PORT and secrets.
+  // provideMerge keeps the provider IN the runtime context — the reference
+  // default would otherwise win at effect-read time.
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(
+      ServerLive,
+      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ ...process.env })),
+    ),
+  );
   let programFiber: Fiber.Fiber<void, Config.ConfigError | HostServerError> | null = null;
 
   const ready = new Promise<void>((resolveReady, rejectReady) => {

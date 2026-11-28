@@ -11,6 +11,15 @@ import {
 } from "../../src/services/resolution/merge";
 import type { BosConfigInput } from "../../src/types";
 
+// CI-run property tests pin a recorded seed (#959): a random seed per CI run
+// flakes clean main whenever the seed draws a conflict case (#948 presented
+// exactly that way). This seed passed a local run of every law below at the
+// pinned run counts. Exploratory random-seed runs are a deliberate local
+// action, never the CI default; a counterexample any seed uncovers becomes a
+// pinned deterministic regression test in this file. Convention:
+// docs/agents/testing.md ("Test value rules").
+const PROPERTY_SEED = 20261127;
+
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
 const KEY_ALPHA = [
@@ -156,6 +165,28 @@ function setPath(value: Record<string, Json>, path: string[], leaf: Json): Recor
   return out;
 }
 
+type ShapeKind = "object" | "array" | "scalar";
+
+function shapeKind(value: Json): ShapeKind {
+  if (Array.isArray(value)) return "array";
+  if (value !== null && typeof value === "object") return "object";
+  return "scalar";
+}
+
+function typeCompatible(a: Json, b: Json): boolean {
+  if (shapeKind(a) !== shapeKind(b)) return false;
+  if (shapeKind(a) !== "object") return true;
+  const ra = a as Record<string, Json>;
+  const rb = b as Record<string, Json>;
+  for (const key of Object.keys(ra)) {
+    if (key in rb && !typeCompatible(ra[key], rb[key])) return false;
+  }
+  for (const key of Object.keys(rb)) {
+    if (key in ra && !typeCompatible(ra[key], rb[key])) return false;
+  }
+  return true;
+}
+
 const mergePathAlpha = ["app", "api", "shared", "effect", "variables", "alpha"];
 const mergePath = fc.array(fc.constantFrom(...mergePathAlpha), { minLength: 1, maxLength: 3 });
 
@@ -208,12 +239,22 @@ const resolvedConfig: fc.Arbitrary<Record<string, Json>> = nullFreeConfig.filter
 
 describe("mergeBosConfigWithExtends laws", () => {
   it("associativity on the null-free domain: chain resolution is grouping-independent", () => {
-    const prop = fc.property(nullFreeConfig, nullFreeConfig, nullFreeConfig, (a, b, c) => {
+    // Type-conflicting triples are exempt (#948): a same-path conflict where
+    // exactly one side is a plain object resolves by wholesale replacement of
+    // the non-object side (child-wins), so across three overlays the
+    // replacement order decides which shape survives and the law stops holding
+    // — same documented asymmetry class as the null case below and the
+    // mergeAuthoredOverPublished exemption further down. Nulls stay in the law.
+    const prop = fc
+      .tuple(nullFreeConfig, nullFreeConfig, nullFreeConfig)
+      .filter(([a, b, c]) => typeCompatible(a, b) && typeCompatible(b, c) && typeCompatible(a, c))
+      .map(([a, b, c]) => ({ a, b, c }));
+    const law = fc.property(prop, ({ a, b, c }) => {
       const left = mergeExtends(a, mergeExtends(b, c));
       const right = mergeExtends(mergeExtends(a, b), c);
       return canon(left) === canon(right);
     });
-    expect(fc.assert(prop, { numRuns: 300 })).toBeUndefined();
+    expect(fc.assert(law, { numRuns: 300, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("associativity with nulls fails by design: parent null absorbs, child null is transparent (documented)", () => {
@@ -225,6 +266,37 @@ describe("mergeBosConfigWithExtends laws", () => {
       publish: { zod: false },
     });
     expect(canon(left)).not.toBe(canon(right));
+  });
+
+  it("associativity with shape conflicts fails by design: child non-object wins, grouping decides which shape survives (documented, #948)", () => {
+    const scalarFirst = {
+      a: { title: { ui: { api: {} } } } as Record<string, Json>,
+      b: { title: { ui: 0 } } as Record<string, Json>,
+      c: { title: { ui: {} } } as Record<string, Json>,
+    };
+    const arrayFirst = {
+      a: { title: { connectSrc: { api: [] } } } as Record<string, Json>,
+      b: { title: { connectSrc: [] } } as Record<string, Json>,
+      c: { title: { connectSrc: {} } } as Record<string, Json>,
+    };
+
+    expect(canon(mergeExtends(scalarFirst.a, scalarFirst.b))).toBe(canon({ title: { ui: 0 } }));
+    expect(canon(mergeExtends(mergeExtends(scalarFirst.a, scalarFirst.b), scalarFirst.c))).toBe(
+      canon({ title: { ui: {} } }),
+    );
+    expect(canon(mergeExtends(scalarFirst.a, mergeExtends(scalarFirst.b, scalarFirst.c)))).toBe(
+      canon({ title: { ui: { api: {} } } }),
+    );
+
+    expect(canon(mergeExtends(arrayFirst.a, arrayFirst.b))).toBe(
+      canon({ title: { connectSrc: [] } }),
+    );
+    expect(canon(mergeExtends(mergeExtends(arrayFirst.a, arrayFirst.b), arrayFirst.c))).toBe(
+      canon({ title: { connectSrc: {} } }),
+    );
+    expect(canon(mergeExtends(arrayFirst.a, mergeExtends(arrayFirst.b, arrayFirst.c)))).toBe(
+      canon({ title: { connectSrc: { api: [] } } }),
+    );
   });
 
   it("child scalar precedence at arbitrary paths", () => {
@@ -240,7 +312,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return getPath(mergeExtends(parent, child), path) === childLeaf;
       },
     );
-    expect(fc.assert(prop, { numRuns: 300 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 300, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("parent null wins: a null in the parent shadows any child value", () => {
@@ -255,7 +327,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return getPath(mergeExtends(parent, child), path) === null;
       },
     );
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("child null is transparent: the parent value stands", () => {
@@ -270,7 +342,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return getPath(mergeExtends(parent, child), path) === parentLeaf;
       },
     );
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("child null over a key the parent lacks stays absent", () => {
@@ -278,14 +350,14 @@ describe("mergeBosConfigWithExtends laws", () => {
       const merged = mergeExtends(parent, { app: null });
       return canon(merged) === canon(parent);
     });
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("idempotence on resolved configs: merging a resolved config with itself is a fixpoint", () => {
     const prop = fc.property(resolvedConfig, (config) => {
       return canon(mergeExtends(config, config)) === canon(config);
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("empty child over plugin-less parent preserves the parent", () => {
@@ -295,7 +367,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(mergeExtends(parent, {})) === canon(parent);
       },
     );
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("child digest is atomic: parent fields never half-mix in", () => {
@@ -310,7 +382,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(digest) === canon(child.digest) && !("extra" in digest) && !("pin" in digest);
       },
     );
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("app secrets/connectSrc union across extends: parent-first, complete, deduplicated", () => {
@@ -325,7 +397,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(mergedList) === canon(dedupParentFirst(parentList, childList));
       },
     );
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("union of two empty arrays stays an empty array, not a deleted key", () => {
@@ -348,7 +420,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(mergedList) === canon([...new Set(childList)] as Json[]);
       },
     );
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("plugins: child declaration replaces wholesale; parent never leaks into the cleaned list", () => {
@@ -363,7 +435,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(mergedPlugins) === canon(cleanPluginsSection(childPlugins));
       },
     );
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("empty plugin attachment objects are dropped by the sentinel cleaner (documented edge)", () => {
@@ -387,7 +459,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon((merged as Record<string, Json>).plugins) === canon({});
       },
     );
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("plugins: child without plugins inherits the parent list verbatim", () => {
@@ -400,7 +472,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon((merged as Record<string, Json>).plugins) === canon(parentPlugins);
       },
     );
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("canonical key ordering for arbitrary merged configs", () => {
@@ -411,7 +483,7 @@ describe("mergeBosConfigWithExtends laws", () => {
       const unknownKeys = keys.filter((key) => !BOS_CONFIG_ORDER.includes(key as never));
       return canon(keys) === canon([...orderedKeys, ...unknownKeys]);
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("rebuildOrderedConfig is idempotent", () => {
@@ -419,7 +491,7 @@ describe("mergeBosConfigWithExtends laws", () => {
       const once = rebuildOrderedConfig(config);
       return canon(rebuildOrderedConfig(once)) === canon(once);
     });
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 });
 
@@ -438,7 +510,7 @@ describe("resolveExtendsRef laws", () => {
     const prop = fc.property(WORD, envArb, (ref, env) => {
       return resolveExtendsRef(ref, env as "development") === ref;
     });
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("staging falls back through production", () => {
@@ -446,7 +518,7 @@ describe("resolveExtendsRef laws", () => {
       const expected = ref.staging ?? resolveExtendsRef(ref, "production");
       return resolveExtendsRef(ref, "staging") === expected;
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("precedence: env key, then production, then first defined value", () => {
@@ -458,7 +530,7 @@ describe("resolveExtendsRef laws", () => {
         undefined;
       return resolveExtendsRef(ref, env as "development") === expected;
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 });
 
@@ -526,7 +598,7 @@ describe("publish canonicalization laws (#584, #865)", () => {
       const values = collectDevelopmentValues(stripped as unknown as Json);
       return values.every((value) => !(typeof value === "string" && value.startsWith("local:")));
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("stripping is idempotent", () => {
@@ -535,7 +607,7 @@ describe("publish canonicalization laws (#584, #865)", () => {
       const twice = stripLocalDevelopmentTargets(once);
       return canon(once) === canon(twice);
     });
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("seed block never survives canonicalization", () => {
@@ -543,7 +615,7 @@ describe("publish canonicalization laws (#584, #865)", () => {
       const stripped = stripSeedConfig(config as unknown as BosConfigInput);
       return !("seed" in (stripped as Record<string, Json>));
     });
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 });
 
@@ -561,7 +633,7 @@ describe("mergeAuthoredOverPublished laws", () => {
         return getPath(overlayAuthored(pub, auth), path) === authoredLeaf;
       },
     );
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("published-only top-level keys survive the overlay", () => {
@@ -573,22 +645,70 @@ describe("mergeAuthoredOverPublished laws", () => {
       }
       return true;
     });
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("associativity under repeated overlays", () => {
-    const prop = fc.property(arbitraryConfig, arbitraryConfig, arbitraryConfig, (p, a1, a2) => {
+    // Type-conflicting triples are exempt, mirroring the documented null
+    // asymmetry below (#948): the overlay resolves a same-path conflict where
+    // exactly one side is a plain object by wholesale replacement of the
+    // non-object side (authored-wins), so with three overlays the replacement
+    // order decides which shape survives and canonicalized results stop being
+    // grouping-independent. Everything else (nulls included) stays in the law.
+    const prop = fc
+      .tuple(arbitraryConfig, arbitraryConfig, arbitraryConfig)
+      .filter(
+        ([p, a1, a2]) => typeCompatible(p, a1) && typeCompatible(a1, a2) && typeCompatible(p, a2),
+      )
+      .map(([p, a1, a2]) => ({ p, a1, a2 }));
+    const law = fc.property(prop, ({ p, a1, a2 }) => {
       const left = overlayAuthored(overlayAuthored(p, a1), a2);
       const right = overlayAuthored(p, overlayAuthored(a1, a2));
       return canon(left) === canon(right);
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(law, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
+  });
+
+  it("associativity with shape conflicts fails by design: authored non-object wins, grouping decides which shape survives (documented, #948)", () => {
+    const objectFirst = {
+      p: { domain: { api: { api: [] } } } as Record<string, Json>,
+      a1: { domain: { api: [] } } as Record<string, Json>,
+      a2: { domain: { api: {} } } as Record<string, Json>,
+    };
+    const scalarFirst = {
+      p: { extra: { connectSrc: { api: {} } } } as Record<string, Json>,
+      a1: { extra: { connectSrc: false } } as Record<string, Json>,
+      a2: { extra: { connectSrc: {} } } as Record<string, Json>,
+    };
+
+    for (const { p, a1, a2 } of [objectFirst, scalarFirst]) {
+      const left = overlayAuthored(overlayAuthored(p, a1), a2);
+      const right = overlayAuthored(p, overlayAuthored(a1, a2));
+      expect(canon(left)).not.toBe(canon(right));
+    }
+
+    expect(
+      getPath(overlayAuthored(overlayAuthored(objectFirst.p, objectFirst.a1), objectFirst.a2), [
+        "domain",
+        "api",
+      ]),
+    ).toEqual({});
+    expect(getPath(overlayAuthored(objectFirst.p, objectFirst.a1), ["domain", "api"])).toEqual([]);
+    expect(
+      getPath(overlayAuthored(overlayAuthored(scalarFirst.p, scalarFirst.a1), scalarFirst.a2), [
+        "extra",
+        "connectSrc",
+      ]),
+    ).toEqual({});
+    expect(
+      getPath(overlayAuthored(scalarFirst.p, scalarFirst.a1), ["extra", "connectSrc"]),
+    ).toEqual(false);
   });
 
   it("idempotence: overlaying a resolved snapshot with itself is a fixpoint", () => {
     const prop = fc.property(nullFreeConfig, (config) => {
       return canon(overlayAuthored(config, config)) === canon(config);
     });
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 });

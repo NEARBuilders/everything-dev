@@ -15,7 +15,8 @@
  */
 
 import { readFileSync, statSync } from "node:fs";
-import { Clock, Data, Effect, Schema } from "effect";
+import { Clock, Data, Effect, Result, Schema } from "effect";
+import type { BosEnv } from "everything-dev/config";
 import {
   CORE_UI_PLUGIN_KEY as CORE_UI_KEY,
   type ComposePayload,
@@ -37,6 +38,7 @@ import type { RuntimeConfig } from "./config";
 import { UiComposeError } from "./errors";
 import {
   FederationContainers,
+  LOCAL_CONTAINER_RECOVERY_TIMEOUT_MS,
   resolveLocalRoot,
   waitForLocalContainer,
 } from "./federation/containers";
@@ -179,13 +181,23 @@ interface CachedComposeVariant {
   staleAfter: number;
 }
 
+/** The emergency floor (#940): the most recent fully-composed variant. When
+ * the SSR container transiently disappears (a concurrent build mid-write),
+ * a compose that cannot reach it serves this instead of failing the request —
+ * an in-memory tree is immune to the dist underneath it. */
+interface CachedLastGood {
+  variant: ComposedUi;
+  savedAt: number;
+}
+
 export interface UiComposeCacheState {
   remoteManifests: Map<string, CachedManifest>;
   variants: Map<string, CachedComposeVariant>;
+  lastGood: CachedLastGood | null;
 }
 
 export function createUiComposeCacheState(): UiComposeCacheState {
-  return { remoteManifests: new Map(), variants: new Map() };
+  return { remoteManifests: new Map(), variants: new Map(), lastGood: null };
 }
 
 const runFetch = (url: string, init?: RequestInit): Promise<Response> => fetch(url, init);
@@ -446,6 +458,48 @@ function rememberVariant(
   cache.variants.set(variantKey, { variant, staleAfter });
 }
 
+/**
+ * Wait for one local source's SSR container, or recover to the last-good
+ * generation (#940): while a previous compose succeeded, an unavailable
+ * container (a concurrent build's transient wipe) serves that generation
+ * loud instead of failing the request — bounded by the recovery budget so
+ * requests never park behind bytes a build is rewriting. Without a last-good
+ * generation there is nothing to serve: the failure stays loud (cold boots
+ * keep the full wait budget).
+ */
+const waitOrLastGood = Effect.fn("waitOrLastGood")(function* (
+  entry: RemoteEntry,
+  env: BosEnv,
+  cache: UiComposeCacheState,
+) {
+  const lastGood = cache.lastGood;
+  const outcome = yield* Effect.result(
+    waitForLocalContainer(
+      entry,
+      env,
+      lastGood ? { timeoutMs: LOCAL_CONTAINER_RECOVERY_TIMEOUT_MS } : undefined,
+    ),
+  );
+  const failure = Result.match(outcome, {
+    onSuccess: () => null,
+    onFailure: (error) => error,
+  });
+  if (!failure) return null;
+  if (!lastGood) return yield* Effect.fail(failure);
+  yield* Effect.logWarning(
+    `[Compose] ${entry.name} SSR container not ready — serving the last-good generation ` +
+      `(${Math.max(0, Date.now() - lastGood.savedAt)}ms old, digest ${lastGood.variant.digest}): ` +
+      `${failure.detail ?? failure.message}`,
+  ).pipe(
+    Effect.annotateLogs({
+      remote: entry.name,
+      digest: lastGood.variant.digest,
+      recovery: "last-good",
+    }),
+  );
+  return lastGood.variant;
+});
+
 /** Variant cache identity: the structural digest plus a deployment
  * fingerprint (SSR integrity in prod; src manifest mtime AND built container
  * mtime in dev) so a code-only redeploy or dev rebuild invalidates the
@@ -493,7 +547,8 @@ export const composeUi = Effect.fn("composeUi")(function* (
     ? yield* containers.localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! })
     : core.remote!;
   if (core.localRoot) {
-    yield* waitForLocalContainer(coreEntry, config.env);
+    const recovered = yield* waitOrLastGood(coreEntry, config.env, cache);
+    if (recovered) return recovered;
   }
 
   // Every source's entry resolves BEFORE the compose session opens: the
@@ -507,17 +562,19 @@ export const composeUi = Effect.fn("composeUi")(function* (
     nonCore,
     ({ source }) =>
       source.localRoot
-        ? Effect.gen(function* () {
-            const entry = yield* containers.localUiRemoteEntry({
-              name: source.mfName,
-              localRoot: source.localRoot!,
-            });
-            yield* waitForLocalContainer(entry, config.env);
-            return entry;
-          })
+        ? containers.localUiRemoteEntry({ name: source.mfName, localRoot: source.localRoot! })
         : Effect.succeed(source.remote!),
     { concurrency: "unbounded" },
   );
+  const recoveredVariant = yield* Effect.forEach(
+    nonCore,
+    ({ source }, i) =>
+      source.localRoot
+        ? waitOrLastGood(pluginEntries[i]!, config.env, cache)
+        : Effect.succeed(null),
+    { concurrency: "unbounded" },
+  ).pipe(Effect.map((results) => results.find((result): result is ComposedUi => result !== null)));
+  if (recoveredVariant) return recoveredVariant;
   const session: CompositionSession = loader.ensureSession([
     { name: core.mfName, entry: requireSsrEntryUrl(coreEntry, config.env) },
     ...nonCore.map(({ source }, i) => ({
@@ -618,6 +675,7 @@ export const composeUi = Effect.fn("composeUi")(function* (
     variant,
     isDev ? now + DEV_VARIANT_TTL_MS : Number.POSITIVE_INFINITY,
   );
+  cache.lastGood = { variant, savedAt: now };
   enforceCacheLimit(cache.variants, MAX_COMPOSE_VARIANTS);
   return variant;
 });

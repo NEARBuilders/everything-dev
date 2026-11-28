@@ -4,6 +4,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Data } from "effect";
 import { parse } from "yaml";
+import { BUILD_REPORT_FILENAME } from "../../infra/filenames";
 import { run } from "../../utils/run";
 
 export interface WorkspaceMember {
@@ -445,7 +446,7 @@ function distOracle(memberDir: string): string | null {
     return manifest.main;
   }
 
-  const reportPath = join(memberDir, "dist", "build-report.json");
+  const reportPath = join(memberDir, "dist", BUILD_REPORT_FILENAME);
   if (existsSync(reportPath)) {
     const report = readManifest(reportPath);
     if (report && typeof report.entry === "string" && report.entry) {

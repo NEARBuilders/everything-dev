@@ -3,13 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Schema } from "effect";
-import { resolveApp, toConfigInput } from "../../descriptor/resolve";
+import { LOCAL_PREFIX, resolveApp, toConfigInput } from "../../descriptor/resolve";
 import { type AppDescriptor, AppDescriptorSchema } from "../../descriptor/schema";
 import type { BosConfig, BosConfigInput, BosPluginRef } from "../../types";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
 import { type BosEnv, bosConfigMerger, isPlainObject, resolveExtendsRef } from "./merge";
 
-export const LOCAL_PREFIX = "local:";
+export { LOCAL_PREFIX };
 export const MISSING_CONFIG_MESSAGE = "No config found (bos.app.ts or bos.config.json)";
 
 export const DEV_OVERLAY_FILENAME = "bos.dev.ts";

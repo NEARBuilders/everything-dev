@@ -1,0 +1,137 @@
+# Issue reconciliation sweep (#957 part 2) — a daily, read-only audit that
+# keeps the tracker honest between human triage sessions: merged PRs since the
+# previous successful run whose bodies carry closing keywords against an issue
+# that is still open, open issues whose stated `Blocked by:` blockers are
+# closed, and the `needs-triage` backlog age. The run summary IS the report;
+# nothing is written to issues unless a workflow_dispatch input opts in
+# (`auto-close` uses the credit-comment pattern the manual sweeps used on
+# #478/#473/#739/#920). The sweep window is the previous successful run's
+# timestamp, so a cancelled run only widens the next one — the report is
+# self-healing. No clone of packages, no install: checkout + node scripts.
+name: Issue reconcile
+
+on:
+  schedule:
+    # 21:23 UTC daily — off the top-of-hour runner-queue surge.
+    - cron: "23 21 * * *"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Override the sweep window start (ISO timestamp)"
+        required: false
+        type: string
+      lookback-days:
+        description: "Window when no previous successful run exists"
+        required: false
+        default: "14"
+        type: string
+      auto-close:
+        description: "Close fixed-but-open issues with a credit comment (off by default)"
+        required: false
+        default: false
+        type: boolean
+      tracking-issue:
+        description: "Issue number to post the report on (empty = none)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: read
+  # The window resolver reads the previous run's timestamp.
+  actions: read
+
+jobs:
+  reconcile:
+    name: Sweep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      report: ${{ steps.report.outputs.report }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Resolve sweep window
+        id: window
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISPATCH_SINCE: ${{ inputs.since }}
+          LOOKBACK_DAYS: ${{ inputs.lookback-days }}
+        run: |
+          set -euo pipefail
+          if [ -n "$DISPATCH_SINCE" ]; then
+            echo "since=$DISPATCH_SINCE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PREV="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/issue-reconcile.yml/runs?status=success&per_page=1" --jq '.workflow_runs[0].created_at' 2>/dev/null || true)"
+          if [ -n "$PREV" ] && [ "$PREV" != "null" ]; then
+            echo "since=$PREV" >> "$GITHUB_OUTPUT"
+          else
+            echo "since=$(date -u -d "${LOOKBACK_DAYS:-14} days ago" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sweep (read-only report)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/issue-reconcile.mjs \
+            --since "${{ steps.window.outputs.since }}" \
+            --out "$RUNNER_TEMP/reconcile.json"
+
+      - name: Stage report for the opt-in writes job
+        if: inputs.auto-close == true || inputs.tracking-issue != ''
+        id: report
+        run: |
+          {
+            echo "report<<REPORT_BASE64_EOF"
+            base64 -w0 "$RUNNER_TEMP/reconcile.json"
+            echo
+            echo "REPORT_BASE64_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  enforce:
+    name: Opt-in writes
+    needs: [reconcile]
+    if: inputs.auto-close == true || inputs.tracking-issue != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Apply opt-in writes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT_B64: ${{ needs.reconcile.outputs.report }}
+          TRACKING_ISSUE: ${{ inputs.tracking-issue }}
+          AUTO_CLOSE: ${{ inputs.auto-close }}
+        run: |
+          set -euo pipefail
+          echo "$REPORT_B64" | base64 -d > "$RUNNER_TEMP/reconcile.json"
+          ARGS=(--apply "$RUNNER_TEMP/reconcile.json")
+          if [ -n "$TRACKING_ISSUE" ]; then
+            ARGS+=(--tracking-issue "$TRACKING_ISSUE")
+          fi
+          if [ "$AUTO_CLOSE" = "true" ]; then
+            ARGS+=(--auto-close)
+          fi
+          node scripts/issue-reconcile.mjs "${ARGS[@]}"

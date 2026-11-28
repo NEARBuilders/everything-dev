@@ -15,6 +15,6 @@ pre-commit:
 pre-push:
   commands:
     typecheck:
-      run: pnpm run typecheck
+      run: node scripts/ensure-effect-toolchain.mjs && pnpm run typecheck
     effect-lint:
-      run: pnpm run lint:effect
+      run: node scripts/ensure-effect-toolchain.mjs && pnpm run lint:effect

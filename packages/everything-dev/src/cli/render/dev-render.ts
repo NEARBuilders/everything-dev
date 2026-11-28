@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { Layer } from "effect";
+import { DEFAULT_HOST_PORT } from "../../infra/ports";
 import { stripAnsi } from "../../services/dev/logs";
 import {
   type DevLogLine,
@@ -196,7 +197,7 @@ const renderBanner = (description: string): string[] => [
 ];
 
 const getHostPort = (processes: DevProcessState[]): number =>
-  processes.find((p) => p.name === "host")?.port || 3000;
+  processes.find((p) => p.name === "host")?.port || DEFAULT_HOST_PORT;
 
 export function renderDevLines(state: DevSessionState): string[] {
   const rows = mergePluginUiRows(state.processes);

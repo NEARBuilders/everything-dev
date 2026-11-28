@@ -27,6 +27,7 @@ import { computeSnapshotHash } from "../../utils/snapshot-hash";
 import { listWorkspaceSubtreeFiles } from "../../utils/workspace-subtree";
 import { computeSriHash } from "../deploy/integrity";
 import { parseRuntimeRef } from "../registry/keys";
+import { LOCAL_PREFIX } from "../resolution/load";
 import { resolveExtendsRef } from "../resolution/merge";
 import type { ResolutionIo } from "../resolution/session";
 import { type WalkLink, walkExtendsChain } from "../resolution/session";
@@ -774,8 +775,6 @@ export function buildImportReport(
   lines.push("");
   return lines.join("\n");
 }
-
-const LOCAL_PREFIX = "local:";
 
 export interface LocalWorkspaceSlot {
   /** config address of the declaring entry, e.g. `app.auth` or `plugins.ai` */

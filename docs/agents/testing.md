@@ -46,6 +46,10 @@ The matrix runs exactly where a decision is made — never everywhere:
 | **T2 gate** | `release.yml` before every npm publish | unit + start regression (parallel planes — `tier: release`) | ~15–20 min |
 | **T2 nightly** | nightly on the main tip (`backcompat-nightly.yml`) via `regression-full.yml` (`tier: nightly`) | the full matrix: unit + dev + start + backcompat + framework, parallel planes (backcompat mode currently broken at boot — see AGENTS.md) | ~25 min |
 
+`pnpm run setup` bootstraps a fresh checkout to T0-green in one command — install,
+prepare (self-healing toolchain + hooks), generated types, and a fast verify —
+and is a fast no-op when the checkout already is (#958).
+
 The gate proves the production artifact (start) and the published-chain
 contract (backcompat). The dev and framework planes pin the `bos dev`
 machinery (source-mode dev server, process death) — app-code changes cannot
@@ -79,6 +83,19 @@ first: state transitions and derived computations belong in renderer-free
 modules with zero React imports (ADR 0050 §3) — that is what makes the bottom
 layer possible. Don't mass-delete existing `*.test.tsx` files; migrate them
 opportunistically as their features are touched.
+
+## Test value rules — property tests run on recorded seeds
+
+Property-based tests (`fast-check`) never rely on a random seed in CI: every
+`fc.assert` call in a CI-run path passes a pinned `seed` constant, so a given
+commit always tests the same cases (`merge-properties.test.ts` is the model —
+a random seed per run flaked clean `main` on #948 by drawing a conflict case).
+Any counterexample a seed uncovers becomes a pinned deterministic regression
+test in the same file: it must survive every later run, not hide behind a seed
+bump. Exploratory random-seed runs are a deliberate local action, never the CI
+default; an intentional exception carries a `fc-random: allow` comment on the
+call site. The `property-seed-pin.test.ts` drift guard fails any CI-run
+`fc.assert` without a `seed` option (see that file for the exact rule).
 
 ## What to assume the parent covers — and what to cover here
 
