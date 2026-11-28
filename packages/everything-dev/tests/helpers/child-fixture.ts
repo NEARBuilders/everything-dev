@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -383,6 +383,32 @@ interface DevHandle {
  * escalation. Evidence is data collected across the scope's lifetime; the
  * release finalizer writes the quit verdict before the value is returned.
  */
+/**
+ * The boot range is reserved for init boot tests; a listener left by an
+ * earlier crashed run answers probes and poisons the quit verdict (the
+ * zombie from the deleted fresh-init-dev run did exactly that). Best-effort
+ * clear before spawning — same hygiene as the framework suite's port blocks.
+ */
+const killStaleBootPorts = (): void => {
+  for (const port of Object.values(BOOT_PORTS)) {
+    try {
+      const result = spawnSync("lsof", ["-ti", `:${port}`], { encoding: "utf-8" });
+      for (const pid of (result.stdout ?? "").split("\n")) {
+        const trimmed = pid.trim();
+        if (/^\d+$/.test(trimmed)) {
+          try {
+            process.kill(Number(trimmed), "SIGKILL");
+          } catch {
+            // already gone
+          }
+        }
+      }
+    } catch {
+      // lsof unavailable — nothing to clear
+    }
+  }
+};
+
 export const bootChild = (
   child: Scaffolded,
   ports: typeof BOOT_PORTS = BOOT_PORTS,
@@ -411,6 +437,7 @@ export const bootChild = (
 
     yield* Effect.acquireRelease(
       Effect.gen(function* () {
+        killStaleBootPorts();
         const handle: DevHandle = {
           child: spawn(childBos(child.dir), devArgs, {
             cwd: child.dir,
@@ -500,18 +527,6 @@ export const KNOWN_DEFECTS: Array<{
   reason: string;
   detailMatches?: RegExp;
 }> = [
-  {
-    // simple × types gen: inherited plugins mount into `_authenticated`, which
-    // the simple level strips — runtime-map.ts throws "mount authenticated is
-    // not declared by any source" and every simple child fails `bos types gen`
-    // (and composition resolution — so the boot chain stays blocked too).
-    // Fix shape: omit inherited-plugin routes whose mount is absent in this
-    // runtime, with a warning. (#935)
-    level: "simple",
-    gates: ["types", "migrations", "typecheck", "build", "upgrade-check", "boot"],
-    reason: "inherited ai-plugin mount into stripped _authenticated (runtime-map.ts:276)",
-    detailMatches: /not declared by any source/,
-  },
   {
     // ui typecheck: the deployed auth plugin manifest carries no
     // `additionalExports`, so remote children keep the `Auth = any` stub and
