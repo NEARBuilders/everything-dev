@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -246,16 +246,37 @@ describe("publishToFastKv publish.auth guard", () => {
     });
     submitRegistryWriteDelegatedMock.mockResolvedValue({ success: true, txHash: "tx_test" });
 
-    writeFileSync(join(configDir, "bos.config.json"), JSON.stringify(bosConfig, null, 2));
+    writeFileSync(
+      join(configDir, "bos.app.ts"),
+      `export default ${JSON.stringify(
+        {
+          name: "everything.dev",
+          account: bosConfig.account,
+          domain: bosConfig.domain,
+          host: { path: "host" },
+          ui: { path: "ui" },
+          api: { path: "api" },
+        },
+        null,
+        2,
+      )};\n`,
+    );
 
     fetchBosConfigFromFastKvMock.mockReset();
     // Behavior-keyed: every registry read misses until the relay submit has
-    // happened, then the read-back serves the raw on-disk config for the
+    // happened, then the read-back serves exactly the submitted bytes for the
     // confirm legs — another pre-submit train read must not re-choreograph
     // this mock.
-    fetchBosConfigFromFastKvMock.mockImplementation(async () => {
+    fetchBosConfigFromFastKvMock.mockImplementation(async (ref: string) => {
       if (submitRegistryWriteDelegatedMock.mock.calls.length === 0) return null;
-      return JSON.parse(readFileSync(join(configDir, "bos.config.json"), "utf-8")) as BosConfig;
+      if (!ref.includes("everything.dev")) return null;
+      const submitted = (
+        submitRegistryWriteDelegatedMock.mock.calls[0][0] as {
+          args: Record<string, string>;
+        }
+      ).args;
+      const configKey = "apps/dev.everything.near/everything.dev/bos.config.json";
+      return JSON.parse(submitted[configKey]) as BosConfig;
     });
 
     const result = await publishToFastKv({

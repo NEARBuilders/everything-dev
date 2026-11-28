@@ -12,19 +12,8 @@ import {
 import { readWorkspaceCatalog, writeWorkspaceCatalog } from "./catalog";
 import { findWorkspaceRoot } from "./workspace";
 
-async function loadBosConfigForSharedDeps(
-  configDir: string,
-  bosConfigPath: string,
-): Promise<unknown> {
-  const appDescriptorPath = join(configDir, "bos.app.ts");
-  if (existsSync(appDescriptorPath)) {
-    return loadAppDescriptorConfig(appDescriptorPath);
-  }
-  if (existsSync(bosConfigPath)) {
-    return JSON.parse(readFileSync(bosConfigPath, "utf-8"));
-  }
-
-  return JSON.parse(readFileSync(bosConfigPath, "utf-8"));
+async function loadBosConfigForSharedDeps(configDir: string): Promise<unknown> {
+  return loadAppDescriptorConfig(join(configDir, "bos.app.ts"));
 }
 
 interface SharedDepRef {
@@ -216,13 +205,11 @@ export async function syncResolvedSharedDeps(opts: {
   env?: BosEnv;
   extendsChain?: string[];
 }): Promise<SharedDepsSyncResult> {
-  const bosConfigPath = join(opts.configDir, "bos.config.json");
   const resolvedConfigPath = join(opts.configDir, ".bos", "bos.resolved-config.json");
   const workspaceRoot = findWorkspaceRoot(opts.configDir)?.dir ?? opts.configDir;
   const generatedPath = join(opts.configDir, ".bos", "generated", "shared-deps.json");
 
-  const bosConfig: unknown =
-    opts.bosConfig ?? (await loadBosConfigForSharedDeps(opts.configDir, bosConfigPath));
+  const bosConfig: unknown = opts.bosConfig ?? (await loadBosConfigForSharedDeps(opts.configDir));
   if (!isPlainObject(bosConfig)) {
     throw new Error("the authored config must be an object");
   }

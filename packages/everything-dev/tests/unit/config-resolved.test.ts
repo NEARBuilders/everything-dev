@@ -241,23 +241,19 @@ describe("readBosConfigForBuild", () => {
     expect((result.shared as Record<string, unknown>).ui).toBeDefined();
   });
 
-  it("falls back to bos.config.json when resolved config absent", async () => {
+  it("refuses the legacy bos.config.json when resolved config absent (#920)", async () => {
     const emptyDir = mkdtempSync(join(tmpdir(), "bos-build-fallback-"));
     try {
       writeFileSync(
         join(emptyDir, "bos.config.json"),
         JSON.stringify({
           account: "fallback.near",
-          app: {
-            host: { development: "local:host", production: "https://h.com" },
-            ui: { name: "ui", development: "local:ui", production: "https://u.com" },
-            api: { name: "api", development: "local:api", production: "https://a.com" },
-          },
         }),
       );
 
-      const result = await readBosConfigForBuild(emptyDir);
-      expect(result.account).toBe("fallback.near");
+      await expect(readBosConfigForBuild(emptyDir)).rejects.toThrow(
+        /bos\.config\.json is no longer a supported authored-config form/,
+      );
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
     }
@@ -287,6 +283,85 @@ describe("readBosConfigForBuild", () => {
   });
 });
 
+const PIPELINE_KEYS = new Set(["production", "integrity", "ssr", "ssrIntegrity", "digest"]);
+
+function splitEntry(
+  entry: Record<string, unknown>,
+): [Record<string, unknown>, Record<string, unknown>] {
+  const child: Record<string, unknown> = {};
+  const parent: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(entry)) {
+    if (PIPELINE_KEYS.has(key)) {
+      parent[key] = value;
+    } else if (key === "development" && typeof value === "string" && value.startsWith("local:")) {
+      child.path = value.slice("local:".length);
+    } else if (key === "ui" && typeof value === "object" && value !== null) {
+      const ui = value as Record<string, unknown>;
+      const childUi: Record<string, unknown> = {};
+      for (const [uiKey, uiValue] of Object.entries(ui)) {
+        if (PIPELINE_KEYS.has(uiKey) && uiKey !== "integrity" && uiKey !== "digest") {
+          parent.ui = { ...(parent.ui as Record<string, unknown>), [uiKey]: uiValue };
+        } else {
+          childUi[uiKey] = uiValue;
+        }
+      }
+      if (Object.keys(childUi).length > 0) child.ui = childUi;
+    } else {
+      child[key] = value;
+    }
+  }
+  return [child, parent];
+}
+
+function writeAuthoredTree(dir: string, config: Record<string, unknown>): void {
+  const descriptor: Record<string, unknown> = {
+    name: "test-app",
+    extends: "./provider.json",
+  };
+  const provider: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (key === "app") {
+      const app = value as Record<string, Record<string, unknown>>;
+      const parentApp: Record<string, unknown> = {};
+      for (const [slot, entry] of Object.entries(app)) {
+        const [child, parent] = splitEntry(entry);
+        if (slot !== "auth" && typeof child.name === "string") {
+          parent.name = child.name;
+          delete child.name;
+        }
+        if (Object.keys(child).length > 0) descriptor[slot] = child;
+        if (Object.keys(parent).length > 0) parentApp[slot] = parent;
+      }
+      if (Object.keys(parentApp).length > 0) provider.app = parentApp;
+    } else if (key === "plugins") {
+      const plugins = value as Record<string, Record<string, unknown>>;
+      const childPlugins: Record<string, unknown> = {};
+      const parentPlugins: Record<string, unknown> = {};
+      for (const [name, entry] of Object.entries(plugins)) {
+        const [child, parent] = splitEntry(entry);
+        if (
+          Object.keys(parent).length > 0 &&
+          Object.keys(child).length > 0 &&
+          !("extends" in entry)
+        ) {
+          child.extends = `./provider.json#plugins.${name}`;
+        }
+        if (Object.keys(child).length > 0) childPlugins[name] = child;
+        if (Object.keys(parent).length > 0) parentPlugins[name] = parent;
+      }
+      if (Object.keys(childPlugins).length > 0) descriptor.plugins = childPlugins;
+      if (Object.keys(parentPlugins).length > 0) provider.plugins = parentPlugins;
+    } else {
+      descriptor[key] = value;
+    }
+  }
+  writeFileSync(
+    join(dir, "bos.app.ts"),
+    `export default ${JSON.stringify(descriptor, null, 2)};\n`,
+  );
+  writeFileSync(join(dir, "provider.json"), `${JSON.stringify(provider, null, 2)}\n`);
+}
+
 describe("loadConfig plugin runtime filtering", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -296,38 +371,31 @@ describe("loadConfig plugin runtime filtering", () => {
     const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
 
     try {
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            plugins: {
-              example: {
-                development: "local:plugins/example",
-              },
-            },
-            app: {
-              host: {
-                development: "http://localhost:3000",
-                production: "https://host.example.com",
-              },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.example.com",
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.example.com",
-              },
-            },
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        plugins: {
+          example: {
+            development: "local:plugins/example",
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+        app: {
+          host: {
+            development: "http://localhost:3000",
+            production: "https://host.example.com",
+          },
+          ui: {
+            name: "ui",
+            development: "http://localhost:3003",
+            production: "https://ui.example.com",
+          },
+          api: {
+            name: "api",
+            development: "http://localhost:3001",
+            production: "https://api.example.com",
+          },
+        },
+      });
 
       const session = await openResolution({ cwd: testDir });
 
@@ -342,38 +410,31 @@ describe("loadConfig plugin runtime filtering", () => {
     const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
 
     try {
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            plugins: {
-              example: {
-                production: "https://example.example.com",
-              },
-            },
-            app: {
-              host: {
-                development: "http://localhost:3000",
-                production: "https://host.example.com",
-              },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.example.com",
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.example.com",
-              },
-            },
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        plugins: {
+          example: {
+            production: "https://example.example.com",
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+        app: {
+          host: {
+            development: "http://localhost:3000",
+            production: "https://host.example.com",
+          },
+          ui: {
+            name: "ui",
+            development: "http://localhost:3003",
+            production: "https://ui.example.com",
+          },
+          api: {
+            name: "api",
+            development: "http://localhost:3001",
+            production: "https://api.example.com",
+          },
+        },
+      });
 
       const session = await openResolution({ cwd: testDir });
 
@@ -391,39 +452,32 @@ describe("loadConfig plugin runtime filtering", () => {
     const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
 
     try {
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            plugins: {
-              example: {
-                development: "local:plugins/example",
-                production: "https://example.example.com",
-              },
-            },
-            app: {
-              host: {
-                development: "http://localhost:3000",
-                production: "https://host.example.com",
-              },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.example.com",
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.example.com",
-              },
-            },
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        plugins: {
+          example: {
+            development: "local:plugins/example",
+            production: "https://example.example.com",
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+        app: {
+          host: {
+            development: "http://localhost:3000",
+            production: "https://host.example.com",
+          },
+          ui: {
+            name: "ui",
+            development: "http://localhost:3003",
+            production: "https://ui.example.com",
+          },
+          api: {
+            name: "api",
+            development: "http://localhost:3001",
+            production: "https://api.example.com",
+          },
+        },
+      });
 
       const session = await openResolution({ cwd: testDir });
 
@@ -441,39 +495,32 @@ describe("loadConfig plugin runtime filtering", () => {
     const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
 
     try {
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            plugins: {
-              example: {
-                extends: "./missing-provider/bos.config.json",
-                production: "https://example.example.com",
-              },
-            },
-            app: {
-              host: {
-                development: "http://localhost:3000",
-                production: "https://host.example.com",
-              },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.example.com",
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.example.com",
-              },
-            },
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        plugins: {
+          example: {
+            extends: "./missing-provider/bos.config.json",
+            production: "https://example.example.com",
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+        app: {
+          host: {
+            development: "http://localhost:3000",
+            production: "https://host.example.com",
+          },
+          ui: {
+            name: "ui",
+            development: "http://localhost:3003",
+            production: "https://ui.example.com",
+          },
+          api: {
+            name: "api",
+            development: "http://localhost:3001",
+            production: "https://api.example.com",
+          },
+        },
+      });
 
       await expect(openResolution({ cwd: testDir })).rejects.toThrow(
         "missing-provider/bos.config.json",
@@ -489,40 +536,33 @@ describe("loadConfig plugin runtime filtering", () => {
     try {
       const localPluginDir = join(testDir, "plugins", "example");
       mkdirSync(localPluginDir, { recursive: true });
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            plugins: {
-              example: {
-                extends: "./missing-provider/bos.config.json",
-                development: "local:plugins/example",
-                production: "https://example.example.com",
-              },
-            },
-            app: {
-              host: {
-                development: "http://localhost:3000",
-                production: "https://host.example.com",
-              },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.example.com",
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.example.com",
-              },
-            },
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        plugins: {
+          example: {
+            extends: "./missing-provider/bos.config.json",
+            development: "local:plugins/example",
+            production: "https://example.example.com",
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+        app: {
+          host: {
+            development: "http://localhost:3000",
+            production: "https://host.example.com",
+          },
+          ui: {
+            name: "ui",
+            development: "http://localhost:3003",
+            production: "https://ui.example.com",
+          },
+          api: {
+            name: "api",
+            development: "http://localhost:3001",
+            production: "https://api.example.com",
+          },
+        },
+      });
       writeFileSync(join(localPluginDir, "package.json"), '{"name":"example"}\n');
 
       const session = await openResolution({ cwd: testDir });
@@ -538,72 +578,65 @@ describe("loadConfig plugin runtime filtering", () => {
     const testDir = mkdtempSync(join(tmpdir(), "bos-config-nested-variables-"));
 
     try {
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            app: {
-              host: {
-                development: "http://localhost:3000",
-                production: "https://host.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        app: {
+          host: {
+            development: "http://localhost:3000",
+            production: "https://host.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+          },
+          ui: {
+            name: "ui",
+            development: "http://localhost:3003",
+            production: "https://ui.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+          },
+          api: {
+            name: "api",
+            development: "http://localhost:3001",
+            production: "https://api.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+          },
+          auth: {
+            name: "auth",
+            production: "https://auth.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+            variables: {
+              baseUrl: "https://auth.everything.near",
+              trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
+              passkey: {
+                rpID: "everything.dev",
+                rpName: "Better NEAR Auth",
               },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-              },
-              auth: {
-                name: "auth",
-                production: "https://auth.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-                variables: {
-                  baseUrl: "https://auth.everything.near",
-                  trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
-                  passkey: {
-                    rpID: "everything.dev",
-                    rpName: "Better NEAR Auth",
-                  },
-                  siwn: {
-                    recipients: {
-                      mainnet: "auth.everything.near",
-                      testnet: "dev.allthethings.testnet",
-                    },
-                    relayer: {
-                      enabled: true,
-                      retries: 3,
-                    },
-                  },
+              siwn: {
+                recipients: {
+                  mainnet: "auth.everything.near",
+                  testnet: "dev.allthethings.testnet",
                 },
-              },
-            },
-            plugins: {
-              example: {
-                production: "https://example.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-                variables: {
-                  sections: ["profile", "security"],
-                  featureFlags: {
-                    passkeys: true,
-                    maxSessions: 5,
-                  },
+                relayer: {
+                  enabled: true,
+                  retries: 3,
                 },
               },
             },
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+        plugins: {
+          example: {
+            production: "https://example.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+            variables: {
+              sections: ["profile", "security"],
+              featureFlags: {
+                passkeys: true,
+                maxSessions: 5,
+              },
+            },
+          },
+        },
+      });
 
       const session = await openResolution({ cwd: testDir, env: "production" });
 
@@ -644,39 +677,32 @@ describe("loadConfig plugin runtime filtering", () => {
       mkdirSync(localPluginDir, { recursive: true });
       writeFileSync(join(localPluginDir, "package.json"), '{"name":"example"}\n');
 
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            plugins: {
-              example: {
-                development: "local:plugins/example",
-                production: "https://example.example.com",
-              },
-            },
-            app: {
-              host: {
-                development: "http://localhost:3000",
-                production: "https://host.example.com",
-              },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.example.com",
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.example.com",
-              },
-            },
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        plugins: {
+          example: {
+            development: "local:plugins/example",
+            production: "https://example.example.com",
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+        app: {
+          host: {
+            development: "http://localhost:3000",
+            production: "https://host.example.com",
+          },
+          ui: {
+            name: "ui",
+            development: "http://localhost:3003",
+            production: "https://ui.example.com",
+          },
+          api: {
+            name: "api",
+            development: "http://localhost:3001",
+            production: "https://api.example.com",
+          },
+        },
+      });
 
       const session = await openResolution({ cwd: testDir, remotePlugins: ["example"] });
 
@@ -700,39 +726,32 @@ describe("loadConfig plugin runtime filtering", () => {
       mkdirSync(localPluginDir, { recursive: true });
       writeFileSync(join(localPluginDir, "package.json"), '{"name":"example"}\n');
 
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            plugins: {
-              example: {
-                development: "local:plugins/example",
-                production: "https://example.example.com",
-              },
-            },
-            app: {
-              host: {
-                development: "http://localhost:3000",
-                production: "https://host.example.com",
-              },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.example.com",
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.example.com",
-              },
-            },
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        plugins: {
+          example: {
+            development: "local:plugins/example",
+            production: "https://example.example.com",
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+        app: {
+          host: {
+            development: "http://localhost:3000",
+            production: "https://host.example.com",
+          },
+          ui: {
+            name: "ui",
+            development: "http://localhost:3003",
+            production: "https://ui.example.com",
+          },
+          api: {
+            name: "api",
+            development: "http://localhost:3001",
+            production: "https://api.example.com",
+          },
+        },
+      });
 
       const session = await openResolution({ cwd: testDir });
 
@@ -748,49 +767,42 @@ describe("loadConfig plugin runtime filtering", () => {
     const testDir = mkdtempSync(join(tmpdir(), "bos-config-auth-mirror-"));
 
     try {
-      writeFileSync(
-        join(testDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            app: {
-              host: {
-                development: "local:host",
-                production: "https://host.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-              },
-              ui: {
-                name: "ui",
-                development: "local:ui",
-                production: "https://ui.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-              },
-              api: {
-                name: "api",
-                development: "local:api",
-                production: "https://api.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-              },
-              auth: {
-                name: "auth",
-                development: "local:plugins/auth",
-                production: "https://auth.example.com",
-                digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-                ui: {
-                  name: "_everything_dev_auth_plugin",
-                  development: "local:plugins/auth/ui",
-                  production: "https://auth-ui.example.com",
-                  digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
-                },
-              },
-            },
-            plugins: {},
+      writeAuthoredTree(testDir, {
+        account: "test.near",
+        domain: "test.dev",
+        app: {
+          host: {
+            development: "local:host",
+            production: "https://host.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
           },
-          null,
-          2,
-        )}\n`,
-      );
+          ui: {
+            name: "ui",
+            development: "local:ui",
+            production: "https://ui.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+          },
+          api: {
+            name: "api",
+            development: "local:api",
+            production: "https://api.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+          },
+          auth: {
+            name: "auth",
+            development: "local:plugins/auth",
+            production: "https://auth.example.com",
+            digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+            ui: {
+              name: "_everything_dev_auth_plugin",
+              development: "local:plugins/auth/ui",
+              production: "https://auth-ui.example.com",
+              digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+            },
+          },
+        },
+        plugins: {},
+      });
 
       const session = await openResolution({ cwd: testDir, env: "production" });
 
@@ -815,37 +827,23 @@ describe("local vs resolved config loading", () => {
       mkdirSync(parentDir, { recursive: true });
       mkdirSync(childDir, { recursive: true });
 
-      writeFileSync(
-        join(parentDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "parent.near",
-            app: {
-              host: { development: "local:host", production: "https://host.parent.dev" },
-              ui: { name: "ui", development: "local:ui", production: "https://ui.parent.dev" },
-              api: { name: "api", development: "local:api", production: "https://api.parent.dev" },
-              auth: { development: "local:plugins/auth", production: "https://auth.parent.dev" },
-            },
-          },
-          null,
-          2,
-        )}\n`,
-      );
-      writeFileSync(
-        join(childDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "child.near",
-            extends: "../parent/bos.config.json",
-            app: {
-              ui: { name: "ui", development: "local:ui" },
-              api: { name: "api", development: "local:api" },
-            },
-          },
-          null,
-          2,
-        )}\n`,
-      );
+      writeAuthoredTree(parentDir, {
+        account: "parent.near",
+        app: {
+          host: { development: "local:host", production: "https://host.parent.dev" },
+          ui: { name: "ui", development: "local:ui", production: "https://ui.parent.dev" },
+          api: { name: "api", development: "local:api", production: "https://api.parent.dev" },
+          auth: { development: "local:plugins/auth", production: "https://auth.parent.dev" },
+        },
+      });
+      writeAuthoredTree(childDir, {
+        account: "child.near",
+        extends: "../parent/bos.app.ts",
+        app: {
+          ui: { name: "ui", development: "local:ui" },
+          api: { name: "api", development: "local:api" },
+        },
+      });
 
       const local = await readAuthoredConfigInput(childDir);
       const resolved = await openResolution({ cwd: childDir });

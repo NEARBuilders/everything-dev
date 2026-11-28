@@ -62,22 +62,26 @@ describe("bos.app.ts materialization (loadAppDescriptorConfig)", () => {
 });
 
 describe("bos.app.ts resolution parity with bos.config.json", () => {
-  it("a TS-authored child resolves identically to the equivalent JSON child", async () => {
+  it("a TS-authored child resolves; the equivalent JSON child is refused loudly (#920)", async () => {
     const ts = await openResolution({
       cwd: join(fixtures, "ts-child"),
       env: "development",
     });
-    const json = await openResolution({
-      cwd: join(fixtures, "json-child"),
-      env: "development",
-    });
     expect(ts).not.toBeNull();
-    expect(json).not.toBeNull();
-    // same resolved config…
-    expect(ts!.config).toEqual(json!.config);
-    // …same runtime projection (minus the load-source path)
     expect(ts!.path).toBe(join(fixtures, "ts-child", "bos.app.ts"));
-    expect(json!.path).toBe(join(fixtures, "json-child", "bos.config.json"));
+    expect(ts!.config.account).toBe("child.near");
+    expect(ts!.config.domain).toBe("child.near");
+    expect(ts!.config.app?.auth).toMatchObject({
+      development: "local:plugins/auth",
+      name: "@everything-dev/auth-plugin",
+    });
+
+    await expect(
+      openResolution({
+        cwd: join(fixtures, "json-child"),
+        env: "development",
+      }),
+    ).rejects.toThrow(/bos\.config\.json is no longer a supported authored-config form/);
   });
 
   it("prefers the authored bos.app.ts when both forms coexist", async () => {

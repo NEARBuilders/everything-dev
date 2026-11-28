@@ -9,22 +9,24 @@ import { syncResolvedSharedDeps } from "../../src/services/workspace/shared-deps
 import type { BosConfig } from "../../src/types";
 
 const VALID_CONFIG = {
+  name: "test-app",
   account: "test.near",
   domain: "test.dev",
-  app: {
-    host: { development: "http://localhost:3000", production: "https://host.test.dev" },
-    ui: { name: "ui", development: "http://localhost:3003", production: "https://ui.test.dev" },
-    api: { name: "api", development: "http://localhost:3001", production: "https://api.test.dev" },
-    auth: {
-      name: "auth",
-      development: "local:plugins/auth",
-      production: "https://auth.test.dev",
-      shared: {
-        "better-auth": { version: "1.6.9", singleton: true },
-        "better-near-auth": { version: "1.5.0", singleton: true },
-      },
+  host: { development: "http://localhost:3000" },
+  ui: { development: "http://localhost:3003" },
+  api: { development: "http://localhost:3001" },
+  auth: {
+    name: "auth",
+    path: "plugins/auth",
+    shared: {
+      "better-auth": { version: "1.6.9", singleton: true },
+      "better-near-auth": { version: "1.5.0", singleton: true },
     },
   },
+};
+
+const writeAuthoredConfig = (dir: string, config: Record<string, unknown>): void => {
+  writeFileSync(join(dir, "bos.app.ts"), `export default ${JSON.stringify(config, null, 2)};\n`);
 };
 
 const CATALOG = {
@@ -39,7 +41,7 @@ describe("shared sync resolved config", () => {
 
   beforeAll(() => {
     testDir = mkdtempSync(join(tmpdir(), "bos-shared-sync-"));
-    writeFileSync(join(testDir, "bos.config.json"), `${JSON.stringify(VALID_CONFIG, null, 2)}\n`);
+    writeAuthoredConfig(testDir, VALID_CONFIG);
     writeFileSync(
       join(testDir, "package.json"),
       `${JSON.stringify(
@@ -61,8 +63,8 @@ describe("shared sync resolved config", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("catalog->bos mode writes to .bos/bos.resolved-config.json, not bos.config.json", async () => {
-    const beforeBos = readFileSync(join(testDir, "bos.config.json"), "utf-8");
+  it("catalog->bos mode writes to .bos/bos.resolved-config.json, not bos.app.ts", async () => {
+    const beforeBos = readFileSync(join(testDir, "bos.app.ts"), "utf-8");
 
     const result = await syncResolvedSharedDeps({
       configDir: testDir,
@@ -71,7 +73,7 @@ describe("shared sync resolved config", () => {
 
     expect(result.mode).toBe("catalog->bos");
 
-    const afterBos = readFileSync(join(testDir, "bos.config.json"), "utf-8");
+    const afterBos = readFileSync(join(testDir, "bos.app.ts"), "utf-8");
     expect(afterBos).toBe(beforeBos);
 
     const resolvedPath = getResolvedConfigPath(testDir);
@@ -83,13 +85,10 @@ describe("shared sync resolved config", () => {
     expect(resolved.account).toBe("test.near");
   });
 
-  it("bos->catalog mode writes to bos.config.json directly", async () => {
+  it("bos->catalog mode writes the workspace catalog from the config", async () => {
     const remoteDir = mkdtempSync(join(tmpdir(), "bos-shared-remote-"));
     try {
-      writeFileSync(
-        join(remoteDir, "bos.config.json"),
-        `${JSON.stringify(VALID_CONFIG, null, 2)}\n`,
-      );
+      writeAuthoredConfig(remoteDir, VALID_CONFIG);
       writeFileSync(
         join(remoteDir, "package.json"),
         `${JSON.stringify(
@@ -209,33 +208,19 @@ describe("shared sync resolved config", () => {
   it("fails when a shared dep has no exact version", async () => {
     const unresolvedDir = mkdtempSync(join(tmpdir(), "bos-shared-unresolved-"));
     try {
-      writeFileSync(
-        join(unresolvedDir, "bos.config.json"),
-        `${JSON.stringify(
-          {
-            account: "test.near",
-            domain: "test.dev",
-            app: {
-              host: { development: "http://localhost:3000", production: "https://host.test.dev" },
-              ui: {
-                name: "ui",
-                development: "http://localhost:3003",
-                production: "https://ui.test.dev",
-              },
-              api: {
-                name: "api",
-                development: "http://localhost:3001",
-                production: "https://api.test.dev",
-                shared: {
-                  effect: { version: "catalog:" },
-                },
-              },
-            },
+      writeAuthoredConfig(unresolvedDir, {
+        name: "test-app",
+        account: "test.near",
+        domain: "test.dev",
+        host: { development: "http://localhost:3000" },
+        ui: { development: "http://localhost:3003" },
+        api: {
+          development: "http://localhost:3001",
+          shared: {
+            effect: { version: "catalog:" },
           },
-          null,
-          2,
-        )}\n`,
-      );
+        },
+      });
       writeFileSync(
         join(unresolvedDir, "package.json"),
         `${JSON.stringify(

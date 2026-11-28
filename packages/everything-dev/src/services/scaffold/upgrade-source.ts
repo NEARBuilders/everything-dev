@@ -1,4 +1,3 @@
-import { readAuthoredConfigInput } from "../../config";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
 import type { ResolvedPlatformManifest } from "../platform/manifest";
 import {
@@ -8,6 +7,7 @@ import {
   walkExtendsChain,
 } from "../registry/resolution";
 import { fetchParentConfig } from "./init";
+import { readAuthoredOrLegacyJsonConfig } from "./json-config-migration";
 
 export interface ExtendedRootSource {
   catalog: Record<string, string>;
@@ -130,7 +130,7 @@ export async function readExtendedRootSource(
   projectDir: string,
   options: ExtendedRootSourceOptions = {},
 ): Promise<ExtendedRootSource> {
-  const localConfig = (await readAuthoredConfigInput(projectDir)) as Record<string, unknown> | null;
+  const localConfig = await readAuthoredOrLegacyJsonConfig(projectDir);
   if (!localConfig) {
     throw new Error("No authored config found in current directory");
   }
@@ -180,7 +180,7 @@ export async function loadParentPluginOptions(projectDir: string): Promise<{
   parentPlugins: Record<string, unknown>;
   newPluginKeys: string[];
 } | null> {
-  const localConfig = (await readAuthoredConfigInput(projectDir)) as Record<string, unknown> | null;
+  const localConfig = await readAuthoredOrLegacyJsonConfig(projectDir);
   if (!localConfig) {
     return null;
   }

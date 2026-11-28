@@ -1,9 +1,7 @@
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
 import {
-  loadAppDescriptorConfig,
   localConfigEntryPath,
   readAuthoredConfigInput,
   readLocalAuthoredConfigInput,
@@ -33,20 +31,19 @@ export function registerConfig(builder: BosBuilder) {
     registryUse: builder.registryUse.effect(function* (_opts, input) {
       const session = yield* ResolutionSessionService;
       const root = session?.root ?? process.cwd();
-      const configPath = localConfigEntryPath(root) ?? join(root, "bos.config.json");
+      const configPath = localConfigEntryPath(root) ?? join(root, "bos.app.ts");
       const normalizedFrom = input.from.startsWith("bos://") ? input.from : `bos://${input.from}`;
 
       return yield* Effect.tryPromise({
         try: async () => {
           const remote = await fetchBosConfigFromFastKv<Record<string, unknown>>(normalizedFrom);
-          const localRaw = await readLocalAuthoredConfigInput(root);
-          const local = (localRaw ??
-            (configPath.endsWith(".json")
-              ? (JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>)
-              : ((await loadAppDescriptorConfig(configPath)) as unknown as Record<
-                  string,
-                  unknown
-                >))) as Record<string, unknown>;
+          const local = (await readLocalAuthoredConfigInput(root)) as Record<
+            string,
+            unknown
+          > | null;
+          if (!local) {
+            throw new Error(`No authored configuration found in ${root} — create bos.app.ts first`);
+          }
           const { config: merged, applied } = applyRegistrySections(
             local as never,
             remote as never,

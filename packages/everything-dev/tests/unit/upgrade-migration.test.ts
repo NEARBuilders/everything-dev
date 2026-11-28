@@ -81,7 +81,10 @@ describe("migrateChildRootPackageJson", () => {
     config: Record<string, unknown>,
     pkg: Record<string, unknown>,
   ) {
-    writeFileSync(join(dir, "bos.config.json"), `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(
+      join(dir, "bos.app.ts"),
+      `export default ${JSON.stringify({ name: "test-app", ...config }, null, 2)};\n`,
+    );
     writeFileSync(join(dir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
   }
 

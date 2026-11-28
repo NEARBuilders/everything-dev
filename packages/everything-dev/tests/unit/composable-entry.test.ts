@@ -38,7 +38,7 @@ vi.mock("../../src/utils/http-client", async (importOriginal) => {
   };
 });
 
-describe("asComposableEntry handles undefined parent entries", () => {
+describe("asComposableEntry resolves targeted entries against a local parent", () => {
   let testDir: string;
   let parentDir: string;
   let childDir: string;
@@ -51,7 +51,7 @@ describe("asComposableEntry handles undefined parent entries", () => {
     mkdirSync(childDir, { recursive: true });
 
     writeFileSync(
-      join(parentDir, "bos.config.json"),
+      join(parentDir, "provider.json"),
       `${JSON.stringify(
         {
           account: "parent.near",
@@ -71,6 +71,15 @@ describe("asComposableEntry handles undefined parent entries", () => {
               development: "http://localhost:3001",
               production: "https://api.parent.dev",
             },
+            auth: {
+              name: "auth-plugin",
+              production: "https://auth.authchild.dev",
+            },
+          },
+          plugins: {
+            myplugin: {
+              production: "https://myplugin.child.dev",
+            },
           },
         },
         null,
@@ -79,39 +88,27 @@ describe("asComposableEntry handles undefined parent entries", () => {
     );
 
     writeFileSync(
-      join(childDir, "bos.config.json"),
-      `${JSON.stringify(
+      join(childDir, "bos.app.ts"),
+      `export default ${JSON.stringify(
         {
+          name: "child",
           account: "child.near",
           domain: "child.dev",
-          extends: "../parent/bos.config.json",
+          extends: "../parent/provider.json",
           plugins: {
             myplugin: {
-              extends: "../parent/bos.config.json#plugins.myplugin",
-              production: "https://myplugin.child.dev",
+              extends: "../parent/provider.json#plugins.myplugin",
               variables: { namespace: "child.near" },
             },
           },
-          app: {
-            host: {
-              development: "http://localhost:3000",
-              production: "https://host.child.dev",
-            },
-            ui: {
-              name: "ui",
-              development: "http://localhost:3003",
-              production: "https://ui.child.dev",
-            },
-            api: {
-              name: "api",
-              development: "http://localhost:3001",
-              production: "https://api.child.dev",
-            },
-          },
+          host: { development: "http://localhost:3000" },
+          ui: { development: "http://localhost:3003" },
+          api: { development: "http://localhost:3001" },
         },
         null,
         2,
-      )}\n`,
+      )};
+`,
     );
   });
 
@@ -119,56 +116,43 @@ describe("asComposableEntry handles undefined parent entries", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("does not throw when extends targets a plugin missing from parent config", async () => {
+  it("does not throw when the child targets a parent entry", async () => {
     resetConfigPathCache();
     const session = await openResolution({ cwd: childDir });
     expect(session).not.toBeNull();
   });
 
-  it("resolves plugin to child-only values when parent lacks the plugin", async () => {
+  it("resolves plugin values from the extends target with child-wins variables", async () => {
     resetConfigPathCache();
     const session = await openResolution({ cwd: childDir });
     expect(session?.runtime.plugins?.myplugin).toBeDefined();
     expect(session?.runtime.plugins?.myplugin?.url).toBe("https://myplugin.child.dev");
   });
 
-  it("does not throw when extends targets app.auth missing from parent config", async () => {
+  it("resolves a targeted app.auth slot from the parent", async () => {
     const authChildDir = join(testDir, "auth-child");
     mkdirSync(authChildDir, { recursive: true });
 
     writeFileSync(
-      join(authChildDir, "bos.config.json"),
-      `${JSON.stringify(
+      join(authChildDir, "bos.app.ts"),
+      `export default ${JSON.stringify(
         {
+          name: "authchild",
           account: "authchild.near",
           domain: "authchild.dev",
-          extends: "../parent/bos.config.json",
-          app: {
-            host: {
-              development: "http://localhost:3000",
-              production: "https://host.authchild.dev",
-            },
-            ui: {
-              name: "ui",
-              development: "http://localhost:3003",
-              production: "https://ui.authchild.dev",
-            },
-            api: {
-              name: "api",
-              development: "http://localhost:3001",
-              production: "https://api.authchild.dev",
-            },
-            auth: {
-              extends: "../parent/bos.config.json#app.auth",
-              name: "auth-plugin",
-              production: "https://auth.authchild.dev",
-              variables: { account: "authchild.near" },
-            },
+          extends: "../parent/provider.json",
+          auth: {
+            extends: "../parent/provider.json#app.auth",
+            variables: { account: "authchild.near" },
           },
+          host: { development: "http://localhost:3000" },
+          ui: { development: "http://localhost:3003" },
+          api: { development: "http://localhost:3001" },
         },
         null,
         2,
-      )}\n`,
+      )};
+`,
     );
 
     resetConfigPathCache();

@@ -54,6 +54,7 @@ import {
   verifyResolvedBootShape,
 } from "../../src/services/resolution/boot-check";
 import * as initSourceModule from "../../src/services/resolution/init-source";
+import { loadInProcessDescriptor } from "../../src/services/resolution/load";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as initModule from "../../src/services/scaffold/init";
 import * as syncModule from "../../src/services/scaffold/sync";
@@ -116,20 +117,22 @@ function frameworkRootFixture(version: string, reactVersion: string): string {
   return dir;
 }
 
+function writeChildDescriptor(dir: string, config: Record<string, unknown>): void {
+  writeFileSync(join(dir, "bos.app.ts"), `export default ${JSON.stringify(config, null, 2)};\n`);
+}
+
 function childFixture(release?: string): string {
   const dir = mkdtempSync(join(tmpdir(), "platform-e2e-child-"));
   tempDirs.push(dir);
   mkdirSync(join(dir, "ui"), { recursive: true });
-  writeFileSync(
-    join(dir, "bos.config.json"),
-    `${JSON.stringify({
-      extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
-      account: "child.near",
-      domain: "child.example",
-      ...(release ? { release } : {}),
-      app: { ui: { development: "local:ui" } },
-    })}\n`,
-  );
+  writeChildDescriptor(dir, {
+    name: "child",
+    extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
+    account: "child.near",
+    domain: "child.example",
+    ...(release ? { release } : {}),
+    ui: { path: "ui" },
+  });
   return dir;
 }
 
@@ -154,8 +157,17 @@ function publishRootRelease(previousVersion?: string): Manifest {
   return entry!.manifest;
 }
 
-function readChildConfig(): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(childDir, "bos.config.json"), "utf-8")) as Record<
+async function readChildConfig(): Promise<Record<string, unknown>> {
+  const source = readFileSync(join(childDir, "bos.app.ts"), "utf-8");
+  return (await loadInProcessDescriptor(source, "bos.app.ts")) as unknown as Record<
+    string,
+    unknown
+  >;
+}
+
+async function readFreshConfig(dir: string): Promise<Record<string, unknown>> {
+  const source = readFileSync(join(dir, "bos.app.ts"), "utf-8");
+  return (await loadInProcessDescriptor(source, "bos.app.ts")) as unknown as Record<
     string,
     unknown
   >;
@@ -212,14 +224,14 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     expect(source.repository).toBe("https://github.com/NEARBuilders/everything-dev");
 
     const stampedFile = await applyRelease(childDir, source);
-    expect(stampedFile).toBe("bos.config.json");
-    expect(readChildConfig().release).toBe("2.0.0-rc.1");
+    expect(stampedFile).toBe("bos.app.ts");
+    expect((await readChildConfig()).release).toBe("2.0.0-rc.1");
   });
 
   it("C-deploy — the child's image pin derives from the manifest, the truth gate stays silent", async () => {
     const derived = await deriveImageRefFromPlatformManifest({
       configDir: childDir,
-      localConfig: readChildConfig(),
+      localConfig: await readChildConfig(),
       fetchTag,
       fetchParent,
       fetchRecord,
@@ -228,7 +240,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
 
     const resolved = (await resolvePlatformManifest({
       configDir: childDir,
-      localConfig: readChildConfig(),
+      localConfig: await readChildConfig(),
       fetchTag,
       fetchParent,
       fetchRecord,
@@ -265,7 +277,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     // immutable version record — no cache needed, no stale-pin grace
     const pinned = await resolvePlatformManifest({
       configDir: childDir,
-      localConfig: readChildConfig(),
+      localConfig: await readChildConfig(),
       fetchTag,
       fetchParent,
       fetchRecord,
@@ -286,7 +298,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     await expect(
       resolvePlatformManifest({
         configDir: childDir,
-        localConfig: { ...readChildConfig(), release: "2.0.0-rc.99" },
+        localConfig: { ...(await readChildConfig()), release: "2.0.0-rc.99" },
         fetchTag,
         fetchParent,
         fetchRecord,
@@ -321,7 +333,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     await expect(
       resolvePlatformManifest({
         configDir: childDir,
-        localConfig: readChildConfig(),
+        localConfig: await readChildConfig(),
         fetchTag,
         fetchParent,
         fetchRecord,
@@ -338,7 +350,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     await expect(
       resolvePlatformManifest({
         configDir: childDir,
-        localConfig: readChildConfig(),
+        localConfig: await readChildConfig(),
         fetchTag,
         fetchParent,
         fetchRecord: async () => {
@@ -373,49 +385,51 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     expect(source.catalog.react).toBe("19.3.0");
 
     await applyRelease(childDir, source);
-    expect(readChildConfig().release).toBe("2.0.0-rc.3");
+    expect((await readChildConfig()).release).toBe("2.0.0-rc.3");
   });
 
   it("the incident replay — an authored release whose version record is absent never blocks the upgrade", async () => {
     // the Nov-03 burned record: the child is aligned to a release the chain
     // never recorded. Everyday resolution fails loud on it; the upgrade —
     // the sanctioned repair — must resolve latest and move the tree anyway.
-    writeFileSync(
-      join(childDir, "bos.config.json"),
-      `${JSON.stringify({
-        extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
-        account: "child.near",
-        domain: "child.example",
-        release: "2.0.0-rc.99",
-        app: { ui: { development: "local:ui" } },
-      })}\n`,
-    );
+    const incidentDir = mkdtempSync(join(tmpdir(), "platform-e2e-incident-"));
+    tempDirs.push(incidentDir);
+    mkdirSync(join(incidentDir, "ui"), { recursive: true });
+    writeChildDescriptor(incidentDir, {
+      name: "child",
+      extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
+      account: "child.near",
+      domain: "child.example",
+      release: "2.0.0-rc.99",
+      ui: { path: "ui" },
+    });
 
-    const source = await readExtendedRootSource(childDir, upgradeSourceOptions);
+    const source = await readExtendedRootSource(incidentDir, upgradeSourceOptions);
     expect(source.authoredRelease).toBe("2.0.0-rc.99");
     expect(source.platform.manifest.frameworkVersion).toBe("2.0.0-rc.3");
 
-    await applyRelease(childDir, source);
-    const config = readChildConfig();
+    await applyRelease(incidentDir, source);
+    const config = await readFreshConfig(incidentDir);
     expect(config.release).toBe("2.0.0-rc.3");
     expect(config.platform).toBeUndefined();
   });
 
   it("the codemod — a legacy platform key rewrites to the release field in the same stamp", async () => {
-    writeFileSync(
-      join(childDir, "bos.config.json"),
-      `${JSON.stringify({
-        extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
-        account: "child.near",
-        domain: "child.example",
-        platform: "2.0.0-rc.99",
-        app: { ui: { development: "local:ui" } },
-      })}\n`,
-    );
+    const codemodDir = mkdtempSync(join(tmpdir(), "platform-e2e-codemod-"));
+    tempDirs.push(codemodDir);
+    mkdirSync(join(codemodDir, "ui"), { recursive: true });
+    writeChildDescriptor(codemodDir, {
+      name: "child",
+      extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
+      account: "child.near",
+      domain: "child.example",
+      platform: "2.0.0-rc.99",
+      ui: { path: "ui" },
+    });
 
-    const source = await readExtendedRootSource(childDir, upgradeSourceOptions);
-    await applyRelease(childDir, source);
-    const config = readChildConfig();
+    const source = await readExtendedRootSource(codemodDir, upgradeSourceOptions);
+    await applyRelease(codemodDir, source);
+    const config = await readFreshConfig(codemodDir);
     expect(config.release).toBe("2.0.0-rc.3");
     expect(config.platform).toBeUndefined();
   });
@@ -480,11 +494,11 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     expect(entry).not.toBeNull();
     registry.set(entry!.tag.key, JSON.parse(entry!.tag.value));
 
-    const before = readFileSync(join(childDir, "bos.config.json"), "utf-8");
+    const before = readFileSync(join(childDir, "bos.app.ts"), "utf-8");
     await expect(readExtendedRootSource(childDir, upgradeSourceOptions)).rejects.toThrow(
       /version record is not published/,
     );
-    expect(readFileSync(join(childDir, "bos.config.json"), "utf-8")).toBe(before);
+    expect(readFileSync(join(childDir, "bos.app.ts"), "utf-8")).toBe(before);
   });
 });
 
@@ -1117,10 +1131,8 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
     expect(childCatalog["every-plugin"]).toBe("3.0.0-rc.15");
     expect(childCatalog.react).toBe("19.2.9");
     // the pin froze to the release the upgrade landed from
-    expect(result.migrated).toContain("bos.config.json");
-    const migratedConfig = JSON.parse(readFileSync(join(childDir, "bos.config.json"), "utf-8")) as {
-      release?: string;
-    };
+    expect(result.migrated).toContain("bos.app.ts");
+    const migratedConfig = await readFreshConfig(childDir);
     expect(migratedConfig.release).toBe(RELEASE_VERSION);
     // the coherence floor: the exact catalog plus the release install is
     // coherent, and the newer rc that floated past it is named by the gate
@@ -1139,11 +1151,12 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
   });
 
   it("an install that already floated past the release fails the upgrade loud — the migration phase never runs", async () => {
-    installNodeModules(childDir, NEWER_RC_IN_THE_WILD);
+    const driftDir = caretChildFixture();
+    installNodeModules(driftDir, NEWER_RC_IN_THE_WILD);
     mockUpgradeSeams();
 
     await expect(
-      upgradeTemplate(childDir, { dryRun: false, noInstall: true, noSync: false }),
+      upgradeTemplate(driftDir, { dryRun: false, noInstall: true, noSync: false }),
     ).rejects.toThrow(
       new RegExp(
         `everything-dev installed ${NEWER_RC_IN_THE_WILD} vs release target ${RELEASE_VERSION}`,
@@ -1159,9 +1172,7 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
       .mocked(syncModule.syncTemplate)
       .mock.calls.filter(([, opts]) => !opts?.dryRun);
     expect(applyingSyncs).toEqual([]);
-    const migratedConfig = JSON.parse(readFileSync(join(childDir, "bos.config.json"), "utf-8")) as {
-      release?: string;
-    };
+    const migratedConfig = await readFreshConfig(driftDir);
     expect(migratedConfig.release).toBeUndefined();
   });
 });

@@ -1,0 +1,5 @@
+---
+"everything-dev": major
+---
+
+Retire the JSON authored-config form — `bos.app.ts` is the only local config entry. Both read funnels (`readConfigInput`, `loadNodeConfig`) fail loud with the upgrade pointer when they meet a `bos.config.json`; the on-chain FastKV payload key and the resolved-config cache keep their JSON shape (protocol, not authored form). `bos upgrade` now converts committed `bos.config.json` trees to descriptors as its first migration phase — lossless where the descriptor can express the config (plugins pipeline fields rewrite to targeted extends refs), with the original preserved under `.bos/sync-backup/`; fields the descriptor cannot express (authored `gateway`, remote-only plugins without an extends target, auth-attachment `ui.production`) abort the conversion loudly with the manual path, and the tree is never left half-converted. The upgrade pre-flight (`readExtendedRootSource`, `loadParentPluginOptions`) reads legacy trees directly — upgrade is the converter. Children must run `bos upgrade` before any other command; scaffold-time transient JSON (`bos init`) is unchanged.

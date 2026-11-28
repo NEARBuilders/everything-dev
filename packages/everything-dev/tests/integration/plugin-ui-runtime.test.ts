@@ -55,22 +55,28 @@ describe("plugin UI runtime config", () => {
   it("resolves plugin metadata from a local provider config", async () => {
     const baseDir = makeProjectDir();
     mkdirSync(join(baseDir, "plugins/apps/ui"), { recursive: true });
-    writeJson(join(baseDir, "plugins/apps/bos.config.json"), {
-      plugins: {
-        apps: {
+    mkdirSync(join(baseDir, "plugins/apps"), { recursive: true });
+    writeFileSync(
+      join(baseDir, "plugins/apps/bos.app.ts"),
+      `export default ${JSON.stringify(
+        {
           name: "apps",
-          development: "local:.",
-          production: "https://apps.test.dev",
+          ui: { path: "./ui" },
+          plugins: {
+            apps: {
+              name: "apps",
+              path: ".",
+              ui: {
+                name: "apps-ui",
+                path: "./ui",
+              },
+            },
+          },
         },
-      },
-      app: {
-        ui: {
-          name: "apps-ui",
-          development: "local:./ui",
-          production: "https://apps-ui.test.dev",
-        },
-      },
-    });
+        null,
+        2,
+      )};\n`,
+    );
 
     const config = makeBosConfig({
       plugins: {

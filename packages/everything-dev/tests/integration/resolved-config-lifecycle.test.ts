@@ -113,13 +113,14 @@ describe("resolved config lifecycle", () => {
     expect(keys[keys.length - 1]).toBe("shared");
   });
 
-  it("readBosConfigForBuild falls back to bos.config.json", async () => {
+  it("readBosConfigForBuild refuses the legacy bos.config.json (#920)", async () => {
     const fallbackDir = mkdtempSync(join(tmpdir(), "bos-lifecycle-buildfb-"));
     try {
       writeFileSync(join(fallbackDir, "bos.config.json"), `${JSON.stringify(VALID_CONFIG)}\n`);
 
-      const result = await readBosConfigForBuild(fallbackDir);
-      expect(result.account).toBe("test.near");
+      await expect(readBosConfigForBuild(fallbackDir)).rejects.toThrow(
+        /bos\.config\.json is no longer a supported authored-config form/,
+      );
     } finally {
       rmSync(fallbackDir, { recursive: true, force: true });
     }

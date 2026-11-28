@@ -3,13 +3,13 @@ import { join } from "node:path";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract";
 import { formatUnknownError } from "../../utils/errors";
-import { saveBosConfig } from "../../utils/save-config";
 import { timePhase } from "../../utils/timing";
 import { readNodeModulesVersion } from "../framework-version";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { renameLegacyPluginDevOverlays } from "./dev-overlay-migration";
 import { runTypesGen } from "./init";
+import { convertLegacyJsonConfig } from "./json-config-migration";
 import { absorbLegacySnapshot } from "./snapshot";
 import { syncTemplate } from "./sync";
 import {
@@ -93,10 +93,9 @@ export async function applyRelease(
     return "bos.app.ts";
   }
 
-  delete config.platform;
-  config.release = version;
-  await saveBosConfig(projectDir, config);
-  return "bos.config.json";
+  throw new Error(
+    `the authored config was read but no bos.app.ts exists in ${projectDir} — the legacy JSON conversion phase should have produced one; report this (#920)`,
+  );
 }
 
 /**
@@ -149,6 +148,14 @@ export async function runMigrationPhase(
   // rename is idempotent, and legacy names must not survive any upgrade.
   await timePhase(timings, "rename legacy dev overlays", () =>
     renameLegacyPluginDevOverlays(projectDir),
+  );
+
+  // Must run before stamp release / shared-deps sync (both read the authored
+  // config): a JSON-form tree converts here so every later phase sees the
+  // descriptor. Fields the descriptor cannot express abort loudly — the tree
+  // is never half-converted, and the manual path is the message.
+  const legacyJsonConverted = await timePhase(timings, "convert legacy json config", () =>
+    convertLegacyJsonConfig(projectDir),
   );
 
   // The catalog-preferring resolution would read the specifier back as the
