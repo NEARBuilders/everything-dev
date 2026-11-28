@@ -1017,6 +1017,7 @@ export const DbDoctorResultSchema = z.object({
   slug: z.string(),
   journalTable: z.string(),
   journalSchema: z.string(),
+  dataSchema: z.string(),
   diagnosis: z.string(),
   localMigrationCount: z.number(),
   appliedHashCount: z.number(),
