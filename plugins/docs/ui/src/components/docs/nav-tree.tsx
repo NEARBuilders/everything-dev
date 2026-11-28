@@ -12,14 +12,6 @@ const isAncestor = (dirPath: string, currentSlug?: string): boolean =>
     dirPath && currentSlug && (currentSlug === dirPath || currentSlug.startsWith(`${dirPath}/`)),
   );
 
-/**
- * The docs navigation tree — one collapsible directory per slug path
- * segment, page links at the leaves, mirroring the content's filesystem
- * structure. Only the first top-level section starts open (the one the
- * corpus's frontmatter `order` puts first — the manual, where there is one);
- * every other directory stays closed until it holds the current page, so a
- * long ledger or plans tree never crowds the primary reading surface.
- */
 export function NavTree({ nodes, currentSlug, depth = 0 }: NavTreeProps) {
   const leadSection = depth === 0 ? nodes.find((node) => !node.slug)?.path : undefined;
   return (

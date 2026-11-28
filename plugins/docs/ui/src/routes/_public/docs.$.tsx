@@ -4,12 +4,14 @@ import { useMemo } from "react";
 import { dedupeLeadingTitle } from "@/components/docs/doc-links";
 import { extractToc, MarkdownRenderer } from "@/components/docs/markdown-renderer";
 import { NavTree } from "@/components/docs/nav-tree";
+import { StatusBadge } from "@/components/docs/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { repositoryOf, resolveDocsClient } from "@/lib/api";
+import { isNotFound, repositoryOf, resolveDocsClient } from "@/lib/api";
 import { useDocLinks } from "@/lib/doc-links";
 import { docsNavQueryOptions } from "@/lib/queries";
 import type { DocOutput, NavNodeShape } from "../../../../src/contract";
+import { prettifySegment } from "../../../../src/lib/labels";
 
 interface DocLoaderData {
   doc: DocOutput | null;
@@ -17,19 +19,27 @@ interface DocLoaderData {
   slug: string;
 }
 
+interface Breadcrumb {
+  label: string;
+  slug: string | null;
+}
+
+interface FlatEntry {
+  slug: string;
+  title: string;
+}
+
 export const Route = createFileRoute("/_public/docs/$")({
   loader: async ({ context, params }) => {
     const client = resolveDocsClient(context);
+    await context.queryClient.prefetchQuery(docsNavQueryOptions(client));
+    const slug = params._splat ?? "";
     try {
-      await context.queryClient.ensureQueryData(docsNavQueryOptions(client));
-    } catch {
-      // Sidebar is a progressive enhancement — the doc still renders.
-    }
-    try {
-      const { doc } = await client.getBySlug({ slug: params._splat ?? "" });
-      return { doc, notFound: false, slug: params._splat ?? "" };
-    } catch {
-      return { doc: null, notFound: true, slug: params._splat ?? "" };
+      const { doc } = await client.getBySlug({ slug });
+      return { doc, notFound: false, slug };
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      return { doc: null, notFound: true, slug };
     }
   },
   head: ({ loaderData }) => {
@@ -51,23 +61,6 @@ export const Route = createFileRoute("/_public/docs/$")({
   ),
   component: DocPage,
 });
-
-interface Breadcrumb {
-  label: string;
-  slug: string | null;
-}
-
-interface FlatEntry {
-  slug: string;
-  title: string;
-}
-
-const prettifySegment = (segment: string): string =>
-  segment
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
 
 function DocPage() {
   const data = Route.useLoaderData() as DocLoaderData | undefined;
@@ -159,8 +152,12 @@ function DocPage() {
             <h1 className="text-3xl font-semibold" data-testid="docs.reader-title">
               {doc.title}
             </h1>
-            {doc.tags.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5" data-testid="docs.reader-tags">
+            {(doc.tags.length > 0 || doc.status) && (
+              <div
+                className="mt-3 flex flex-wrap items-center gap-1.5"
+                data-testid="docs.reader-tags"
+              >
+                <StatusBadge status={doc.status} statusNote={doc.statusNote} />
                 {doc.tags.map((tag) => (
                   <Badge key={tag} variant="secondary">
                     {tag}

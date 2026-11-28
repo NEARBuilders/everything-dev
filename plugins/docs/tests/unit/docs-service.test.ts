@@ -149,7 +149,7 @@ describe("DocsService.getNav", () => {
     const nav = await Effect.runPromise(service().getNav());
     const labels = nav.map((node) => node.label);
     expect(labels).toContain("Plugins");
-    expect(labels).toContain("Adr");
+    expect(labels).toContain("ADR");
 
     const plugins = nav.find((node) => node.label === "Plugins");
     expect(plugins?.children.map((child) => child.label)).toEqual(["Auth"]);
@@ -159,8 +159,7 @@ describe("DocsService.getNav", () => {
   it("orders directories by their subtree minimum", async () => {
     const nav = await Effect.runPromise(service().getNav());
     const labels = nav.map((node) => node.label);
-    // auth plugin (order 5) < glossary (10) < adr (20) < agents (30) < self-deploy (40)
-    expect(labels).toEqual(["Plugins", "Glossary", "Adr", "Agents", "Self deploy"]);
+    expect(labels).toEqual(["Plugins", "Glossary", "ADR", "Agents", "Self deploy"]);
   });
 
   it("flattens pages in tree order for prev/next", () => {

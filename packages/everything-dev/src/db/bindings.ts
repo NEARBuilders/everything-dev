@@ -3,6 +3,7 @@ import { Context, Data, Effect, Layer } from "effect";
 import type { RuntimeConfig } from "../types";
 import { pgliteDefaultUrlForSlug } from "./binding";
 import { getDatabaseUrlSecretName, getMigrationStorage, pluginMigrationSlug } from "./core";
+import { pluginSchemaName } from "./driver";
 import { type WorkspaceIdentity, workspaceIdentityFromWorkspaceDir } from "./identity";
 
 export interface DatabaseBinding {
@@ -17,6 +18,20 @@ export class DatabaseBindingError extends Data.TaggedError("DatabaseBindingError
   readonly pluginKey: string;
   readonly message: string;
 }> {}
+
+/**
+ * The data schema the runtime scopes a workspace's tables into, mirroring
+ * `databaseLayer`: plugin workspaces run under the namespaced topology
+ * (`plugin_<slug>` on their database — `namespace: true` is the plugin
+ * default), while the api shell and auth keep the public topology
+ * (`namespace: false`). `undefined` means public. Tooling that inspects a
+ * workspace's tables (doctor, repair) must resolve this per topology —
+ * checking `public` for a namespaced plugin misreports v2 topologies as
+ * drifted and v1 topologies as healthy (#663).
+ */
+export function workspaceDataSchema(binding: DatabaseBinding): string | undefined {
+  return binding.section === "plugins" ? pluginSchemaName(binding.key) : undefined;
+}
 
 export interface DatabaseBindingsService {
   readonly forPluginKey: (

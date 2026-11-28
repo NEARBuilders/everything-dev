@@ -1,34 +1,4 @@
 #!/usr/bin/env node
-/**
- * Regression stack lifecycle (ADR 0009 amendment): one owner module for the
- * start-command fixture container. Subcommands:
- *
- *   cleanup <ssr|csr>    rm -f every `bos-regression-<variant>-*` container,
- *                        any stamp. Runs BEFORE Playwright probes the URL so
- *                        a stale older-stamp stack can never be silently
- *                        reused (Playwright probes `webServer.url` before it
- *                        executes the webServer command).
- *   ensure <ssr|csr>     reap other-stamp stacks, reuse a healthy same-stamp
- *                        stack or build + boot a detached container stamped
- *                        with the current code state, wait for /health, exit
- *                        0. The container keeps running — the consumer polls
- *                        the URL; teardown is either the consumer's global
- *                        teardown (Playwright) or the next run's cleanup.
- *   teardown <ssr|csr>   rm -f the current-stamp container. Wired as the
- *                        browser suite's global teardown so a graceful run
- *                        always ends with the stack down.
- *   watch <ssr|csr>      hold the caller's webServer process: tail the
- *                        detached container's logs, exit non-zero when the
- *                        container dies, remove it on SIGTERM/SIGINT. Chained
- *                        after ensure by the regression:start:* scripts.
- *
- * The container name and image tag both embed the stamp from
- * regression-stack-core.mjs. Re-runs against unchanged code reuse the
- * already-healthy stack instead of rebuilding; changed code reaps and
- * rebuilds. The boot is `docker run -d` regardless: a SIGKILLed webServer
- * child orphans no live foreground docker process — the detached container
- * is either reused (same stamp) or reaped (other stamp).
- */
 import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
@@ -80,8 +50,6 @@ const gitParts = () => {
     maxBuffer: 16 * 1024 * 1024,
   });
   const diff = gitDiff.status === 0 ? (gitDiff.stdout ?? "") : "";
-  // Untracked fixtures (new files) ride the docker context but not `git diff
-  // HEAD` — their presence re-stamps via the porcelain listing.
   const status = spawnSync("git", ["-C", root, "status", "--porcelain"], {
     encoding: "utf8",
   });
@@ -112,12 +80,8 @@ const removeContainers = (names) => {
 const probeHealth = async (deadlineMs) => {
   const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${regressionEnv.baseUrl}/health`);
-      if (res.ok) return true;
-    } catch {
-      /* not up yet */
-    }
+    const res = await fetch(`${regressionEnv.baseUrl}/health`).catch(() => null);
+    if (res?.ok) return true;
     await new Promise((resolve) => setTimeout(resolve, 750));
   }
   return false;
@@ -295,16 +259,6 @@ const teardown = async () => {
   log(`teardown complete (${name})`);
 };
 
-/**
- * Watch mode: keep the calling harness's webServer process alive. Playwright
- * treats a webServer command that exits before teardown as a boot failure
- * even when the stack is already healthy, so the regression:start:*
- * scripts run `ensure` then hold with this command: tail the detached
- * container's logs, exit non-zero if the container dies mid-suite, and
- * remove it on the teardown signals — a graceful end leaves the stack down;
- * a SIGKILLed caller leaves the healthy detached container behind, which
- * the next ensure reuses or reaps.
- */
 const watch = async () => {
   const stamp = computeStamp(await stampInputs());
   const name = stackName(variant, stamp);

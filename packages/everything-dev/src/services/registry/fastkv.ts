@@ -12,7 +12,6 @@ interface FastKvListResponse {
 
 import { fetchJsonOrNull, fetchRaw } from "../../utils/http-client";
 import {
-  latestUrlFor,
   networkIdForAccount,
   RegistryError,
   registryBaseUrlForNetwork,
@@ -20,18 +19,6 @@ import {
   registryNamespaceForNetwork,
 } from "./client";
 import { keyPathOf, parseRuntimeRef, type RegistryKey, type RuntimeRef } from "./keys";
-
-export function getFastKvBaseUrlForNetwork(network: NetworkId): string {
-  return registryBaseUrlForNetwork(network);
-}
-
-export function buildRegistryConfigUrl(
-  accountId: string,
-  gatewayId: string,
-  registry?: string,
-): string {
-  return latestUrlFor(configKey(accountId, gatewayId), { registry });
-}
 
 export function buildRegistryConfigUrlForNetwork(
   network: NetworkId,

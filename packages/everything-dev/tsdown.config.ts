@@ -115,7 +115,6 @@ function assertExportsDistTypesExist() {
 
 export default defineConfig({
   entry: [
-    "src/index.ts",
     "src/types.ts",
     "src/descriptor/index.ts",
     "src/config.ts",

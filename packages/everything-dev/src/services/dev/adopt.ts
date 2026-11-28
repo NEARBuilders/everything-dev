@@ -36,7 +36,7 @@ export const DEV_ADOPT_POLL_MS = 1_000;
  */
 export const DEV_ADOPT_SETTLE_MS = 3_000;
 
-export interface BuiltArtifactFingerprint {
+interface BuiltArtifactFingerprint {
   readonly mtimeMs: number;
   readonly content: string;
 }
@@ -60,11 +60,6 @@ const hashContent = (bytes: Buffer): string =>
 
 export const fingerprintContentOf = (fingerprint: BackendDistFingerprint | null): string =>
   fingerprint?.digest ?? "missing";
-
-export const fingerprintDebugOf = (fingerprint: BackendDistFingerprint | null): string =>
-  fingerprint === null
-    ? "missing"
-    : `${fingerprint.newestMtimeMs} ${fingerprintContentOf(fingerprint)}`;
 
 /**
  * The dev freshness coordinate for a backend workspace, sampled with a
@@ -122,19 +117,19 @@ export const createBackendFingerprintSampler = (localPath: string) => {
 /** One adopt decision: the unit moved to a new generation and the adopter
  * serves/replaces it. `generation` counts moves per unit — the boot build
  * is generation 0, the first adopted move is 1. */
-export interface AdoptMove {
+interface AdoptMove {
   readonly key: string;
   readonly content: string;
   readonly generation: number;
 }
 
-export interface AdoptServed {
+interface AdoptServed {
   readonly content: string;
   readonly fingerprint: BackendDistFingerprint;
   readonly generation: number;
 }
 
-export interface AdoptPending {
+interface AdoptPending {
   readonly content: string;
   readonly firstSeenMs: number;
 }
@@ -154,7 +149,7 @@ export interface AdoptObservation {
   readonly fingerprint: BackendDistFingerprint | null;
 }
 
-export interface AdvanceAdoptInput {
+interface AdvanceAdoptInput {
   readonly now: number;
   readonly settleMs: number;
   readonly observations: readonly AdoptObservation[];

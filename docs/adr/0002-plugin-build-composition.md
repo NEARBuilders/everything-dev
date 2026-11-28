@@ -22,6 +22,33 @@ The three `every-plugin/build/rspack` plugins are only meaningful composed: `Eve
 - **Deploy wrapping is a framework helper too.** `everything-dev/integrity` exports `withPluginDeploy(baseConfig, { bosConfigPath, deployLabel?, urlField?, integrityField? })`: no-ops unless `DEPLOY === "true"`, wraps the Zephyr hook, computes SRI, and reports to `bos.config.json` — deriving the url field from `findPluginKey` (plugin workspace) or explicit `urlField` (api → `app.api.production`). This collapsed api's divergent config into the same three lines.
 - **Sequencing invariant, now documented where it belongs:** `EmitPluginManifest` reads `types/contract.d.ts`, which is emitted by running the contract tsc step *before* rspack builds. The compose CLI (ADR 0003) owns that ordering; hand-written configs that skip it lose the manifest.
 
+## Build output invariants
+
+Four settings in the composed build are deliberate, each paid for by a failure:
+
+- **`output.clean` is off in watch mode.** The dev serve static handler serves
+  `dist/`; cleaning on every rebuild opens a window where `remoteEntry.js` 404s
+  for any consumer loading mid-rebuild.
+- **`optimization.splitChunks` is off.** rspack 2.x splitChunks re-ids the
+  final chunk graph while federation's get-factory codegen keeps pre-split ids,
+  so the entry references chunks that were never emitted
+  (`ChunkCompletenessPlugin`'s failure mode).
+- **`optimization.moduleIds` is `"named"`.** The deterministic default hashes
+  module identifiers that embed absolute resource paths, so the same source
+  builds to different id spaces on different machines (deploy train vs the
+  image's dist-builder stage). A mixed-generation load then splices two
+  incompatible id spaces and fails with `__webpack_modules__[r] is not a
+  function`. Named ids derive from context-relative requests.
+- **Resolution is source-first unless `DEPLOY=true`.** The `development` export
+  condition is first in `conditionNames` for local flows and stripped for
+  deploy-identical builds; `NODE_ENV` cannot gate this because the rspack CLI
+  defaults it to `production` for every `build`, including local watch.
+  `byDependency` entries inherit the root conditions, so the strip has to reach
+  them too. With source-first on, `extensionAlias` maps node-style `.js`
+  specifiers to on-disk `.ts` (`.js` stays first so packages that ship both an
+  `index.ts` and a real JS entry keep their JS entry), and `package.json`
+  resolves as a JSON module rather than JavaScript.
+
 ## Consequences
 
 - A build-fix lands in one upstream file, not seven configs; `bos sync` clobbering stops being a maintenance hazard because there is almost nothing sync-owned left to sync.

@@ -16,29 +16,59 @@ const firstHeading = (raw: string): string | undefined => {
   return match?.[1]?.trim();
 };
 
-/** The current file's path relative to the content root, with forward slashes. */
 const repoPath = (): string =>
   relative(context().config.root, context().file.path).replace(/\\/g, "/");
 
 const isGlossary = (path: string): boolean => path.endsWith("GLOSSARY");
 
-/**
- * Content root is the repository root, so one collection aggregates every
- * content source: the app's `docs` tree, the root `GLOSSARY.md`, and each
- * plugin's per-plugin docs tree (`plugins/<name>/docs`). Each compiled record
- * carries the source it came from (`app`, or the plugin's workspace name),
- * its repository file, and a mount-qualified slug — app docs keep their path
- * (`adr/0012-…`), plugin docs live under `plugins/<name>/…`, which is also
- * the public URL shape under /docs.
- *
- * Documents only: runnable prototype trees are repository examples, not
- * pages — they stay in git and are left out of the compiled corpus.
- *
- * Body text is flattened into a `search` field (code fences and markdown
- * syntax stripped) so list queries can match content, not just metadata.
- * Only raw markdown is emitted — rendering happens client-side through the
- * shared MarkdownRenderer.
- */
+const STATUS_LINE = /(?:^|\s)Status:[ \t]*(.+?)[ \t]*$/im;
+
+const statusMeta = (raw: string): { status?: string; statusNote?: string } => {
+  const header = (raw ?? "").split(/\n## /)[0] ?? "";
+  const match = STATUS_LINE.exec(header);
+  if (!match) return {};
+  const value = (match[1] ?? "").trim();
+  if (!value) return {};
+
+  let depth = 0;
+  let parenStart = -1;
+  let cut = -1;
+  let cutBy = false;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i] ?? "";
+    if (ch === "(") {
+      if (depth === 0 && parenStart === -1) parenStart = i;
+      depth += 1;
+    } else if (ch === ")") {
+      depth -= 1;
+    } else if (depth === 0 && cut === -1) {
+      if ("—–;·".includes(ch)) {
+        cut = i;
+      } else if (ch === " " && /^by[\s(]/i.test(value.slice(i + 1))) {
+        cut = i;
+        cutBy = true;
+      }
+    }
+  }
+  if (cut === -1) cut = value.length;
+
+  const stopAt = Math.min(cut, parenStart === -1 ? value.length : parenStart);
+  const status = value.slice(0, stopAt).replace(/\s+/g, " ").trim().toLowerCase();
+  if (!status) return {};
+  const paren =
+    parenStart === -1 ? undefined : /\(([^)]*)\)/.exec(value.slice(parenStart))?.[1]?.trim();
+  const rest = (cut < value.length ? value.slice(cut) : "")
+    .replace(/^\s*[—–;·(]*\s*/, "")
+    .replace(/^by[\s]+/i, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const restNote = rest ? (cutBy ? `by ${rest}` : rest) : "";
+  const statusNote = [restNote, paren].filter(Boolean).join(" — ");
+  return { status, statusNote: statusNote || undefined };
+};
+
 export default defineConfig({
   root: "../..",
   output: {
@@ -80,13 +110,20 @@ export default defineConfig({
           .optional()
           .transform((title) => {
             if (title) return title;
-            // The glossary opens on the project's name, not its own.
             if (isGlossary(repoPath().replace(/\.(md|mdx)$/i, ""))) return "Glossary";
             return firstHeading(context().file.content ?? "") ?? prettify(context().file.path);
           }),
         description: z.string().optional(),
         tags: z.array(z.string()).default([]),
         order: z.number().default(100),
+        status: z
+          .string()
+          .optional()
+          .transform(() => statusMeta(context().file.content ?? "").status),
+        statusNote: z
+          .string()
+          .optional()
+          .transform(() => statusMeta(context().file.content ?? "").statusNote),
         raw: s.custom<string>().transform(() => context().file.content),
         search: s.custom<string>().transform(() =>
           (context().file.content ?? "")

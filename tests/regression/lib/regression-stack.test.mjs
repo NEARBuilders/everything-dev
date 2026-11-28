@@ -37,14 +37,6 @@ describe("computeStamp", () => {
       assert.notEqual(shifted, computeStamp(baseInputs), `${key} change must re-stamp`);
     }
   });
-
-  it("does not change when unrelated input order of joined parts is stable", () => {
-    const reordered = computeStamp({
-      ...baseInputs,
-      // Same values, object key order irrelevant (join order is fixed).
-    });
-    assert.equal(reordered, computeStamp(baseInputs));
-  });
 });
 
 describe("reapPlan", () => {

@@ -148,12 +148,6 @@ export interface DevSessionDeps {
   restartBackoffMs?: number;
 }
 
-/**
- * Operator override for the per-unit readiness deadline (milliseconds).
- * Default windows assume warm builds; a cold first boot on a loaded machine
- * can exceed them, so `BOS_READINESS_DEADLINE_MS` stretches every unit's
- * window without touching the defaults.
- */
 const envReadinessDeadlineMs = (): number | null => {
   const raw = getProcessEnv("BOS_READINESS_DEADLINE_MS");
   const parsed = raw ? Number(raw) : Number.NaN;

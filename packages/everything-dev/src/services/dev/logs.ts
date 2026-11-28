@@ -8,9 +8,9 @@ const ANSI_RE = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]|${ESC}\\][^${BEL}]*${BEL}
 
 export const stripAnsi = (input: string): string => input.replace(ANSI_RE, "");
 
-export type LogLevel = "error" | "warn" | "info" | "debug";
+type LogLevel = "error" | "warn" | "info" | "debug";
 
-export type LogCategory = "banner" | "build" | "db" | "mf" | "lifecycle" | "shutdown" | "other";
+type LogCategory = "banner" | "build" | "db" | "mf" | "lifecycle" | "shutdown" | "other";
 
 export interface RawLogLine {
   source: string;
@@ -269,11 +269,11 @@ export function classifyEvent(raw: RawLogLine): LogEvent {
   };
 }
 
-export function passesLevel(event: LogEvent, level: LogLevel): boolean {
+function passesLevel(event: LogEvent, level: LogLevel): boolean {
   return LEVEL_RANK[event.level] <= LEVEL_RANK[level];
 }
 
-export interface CollapsedDbEvent extends LogEvent {
+interface CollapsedDbEvent extends LogEvent {
   collapsed: boolean;
 }
 
@@ -293,7 +293,7 @@ class DbCollapser {
   }
 }
 
-export interface LogPipelineSinks {
+interface LogPipelineSinks {
   display: (event: LogEvent) => void;
   file: (event: LogEvent) => void;
   export: (event: LogEvent) => void;
@@ -369,25 +369,25 @@ export function createLogPipeline(options: {
   };
 }
 
-export interface LogEntry {
+interface LogEntry {
   timestamp: number;
   source: string;
   line: string;
   isError?: boolean;
 }
 
-export interface DevLogger {
+interface DevLogger {
   logFile: string;
   latestFile: string;
   write: (entry: LogEntry) => Promise<void>;
   readLatest: (opts?: { tail?: number }) => Promise<string>;
 }
 
-export function getBosDir(configDir: string): string {
+function getBosDir(configDir: string): string {
   return join(configDir, ".bos");
 }
 
-export function getLogsDir(configDir: string): string {
+function getLogsDir(configDir: string): string {
   return join(getBosDir(configDir), "logs");
 }
 

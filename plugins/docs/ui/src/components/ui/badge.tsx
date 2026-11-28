@@ -20,6 +20,7 @@ const badgeVariants = cva(
           "border-status-success-border/40 bg-status-success-bg text-status-success-foreground",
         warning:
           "border-status-warning-border/40 bg-status-warning-bg text-status-warning-foreground",
+        info: "border-info/40 bg-info-muted text-info-muted-foreground",
       },
     },
     defaultVariants: {

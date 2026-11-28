@@ -1,15 +1,10 @@
 import { Data, Effect } from "effect";
 
+import { prettifySegment } from "./lib/labels";
+
 export interface DocRecord {
-  /** Content source the doc came from — "app", or the plugin's workspace name. */
   readonly source: string;
-  /** Doc path within its source, extension stripped ("adr/0012-x", "glossary"). */
   readonly path: string;
-  /**
-   * Mount-qualified slug and public URL shape under /docs: app docs keep
-   * their path ("adr/0012-x"), plugin docs qualify under
-   * "plugins/<name>/…".
-   */
   readonly slug: string;
   /**
    * The doc's file relative to the repository root ("docs/adr/0012-x.md",
@@ -21,8 +16,9 @@ export interface DocRecord {
   readonly description?: string;
   readonly tags: string[];
   readonly order: number;
+  readonly status?: string;
+  readonly statusNote?: string;
   readonly raw: string;
-  /** Flattened body text (syntax and code fences stripped) for list search. */
   readonly search?: string;
 }
 
@@ -40,14 +36,10 @@ export const fileOfSlug = (slug: string, source: string): string => {
 };
 
 export interface NavNode {
-  /** Directory name, or the prettified page title for leaf nodes. */
   label: string;
-  /** Qualified slug when a page exists at this path, else null (directory). */
   slug: string | null;
   title: string | null;
-  /** Sort weight — the page's frontmatter order, or the subtree minimum. */
   order: number;
-  /** The directory's qualified path — empty string for page leaves. */
   path: string;
   children: NavNode[];
 }
@@ -101,13 +93,6 @@ const matches = (doc: DocRecord, input: ListDocsInput): boolean => {
   return true;
 };
 
-const prettifySegment = (segment: string): string =>
-  segment
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-
 const compareNodes = (a: NavNode, b: NavNode): number =>
   a.order - b.order || a.label.localeCompare(b.label);
 
@@ -156,21 +141,12 @@ const buildNav = (docs: readonly DocRecord[]): NavNode[] => {
   return root.children;
 };
 
-/**
- * Read-only docs service over a compiled, in-memory corpus. Pure — records
- * come from the build-time velite output, so the whole surface is
- * fixture-testable.
- */
 export class DocsService {
   private readonly docs: readonly DocRecord[];
   private readonly bySlug: Map<string, DocRecord>;
   private readonly nav: NavNode[];
 
   constructor(records: readonly DocRecord[]) {
-    // Plugin sources own their `plugins/<name>/…` mount namespace: where an
-    // app-authored page and a mounted plugin doc qualify to the same slug,
-    // the plugin's own content shadows the app page (mirrors the composition
-    // layer's shadowed-claims semantics).
     const pluginSlugs = new Set(
       records.filter((doc) => doc.source !== "app").map((doc) => doc.slug),
     );
@@ -203,25 +179,16 @@ export class DocsService {
   getBySlug(slug: string): Effect.Effect<DocRecord, DocNotFoundError> {
     const bySlug = this.bySlug;
     return Effect.gen(function* () {
-      // Directory URLs resolve to the directory's README — /docs/adr is the
-      // ADR index, /docs/plugins is the plugin-docs index. No page means a
-      // directory, and a directory is a destination, not a 404.
       const doc = bySlug.get(slug) ?? bySlug.get(`${slug}/README`);
       if (!doc) return yield* new DocNotFoundError({ slug });
       return doc;
     });
   }
 
-  /**
-   * The navigation tree: one directory node per slug path segment, page
-   * nodes at the leaves. Directories sort by their subtree-minimum order, so
-   * frontmatter `order` lifts whole sections, not just pages.
-   */
   getNav(): Effect.Effect<NavNode[]> {
     return Effect.succeed(this.nav);
   }
 
-  /** Pages flattened in tree order — the sidebar's linear reading order. */
   flattenNav(): { slug: string; title: string }[] {
     const out: { slug: string; title: string }[] = [];
     const walk = (nodes: readonly NavNode[]): void => {

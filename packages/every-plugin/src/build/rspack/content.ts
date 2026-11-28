@@ -5,13 +5,10 @@ import { pathToFileURL } from "node:url";
 import type { Compiler, RspackPluginInstance } from "@rspack/core";
 
 export interface ContentCompilerOptions {
-  /** The workspace whose velite.config.ts declares the collections. Defaults
-   * to the rspack compiler's context. */
   cwd?: string;
 }
 
 interface VeliteConfigModule {
-  /** The content root, relative to the declaring workspace. */
   root?: string;
   output?: { data?: string };
   collections?: Record<string, { pattern?: string | string[] }>;
@@ -25,21 +22,6 @@ const loadConfig = async (configPath: string): Promise<VeliteConfigModule> => {
   return typeof raw === "function" ? await raw() : (raw ?? {});
 };
 
-/**
- * Compiles a workspace's content collections through velite inside the
- * rspack build — the framework-owned content plane (ADR 0052). The
- * convention is the config file: a workspace with a `velite.config.ts`
- * compiles content; nothing else is wired by hand.
- *
- * Velite's own watch mode scans its config root recursively and is
- * unfilterable — a content root above the workspace (e.g. a repository
- * root aggregating sibling sources) points the watcher at node_modules and
- * blows past the process file-watcher limit (EMFILE), killing the dev
- * server. This plugin therefore watches in watch mode itself, scoped to
- * the collection patterns (relative to the config's declared root), and
- * reruns the non-watching velite build per change; the rewritten output
- * entry recompiles the workspace through rspack's own watcher.
- */
 export class ContentCompilerPlugin implements RspackPluginInstance {
   name = "ContentCompilerPlugin";
   private readonly cwd?: string;
@@ -54,13 +36,6 @@ export class ContentCompilerPlugin implements RspackPluginInstance {
     const configPath = join(cwd, "velite.config.ts");
     if (!existsSync(configPath)) return;
 
-    // Content as a first-class artifact (ADR 0052): the compiled collections
-    // ride the dist as JSON assets, so the deploy train's generic file
-    // upload (diff, SRI, version directory) carries them with no
-    // content-specific leg. The tap registers before any compilation; the
-    // output JSONs are read from disk at emit time — the velite build that
-    // wrote them completes before the rspack recompile that triggers the
-    // next emit.
     const webpack = (compiler as Compiler & { webpack?: any }).webpack;
     const rawSource = webpack?.sources?.RawSource;
     const emitStage = webpack?.Compilation?.PROCESS_ASSETS_STAGE_ADDITIONS ?? 1000;
@@ -85,9 +60,6 @@ export class ContentCompilerPlugin implements RspackPluginInstance {
       if (this.started) return;
       this.started = true;
 
-      // Resolve the compiler and watcher from the declaring workspace —
-      // velite and chokidar are the workspace's dependencies, not
-      // every-plugin's.
       const workspaceRequire = createRequire(pathToFileURL(join(cwd, "package.json")).href);
       let velitePath: string;
       let chokidarPath: string | null = null;

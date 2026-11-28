@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const lock = JSON.parse(readFileSync("skills-lock.json", "utf-8"));
 const skillsDir = ".agents/skills";
-const repoAuthored = new Set(["everything-dev-app", "fastkv-registry"]);
+const repoAuthored = new Set(["everything-dev-app", "fastkv-registry", "delete-comment"]);
 
 const missing = [];
 const extra = [];

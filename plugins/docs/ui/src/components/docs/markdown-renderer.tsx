@@ -12,15 +12,6 @@ import {
   resolveDocHref,
 } from "./doc-links";
 
-/**
- * Markdown renderer shared by the public read route and (in a later epic)
- * the draft-editor preview — preview parity by construction. Headings get
- * stable ids (rehype-slug) with hover anchors, so sections are deep-linkable
- * and the reader's TOC can target them. Code highlighting runs through
- * shiki's JavaScript regex engine (no WASM) against a lazily built singleton
- * with a fixed common-language set.
- */
-
 const LANGS = [
   "tsx",
   "typescript",
@@ -75,11 +66,6 @@ export interface TocEntry {
   depth: 2 | 3;
 }
 
-/**
- * h2/h3 outline of a markdown body, with ids matching what rehype-slug
- * assigns to the rendered headings (same github-slugger algorithm). Skips
- * fenced code blocks so fenced lines can't masquerade as headings.
- */
 export function extractToc(content: string): TocEntry[] {
   const slugger = new GithubSlugger();
   const entries: TocEntry[] = [];

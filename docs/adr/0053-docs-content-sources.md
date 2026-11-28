@@ -34,9 +34,11 @@ mount-qualified `slug`. A composing runtime that wants its own docs owns or
 overrides the plugin workspace in its own repo — the same override mechanism every
 plugin already has — and the deploy train recompiles on merge, exactly as UI
 bundles recompile. **Composing-app content via config-declared sources and
-uploaded content artifacts is a deliberate non-goal** (tracked follow-up): boot-time
-disk resolution exists only where a repo checkout exists (dev), so a config-sources
-plane would silently change behavior between dev and production.
+uploaded content artifacts** was the deliberate non-goal here; ADR 0054 §3–§4
+graduates it into a framework primitive (compiled collections ride the dist,
+and a reader plugin consumes them through a `sources` variable). Boot-time disk
+resolution stays rejected either way: it exists only where a repo checkout exists
+(dev), so it would silently change behavior between dev and production.
 
 ### Mount-qualified slugs: `app` at the root, plugins under `plugins/<name>/…`
 
@@ -68,6 +70,31 @@ Three procedures (oRPC contract, REST + MCP surfaces follow automatically):
   page nodes at the leaves. Directories sort by their subtree-minimum frontmatter
   `order`, so `order` lifts whole sections. UIs render this instead of re-deriving
   hierarchy from a flat list.
+- `getBySlug({ slug })` resolves a **directory** URL to that directory's
+  `README` page: `/docs/adr` is the ADR index, `/docs/plugins` the plugin-docs
+  index. A directory is a destination, not a 404.
+
+### The reader resolves links in corpus terms
+
+Repository markdown links to itself as files — `./0002-x.md`,
+`../plans/done/034-y.md`, `../../GLOSSARY.md`, `../adr/` — while the reader's
+URLs are mount-qualified slugs. The renderer therefore rewrites in-corpus links
+at render time: resolve the relative path against the current doc's slug, strip
+`.md`/`.mdx`, map `GLOSSARY` to `glossary`, and route to `/docs/<slug>`.
+External schemes, pure fragments, `/docs/` routes, and non-markdown assets pass
+through untouched. Directory targets land on the README fallback above.
+
+Rendering is client-side from raw markdown through one shared renderer (reader
+and, later, a draft preview — parity by construction): `rehype-slug` ids back
+the in-page TOC and deep links, and syntax highlighting runs on shiki's
+JavaScript regex engine (no WASM) against a lazily built singleton with a fixed
+common-language set. A leading `# Title` that restates the doc's title is
+dropped, since the reader header already renders it. ADR headers'
+`Status:` lines parse at compile time into structured `status`/`statusNote`
+(the phrase plus its parenthetical or dash qualifier) and render in the reader
+header as a color-coded badge — accepted/proposed/superseded/rejected — with
+the qualifier in a popover, so lifecycle state is visible without re-reading
+prose.
 
 ## Consequences
 

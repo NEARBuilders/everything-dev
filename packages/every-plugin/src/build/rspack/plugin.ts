@@ -127,9 +127,6 @@ export class EmitPluginManifest implements RspackPluginInstance {
           },
         };
 
-        // Workspace self-description of non-code resources (ADR 0052):
-        // content collections and the docs lane a composing runtime can
-        // mount — both by convention, no manifest authoring required.
         if (fs.existsSync(path.join(context, "velite.config.ts"))) {
           manifest.content = { compiler: "velite" };
         }
@@ -210,9 +207,6 @@ export class EveryPluginBuild implements RspackPluginInstance {
     compiler.options.output.uniqueName = pluginInfo.normalizedName;
     compiler.options.output.publicPath = "auto";
     compiler.options.output.path = path.resolve(context, "dist");
-    // Watch rebuilds must not wipe dist: the dev serve static handler serves
-    // this directory, and a clean on every rebuild opens a window where
-    // remoteEntry.js 404s for any consumer that loads mid-rebuild.
     compiler.options.output.clean = !compiler.options.watch;
     compiler.options.output.library = { type: "commonjs-module" };
 
@@ -239,32 +233,13 @@ export class EveryPluginBuild implements RspackPluginInstance {
     if (!compiler.options.optimization) {
       compiler.options.optimization = {};
     }
-    // rspack 2.x splitChunks re-ids the final chunk graph while the federation
-    // get-factory codegen keeps pre-split ids — the entry then references
-    // chunks that were never emitted (ChunkCompletenessPlugin's exact failure
-    // mode). Splitting off keeps the emitted bundle self-consistent.
     compiler.options.optimization.splitChunks = false;
-    // The default deterministic module ids hash module identifiers that embed
-    // absolute resource paths, so the same source builds to different id
-    // spaces on different machines (host deploy train vs the image's
-    // dist-builder stage). A mixed-generation load — CDN-pinned entry +
-    // staged chunks — then splices two incompatible id spaces and fails with
-    // "__webpack_modules__[r] is not a function". Named ids derive from
-    // context-relative requests, keeping builds machine-independent and the
-    // two generations semantically identical.
     compiler.options.optimization.moduleIds = "named";
 
     if (!compiler.options.resolve) {
       compiler.options.resolve = {};
     }
     compiler.options.resolve.extensions = ["...", ".tsx", ".ts"];
-    // Source-first for local flows: resolve framework packages through the
-    // `development` export condition (TS source) unless DEPLOY=true — the
-    // manual dist-first switch deploy-identical builds opt into. (NODE_ENV
-    // is unusable as the gate here: the rspack CLI defaults it to
-    // "production" for every `build` invocation, including local dev watch.)
-    // byDependency entries inherit the root conditions via "...", so
-    // dropping the strip lets esm/cjs deps pick up `development` too.
     const sourceFirst = process.env.DEPLOY !== "true";
     compiler.options.resolve.conditionNames = [
       ...(sourceFirst ? ["development"] : []),
@@ -276,12 +251,6 @@ export class EveryPluginBuild implements RspackPluginInstance {
       "default",
     ];
     if (sourceFirst) {
-      // Source-resolved TS packages (e.g. better-near-auth) use node-style
-      // `.js` specifiers for their own relative imports; map them to the
-      // on-disk `.ts` sources. `.js` stays first in the expansion: the alias
-      // picks the first target that exists on disk, and .ts-first made
-      // packages that also ship index.ts (e.g. @scure/base) resolve their
-      // TypeScript over their real JavaScript entry.
       compiler.options.resolve.extensionAlias = {
         ".js": [".js", ".ts", ".tsx"],
       };
@@ -312,9 +281,6 @@ export class EveryPluginBuild implements RspackPluginInstance {
       compiler.options.module.rules = [];
     }
 
-    // Source-first resolution pulls every-plugin src into the graph, which
-    // imports package.json (runtime/mf-config.ts). The MF shared chunks
-    // must emit it as a json module, not parse it as JavaScript.
     const hasJsonRule = compiler.options.module.rules.some(
       (rule: any) =>
         typeof rule === "object" &&

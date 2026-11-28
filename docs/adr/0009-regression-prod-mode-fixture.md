@@ -42,6 +42,26 @@ secrets arrive via env with the docker host gateway. The container build shares
 the deploy train's dist-builder stage; the deployable universal image itself is
 the `runtime` stage (ADR 0021), exercised separately by the image smoke gate.
 
+## Amendment (2026-11-28): the start stack is reconcile-first
+
+The start fixture is a detached container owned by
+`tests/regression/lib/regression-stack.mjs` and addressed by a content stamp —
+head sha, uncommitted diff and untracked files, Dockerfile/compose/lockfile,
+base port and DB URLs; never `.bos/`, `node_modules`, or dist, which are
+runtime state or build output. Playwright probes `webServer.url` before it runs
+the command, so `cleanup` runs first and a stack from an older stamp can never
+be silently reused. `ensure` reaps other-stamp containers, reuses a healthy
+same-stamp one, or builds and boots a new one; `watch` then holds the webServer
+process open by tailing the detached container, because a command that exits
+before teardown reads as a boot failure. `teardown` removes the current-stamp
+container as the suite's global teardown. A SIGKILLed caller orphans no live
+foreground docker process; the next `ensure` reuses or reaps.
+
+The staged plan maps the full internal port range: each local plugin from
+`basePort+10`, each folder-form plugin ui bundle from `basePort+20` (the
+`<key>-ui` shape the deploy train uploads). Folder-form ui slots are registered
+because the composer drops a plugin ui that resolves with no production URL.
+
 ## Consequences
 
 - PR CI validates the artifacts the change produces, end to end, in production mode — the same host program Railway runs.

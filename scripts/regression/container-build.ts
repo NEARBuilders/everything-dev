@@ -326,19 +326,9 @@ const ports = {
   authUi: basePort + 4,
 };
 
-// One plugin→port mapping for the whole staging plan — auth serves on its own
-// port, the other local plugins are indexed from basePort+10. Plugin ui bundle
-// keys occupy basePort+20+idx (mirroring platform-deploy's `<key>-ui` bundle
-// shape).
 const pluginPort = (key: string): number =>
   key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
 
-/**
- * Folder-form plugin ui slots (plugins.<key>.ui with a local workspace that
- * hosts a `ui/` source — the shape platform-deploy uploads as `<key>-ui`).
- * Mirrors the deploy train: without these entries the plugin ui resolves with
- * no production URL and the composer drops its routes.
- */
 const pluginUiSlots = new Map(
   localPlugins
     .filter(([key, workspace]) => {

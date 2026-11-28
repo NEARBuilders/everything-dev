@@ -1,12 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { collectErrors, expectNoHydrationFailure, waitForApp } from "../helpers/page-ready";
 
-/**
- * Docs plugin — public read path (gate-free). The docs list and reader are
- * served by the docs plugin's composed routes; content is the repository's
- * own markdown compiled at build time (velite), so the fixture set is
- * deterministic: every doc compiled from docs/** plus the glossary.
- */
 test.use({ trace: "on" });
 
 test.describe("Docs", () => {
@@ -150,6 +144,22 @@ test.describe("Docs", () => {
     await expect(page).toHaveURL(/\/docs\/.+$/, { timeout: 10000, waitUntil: "commit" });
     await expect(page.getByTestId("docs.reader-title")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("docs.markdown")).toBeVisible({ timeout: 15000 });
+
+    expectNoHydrationFailure(pageErrors);
+  });
+
+  test("an ADR's status renders as a badge with its qualifier in a popover", async ({ page }) => {
+    await page.goto("/docs/adr/0038-pglite-only-local-db", { waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    const badge = page.getByTestId("docs.status-badge");
+    await expect(badge).toBeVisible({ timeout: 15000 });
+    await expect(badge).toContainText("accepted", { ignoreCase: true });
+
+    await badge.click();
+    const note = page.getByTestId("docs.status-note");
+    await expect(note).toBeVisible({ timeout: 5000 });
+    await expect(note).toContainText("superseded by ADR 0044", { ignoreCase: true });
 
     expectNoHydrationFailure(pageErrors);
   });

@@ -1,5 +1,4 @@
 import { Context, Effect, Layer } from "effect";
-import type { BosConfigInput } from "everything-dev";
 import { mergeBosConfigWithExtends, resolveExtendsRef } from "everything-dev/config";
 import {
   keyPathOf,
@@ -14,6 +13,7 @@ import {
   resolveRelease,
   runtimeRefOf,
 } from "everything-dev/registry";
+import type { BosConfigInput } from "everything-dev/types";
 import { decodeSignedDelegateAction, isPrivateKey, Near } from "near-kit";
 import { type RegistryConfig, RegistryConfigService } from "./config";
 

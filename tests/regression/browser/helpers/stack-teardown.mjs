@@ -1,9 +1,3 @@
-/**
- * Browser-suite global teardown (ADR 0009 amendment): removes the
- * start-command fixture container this run booted, so a graceful run always
- * ends with the stack down. Dev modes own no containers — teardown is a
- * no-op for them (start-stack.mjs backs those webServers directly).
- */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";

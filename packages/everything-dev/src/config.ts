@@ -3,54 +3,37 @@
  * `services/resolution/` — this barrel keeps the `./config` subpath and the
  * internal import surface stable.
  */
+// config loading — the authored-config loader chain
 export {
   CircularExtendsError,
-  ConfigExtendsError,
   ConfigLoadError,
-  ConfigNotfoundError,
   ConfigVersionManifestError,
-  DEV_OVERLAY_FILENAME,
   DevOverlayError,
   defaultConfigEnv,
   findConfigPath,
-  getConfigBaseDir,
   isAppDescriptorPath,
-  LOCAL_PREFIX,
   loadAppDescriptorConfig,
   localConfigEntryPath,
   MISSING_CONFIG_MESSAGE,
-  parseAppDescriptorModule,
-  parseDevOverlayModule,
-  parseExtendsTarget,
-  type ResolvedComposableReference,
   readAuthoredConfigInput,
   readLocalAuthoredConfigInput,
   resetConfigPathCache,
-  resolveComposableReference,
   resolveConfigComposableEntries,
-  runWithConfigWarningSink,
 } from "./services/resolution/load";
+// extends merging — ordered merge + extends-ref resolution
 export type { BosEnv } from "./services/resolution/merge";
-export {
-  BOS_CONFIG_ORDER,
-  mergeBosConfigWithExtends,
-  rebuildOrderedConfig,
-  resolveExtendsRef,
-} from "./services/resolution/merge";
+export { mergeBosConfigWithExtends, resolveExtendsRef } from "./services/resolution/merge";
 
+// runtime building — the resolved runtime for host + plugins
 export {
-  type BuildRuntimeConfigOptions,
   buildRuntimeConfig,
   buildRuntimeConfigEffect,
   buildRuntimePluginsForConfig,
   getHostDevelopmentPort,
-  isLocalDevelopmentTarget,
-  parsePort,
-  resolveDevelopmentHostUrl,
   resolveLocalDevelopmentPath,
-  resolvePluginRuntimeName,
   resolveUiRuntimeName,
 } from "./services/resolution/runtime";
+// resolved-config serialization — the .bos resolved-config lifecycle
 export {
   getResolvedConfigPath,
   loadGeneratedResolvedConfig,
@@ -58,9 +41,6 @@ export {
   resolveBosConfigPath,
   writeResolvedConfig,
 } from "./services/resolution/serialize";
-export {
-  isRuntimeOverrideAllowed,
-  parseRuntimeOverrideTargets,
-} from "./services/resolution/validate";
+// shared config types
 export type { BosConfig, RuntimeConfig } from "./types";
 export { BosConfigSchema } from "./types";

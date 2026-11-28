@@ -1,13 +1,12 @@
+// verify chain — the trust-chain walker and its failure formatter
 export {
   type ChainDepth,
-  type ChainEntryResult,
-  type ChainVerifyResult,
   formatChainFailures,
-  type VerifyFileMismatch,
   type VerifyRemoteResult,
   type VerifyReport,
   verifyChain,
 } from "./chain";
+// engine — digest primitives and the verified-bytes fetch contract
 export type {
   Digest,
   Verified,
