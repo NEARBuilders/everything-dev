@@ -272,6 +272,49 @@ describe("ensureFreshDeps", () => {
     expect(report.rebuilt.map((member) => member.name).sort()).toEqual(["base", "mid"]);
   });
 
+  it("marks subpath-only packages (no root export) stale via their first dist subpath", async () => {
+    const root = makeRoot({});
+    writeFileSync(
+      join(root, "package.json"),
+      `${JSON.stringify({ workspaces: ["pkgs/*", "app"] })}\n`,
+    );
+    const appDir = join(root, "app");
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(
+      join(appDir, "package.json"),
+      `${JSON.stringify({ name: "app", dependencies: { subonly: "*" } })}\n`,
+    );
+    const memberDir = join(root, "pkgs", "subonly");
+    mkdirSync(join(memberDir, "src"), { recursive: true });
+    writeFileSync(
+      join(memberDir, "package.json"),
+      `${JSON.stringify({
+        name: "subonly",
+        exports: {
+          "./db": {
+            require: "./dist/db/index.cjs",
+            import: "./dist/db/index.mjs",
+          },
+        },
+        scripts: {
+          build:
+            "mkdir -p dist/db && printf 'built' > dist/db/index.cjs && printf 'built' > dist/db/index.mjs",
+        },
+      })}\n`,
+    );
+    writeFileSync(join(memberDir, "src", "index.ts"), "export {};\n");
+
+    const first = await ensureFreshDeps(root, [appDir]);
+    expect(first.rebuilt.map((member) => member.name)).toEqual(["subonly"]);
+
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(join(memberDir, "dist", "db", "index.mjs"), future, future);
+
+    const second = await ensureFreshDeps(root, [appDir]);
+    expect(second.rebuilt).toEqual([]);
+    expect(second.fresh.map((member) => member.name)).toEqual(["subonly"]);
+  });
+
   it("throws DepsBuildFailure naming the failing member", async () => {
     const root = makeRoot({});
     writeFileSync(

@@ -429,14 +429,27 @@ function distOracle(memberDir: string): string | null {
   const manifest = readManifest(join(memberDir, "package.json"));
   if (!manifest) return null;
 
-  const entry =
+  const exportsMap =
     manifest.exports && typeof manifest.exports === "object"
-      ? (manifest.exports as Record<string, unknown>)["."]
+      ? (manifest.exports as Record<string, unknown>)
       : undefined;
+  const entry = exportsMap?.["."];
   if (entry && typeof entry === "object") {
     for (const key of ["import", "default", "require", "types"] as const) {
       const value = (entry as Record<string, unknown>)[key];
       if (typeof value === "string" && !value.startsWith("./src")) return value;
+    }
+  }
+  // Subpath-only packages (no root export): the first subpath advertising a
+  // dist import marks the build — tsdown emits every entry, so any one of
+  // them existing proves the dist is present.
+  if (exportsMap) {
+    for (const value of Object.values(exportsMap)) {
+      if (typeof value !== "object" || value === null) continue;
+      for (const key of ["import", "default", "require"] as const) {
+        const candidate = (value as Record<string, unknown>)[key];
+        if (typeof candidate === "string" && !candidate.startsWith("./src")) return candidate;
+      }
     }
   }
   if (typeof manifest.module === "string" && !manifest.module.startsWith("./src")) {
