@@ -46,6 +46,10 @@ The matrix runs exactly where a decision is made — never everywhere:
 | **T2 gate** | `release.yml` before every npm publish | unit + start regression (parallel planes — `tier: release`) | ~15–20 min |
 | **T2 nightly** | nightly on the main tip (`backcompat-nightly.yml`) via `regression-full.yml` (`tier: nightly`) | the full matrix: unit + dev + start + backcompat + framework, parallel planes (backcompat mode currently broken at boot — see AGENTS.md) | ~25 min |
 
+`pnpm run setup` bootstraps a fresh checkout to T0-green in one command — install,
+prepare (self-healing toolchain + hooks), generated types, and a fast verify —
+and is a fast no-op when the checkout already is (#958).
+
 The gate proves the production artifact (start) and the published-chain
 contract (backcompat). The dev and framework planes pin the `bos dev`
 machinery (source-mode dev server, process death) — app-code changes cannot

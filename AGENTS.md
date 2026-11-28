@@ -236,6 +236,7 @@ This document provides operational guidance for AI agents working in the parent 
 
 **Start Development:**
 ```bash
+pnpm run setup   # One command from a fresh clone: install + prepare (self-healing toolchain + hooks) + generated types + a fast verify — idempotent, safe to re-run
 pnpm install
 pnpm run dev
 
