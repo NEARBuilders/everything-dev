@@ -4,9 +4,11 @@ import type { Context as HonoContext, MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { NONCE, secureHeaders } from "hono/secure-headers";
 import { type ClientRateLimitInfo, rateLimiter, type Store } from "hono-rate-limiter";
+import { createBindingResolver, type TenantBinding } from "../services/binding-resolver";
 import { ConfigService, readCorsOrigins } from "../services/config";
 import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
+import { resolveDomain } from "../utils/normalize";
 import { originMatches } from "../utils/origin-match";
 
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 900_000;
@@ -209,6 +211,54 @@ export function getCspStrict(isDev: boolean): boolean {
   return process.env.CSP_STRICT === "false" ? false : !isDev;
 }
 
+export interface ResolveCorsOriginContext {
+  allowedOrigins: string[];
+  isDev: boolean;
+  gatewayId: string;
+  requestHost: string;
+  bindingLookup: (hostname: string) => Promise<TenantBinding | null>;
+}
+
+/**
+ * The CORS origin decision, extracted for testability. The trusted origin set
+ * is: the configured CORS_ORIGIN allow-list, the gateway domain and its
+ * subdomains, and active tenant bindings — never an unconditional wildcard.
+ * First match wins; everything else gets no ACAO header (null).
+ */
+export async function resolveCorsOrigin(
+  origin: string | undefined,
+  ctx: ResolveCorsOriginContext,
+): Promise<string | null | "*"> {
+  if (!origin) return "*";
+
+  const originUrl = URL.canParse(origin) ? new URL(origin) : null;
+
+  if (originUrl && ctx.requestHost && ctx.requestHost.split(":")[0] === originUrl.hostname) {
+    return origin;
+  }
+
+  if (ctx.allowedOrigins.some((entry) => originMatches(entry, origin))) return origin;
+
+  const gatewayMatches =
+    originMatches(`https://${ctx.gatewayId}`, origin) ||
+    originMatches(`https://*.${ctx.gatewayId}`, origin);
+  if (gatewayMatches) return origin;
+
+  if (originUrl) {
+    let binding: TenantBinding | null = null;
+    try {
+      binding = await ctx.bindingLookup(originUrl.hostname);
+    } catch {
+      binding = null;
+    }
+    if (binding?.status === "active") return origin;
+  }
+
+  if (ctx.isDev && origin.startsWith("http://")) return origin;
+
+  return null;
+}
+
 export class SecurityMiddleware extends Context.Service<
   SecurityMiddleware,
   {
@@ -247,6 +297,9 @@ export class SecurityMiddleware extends Context.Service<
           ? corsOrigins
           : [config.host?.url ?? "", ...(uiConfig.url ? [uiConfig.url] : [])];
 
+      const bindingResolver = createBindingResolver(config);
+      const gatewayId = resolveDomain(config.domain, config.host.url).toLowerCase();
+
       const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
       const csrf: MiddlewareHandler = async (c, next) => {
@@ -271,13 +324,14 @@ export class SecurityMiddleware extends Context.Service<
       };
 
       const corsHandler: MiddlewareHandler = cors({
-        origin: (origin) => {
-          if (!origin) return "*";
-          if (allowedOrigins.some((entry) => originMatches(entry, origin))) return origin;
-          if (origin.startsWith("https://")) return origin;
-          if (isDev && origin.startsWith("http://")) return origin;
-          return null;
-        },
+        origin: (origin, c) =>
+          resolveCorsOrigin(origin, {
+            allowedOrigins,
+            isDev,
+            gatewayId,
+            requestHost: c.req.header("host") ?? "",
+            bindingLookup: (hostname) => bindingResolver.resolve(hostname),
+          }),
         credentials: true,
       });
 
