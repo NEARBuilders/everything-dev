@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { OrchestratorError, spawnRemoteHost } from "../../src/services/boot/host-module";
 import { pinnedManifestDocumentUrl } from "../../src/services/deploy/version-manifest";
-import { OrchestratorError, spawnRemoteHost } from "../../src/services/dev/orchestrator";
-import { DevRuntimeConfigLive } from "../../src/services/dev/service-descriptor";
 import type { RuntimeConfig } from "../../src/types";
 
 const HOST_BASE = "http://cdn.example/bundles/dev.everything.near/everything.dev/host";
@@ -207,12 +206,15 @@ describe("spawnRemoteHost — the #874 replay: a root publish must not move a pi
   it("registers the host manifest from the pin's immutable version dir, not the mutable slot root", async () => {
     fetchVersionDocument();
     await Effect.runPromise(
-      spawnRemoteHost(descriptor, callbacks).pipe(
-        Effect.provide(
-          DevRuntimeConfigLive(
-            runtimeConfig({ digest: { manifest: "versions/v1.json", integrity: pinIntegrity } }),
-          ),
-        ),
+      spawnRemoteHost(
+        {
+          key: descriptor.key,
+          url: descriptor.url,
+          runtimeConfig: runtimeConfig({
+            digest: { manifest: "versions/v1.json", integrity: pinIntegrity },
+          }),
+        },
+        callbacks,
       ),
     );
 
@@ -245,12 +247,15 @@ describe("spawnRemoteHost — the #874 replay: a root publish must not move a pi
       })),
     );
     await Effect.runPromise(
-      spawnRemoteHost(descriptor, callbacks).pipe(
-        Effect.provide(
-          DevRuntimeConfigLive(
-            runtimeConfig({ digest: { manifest: "versions/v1.json", integrity: sri } }),
-          ),
-        ),
+      spawnRemoteHost(
+        {
+          key: descriptor.key,
+          url: descriptor.url,
+          runtimeConfig: runtimeConfig({
+            digest: { manifest: "versions/v1.json", integrity: sri },
+          }),
+        },
+        callbacks,
       ),
     );
 
@@ -261,8 +266,13 @@ describe("spawnRemoteHost — the #874 replay: a root publish must not move a pi
 
   it("keeps the slot-root fixed name for unpinned dev boots", async () => {
     await Effect.runPromise(
-      spawnRemoteHost(descriptor, callbacks).pipe(
-        Effect.provide(DevRuntimeConfigLive(runtimeConfig({ env: "development" }))),
+      spawnRemoteHost(
+        {
+          key: descriptor.key,
+          url: descriptor.url,
+          runtimeConfig: runtimeConfig({ env: "development" }),
+        },
+        callbacks,
       ),
     );
 
@@ -272,12 +282,15 @@ describe("spawnRemoteHost — the #874 replay: a root publish must not move a pi
   it("fails loud with the pin named when the pinned manifest cannot resolve in production", async () => {
     fetchUnavailable();
     const exit = await Effect.runPromiseExit(
-      spawnRemoteHost(descriptor, callbacks).pipe(
-        Effect.provide(
-          DevRuntimeConfigLive(
-            runtimeConfig({ digest: { manifest: "versions/v1.json", integrity: "sha384-abcd" } }),
-          ),
-        ),
+      spawnRemoteHost(
+        {
+          key: descriptor.key,
+          url: descriptor.url,
+          runtimeConfig: runtimeConfig({
+            digest: { manifest: "versions/v1.json", integrity: "sha384-abcd" },
+          }),
+        },
+        callbacks,
       ),
     );
 
@@ -295,12 +308,15 @@ describe("spawnRemoteHost — the #874 replay: a root publish must not move a pi
       `Could not resolve shared dependency "effect". Looked in:\n  - require.resolve("effect")`,
     );
     const exit = await Effect.runPromiseExit(
-      spawnRemoteHost(descriptor, callbacks).pipe(
-        Effect.provide(
-          DevRuntimeConfigLive(
-            runtimeConfig({ digest: { manifest: "versions/v1.json", integrity: pinIntegrity } }),
-          ),
-        ),
+      spawnRemoteHost(
+        {
+          key: descriptor.key,
+          url: descriptor.url,
+          runtimeConfig: runtimeConfig({
+            digest: { manifest: "versions/v1.json", integrity: pinIntegrity },
+          }),
+        },
+        callbacks,
       ),
     );
 

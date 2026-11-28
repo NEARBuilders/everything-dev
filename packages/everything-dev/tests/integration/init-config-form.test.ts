@@ -113,7 +113,7 @@ describe("commented bos.app.ts scaffold", () => {
     expect(readFileSync(join(dir, "bos.dev.ts"), "utf-8")).toBe("export default {};\n");
   });
 
-  it("still delivers plugin.dev.ts files children need for bos dev", async () => {
+  it("still delivers bos.dev.ts files children need for bos dev", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bos-plugin-dev-copy-"));
     tempDirs.push(dir);
 
@@ -122,8 +122,8 @@ describe("commented bos.app.ts scaffold", () => {
       plugins: ["template"],
     });
 
-    expect(existsSync(join(dir, "api", "plugin.dev.ts"))).toBe(true);
-    expect(existsSync(join(dir, "plugins", "_template", "plugin.dev.ts"))).toBe(true);
+    expect(existsSync(join(dir, "api", "bos.dev.ts"))).toBe(true);
+    expect(existsSync(join(dir, "plugins", "_template", "bos.dev.ts"))).toBe(true);
     expect(existsSync(join(dir, "api", "src", "contract.ts"))).toBe(true);
   });
 });

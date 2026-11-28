@@ -44,7 +44,7 @@ describe("init api shell", () => {
       "api/src/global.d.ts",
       "api/drizzle.config.ts",
       "api/package.json",
-      "api/plugin.dev.ts",
+      "api/bos.dev.ts",
       "api/tests/setup.ts",
     ]) {
       expect(existsSync(join(projectDir, relative))).toBe(true);

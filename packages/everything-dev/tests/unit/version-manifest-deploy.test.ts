@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { isTransientBootFailure, OrchestratorError } from "../../src/services/boot/host-module";
 import {
   composeWorkspaceVersionManifest,
   resolveRemoteVersion,
 } from "../../src/services/deploy/version-manifest";
-import { isTransientBootFailure, OrchestratorError } from "../../src/services/dev/orchestrator";
 
 const webReport = {
   entry: "remoteEntry.cf712c39e56dc37f.js",

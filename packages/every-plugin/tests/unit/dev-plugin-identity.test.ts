@@ -21,7 +21,7 @@ function makePluginWorkspace(name: string, devConfigPluginId?: string): string {
   fs.writeFileSync(path.join(workspace, "package.json"), JSON.stringify({ name }));
   if (devConfigPluginId !== undefined) {
     fs.writeFileSync(
-      path.join(workspace, "plugin.dev.ts"),
+      path.join(workspace, "bos.dev.ts"),
       `export default { pluginId: ${JSON.stringify(devConfigPluginId)} };\n`,
     );
   }
@@ -29,10 +29,10 @@ function makePluginWorkspace(name: string, devConfigPluginId?: string): string {
 }
 
 describe("resolveDevPluginId", () => {
-  it("derives the dev server plugin id from the npm package name, not plugin.dev.ts", () => {
+  it("derives the dev server plugin id from the npm package name, not bos.dev.ts", () => {
     const workspace = makePluginWorkspace(
       "@everything-dev/registry-plugin",
-      "stale-from-plugin-dev-ts",
+      "stale-from-bos-dev-ts",
     );
     expect(resolveDevPluginId(workspace)).toBe("@everything-dev/registry-plugin");
   });

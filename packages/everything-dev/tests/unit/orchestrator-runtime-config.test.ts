@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { encodeRuntimeConfig } from "../../src/services/dev/orchestrator";
+import { encodeRuntimeConfig } from "../../src/services/boot/process";
 
 describe("encodeRuntimeConfig", () => {
   it("omits undefined object properties and converts undefined array entries to null", async () => {

@@ -10,6 +10,8 @@ import { bootSnapshotOf, writeBootSnapshot } from "everything-dev/snapshot";
 import type { BosConfig, BosConfigInput } from "everything-dev/types";
 import { formatChainFailures, verifyChain } from "everything-dev/verify";
 import { logger } from "../utils/logger";
+import { FederationContainers } from "./federation/containers";
+import { FederationLoader } from "./federation/loader";
 import { createRuntimeSnapshotState, deploymentDigest, RuntimeSnapshot } from "./runtime-snapshot";
 import { composeUi } from "./ui-compose";
 
@@ -154,7 +156,8 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
   pendingRestart?: Ref.Ref<readonly string[]>;
 }): Effect.fn.Return<
   Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" | "held" }>,
-  SnapshotAdoptError
+  SnapshotAdoptError,
+  FederationContainers | FederationLoader
 > {
   const { snapshot, publishedConfig } = input;
   const baseDir = input.baseDir ?? process.cwd();
@@ -240,7 +243,8 @@ export const adoptPublishedPointer = Effect.fn("SnapshotCoordinator.adopt")(func
   pendingRestart?: Ref.Ref<readonly string[]>;
 }): Effect.fn.Return<
   Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" | "held" }>,
-  SnapshotAdoptError
+  SnapshotAdoptError,
+  FederationContainers | FederationLoader
 > {
   return yield* adoptPermits.withPermits(1)(adoptTransaction(input));
 });
@@ -268,6 +272,8 @@ export class SnapshotCoordinator extends Context.Service<
     SnapshotCoordinator,
     Effect.gen(function* () {
       const snapshot = yield* RuntimeSnapshot;
+      const containers = yield* FederationContainers;
+      const loader = yield* FederationLoader;
       const pendingRestartRef = yield* Ref.make<readonly string[]>([]);
       return SnapshotCoordinator.of({
         adopt: (publishedConfig) =>
@@ -276,9 +282,12 @@ export class SnapshotCoordinator extends Context.Service<
             publishedConfig,
             baseDir: process.cwd(),
             pendingRestart: pendingRestartRef,
-          }),
+          }).pipe(
+            Effect.provideService(FederationContainers, containers),
+            Effect.provideService(FederationLoader, loader),
+          ),
         pendingRestart: Ref.get(pendingRestartRef),
       });
     }),
-  );
+  ).pipe(Layer.provide(FederationLoader.layer), Layer.provide(FederationContainers.layer));
 }

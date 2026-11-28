@@ -1,7 +1,8 @@
+import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Effect, Exit, ManagedRuntime } from "effect";
+import { Effect, Exit, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildRuntimeClientConfig,
@@ -14,10 +15,19 @@ const federationMocks = vi.hoisted(() => ({
   loadCoreUiRouteConfig: vi.fn(),
   loadUiRouteConfig: vi.fn(),
   loadRouterModule: vi.fn(),
+  localUiRemoteEntry: vi.fn(),
 }));
 
-vi.mock("../../src/services/federation.server", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/services/federation.server")>();
+vi.mock("../../src/services/federation/loader", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/federation/loader")>();
+  const loaderService = {
+    ensureSession: () => ({ mf: {} as never, generation: 1 }),
+    verifyIntegrity: () => Effect.void,
+    loadExpose: () => Effect.die("loadExpose must run through the module-level mocks"),
+    loadRouterModule: () => Effect.die("loadRouterModule must run through the module-level mocks"),
+  };
+  const mutable = actual.FederationLoader as unknown as { layer: Layer.Layer<never, never> };
+  mutable.layer = Layer.succeed(actual.FederationLoader, loaderService as never);
   return {
     ...actual,
     loadUiComposeModule: (...args: unknown[]) => federationMocks.loadUiComposeModule(...args),
@@ -27,10 +37,23 @@ vi.mock("../../src/services/federation.server", async (importOriginal) => {
   };
 });
 
+vi.mock("../../src/services/federation/containers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/federation/containers")>();
+  const containersService = {
+    localUiRemoteEntry: (...args: unknown[]) => federationMocks.localUiRemoteEntry(...args),
+  };
+  const mutable = actual.FederationContainers as unknown as { layer: Layer.Layer<never, never> };
+  mutable.layer = Layer.succeed(actual.FederationContainers, containersService as never);
+  return {
+    ...actual,
+    waitForLocalContainer: () => Effect.void,
+  };
+});
+
 const { composeUi, composeClientPayload, createUiComposeCacheState, uiSources } = await import(
   "../../src/services/ui-compose"
 );
-const { FederationLifecycle } = await import("../../src/services/federation.server");
+const { FederationLifecycle } = await import("../../src/services/federation/lifecycle");
 
 const CORE_MANIFEST = {
   name: "ui",
@@ -172,19 +195,22 @@ const cdnAwareFetch = async (url: unknown) => {
 
 const fetchMock = vi.fn(cdnAwareFetch);
 let cache = createUiComposeCacheState();
+const makeLifecycleRuntime = () => ManagedRuntime.make(FederationLifecycle.layer);
+let lifecycleRuntime: ReturnType<typeof makeLifecycleRuntime> | undefined;
 let disposeFederation: (() => Promise<void>) | undefined;
 
-const compose = (config: RuntimeConfig) => Effect.runPromise(composeUi(config, cache));
-const composeExit = (config: RuntimeConfig) => Effect.runPromiseExit(composeUi(config, cache));
+const compose = (config: RuntimeConfig) => lifecycleRuntime!.runPromise(composeUi(config, cache));
+const composeExit = (config: RuntimeConfig) =>
+  lifecycleRuntime!.runPromiseExit(composeUi(config, cache));
 const composeClient = (config: RuntimeConfig) =>
-  Effect.runPromise(composeClientPayload(config, cache));
+  lifecycleRuntime!.runPromise(composeClientPayload(config, cache));
 
 beforeEach(async () => {
   vi.clearAllMocks();
   cache = createUiComposeCacheState();
-  const lifecycle = ManagedRuntime.make(FederationLifecycle.layer);
-  await lifecycle.runPromise(FederationLifecycle);
-  disposeFederation = () => lifecycle.dispose();
+  lifecycleRuntime = makeLifecycleRuntime();
+  await lifecycleRuntime!.runPromise(FederationLifecycle);
+  disposeFederation = () => lifecycleRuntime!.dispose();
   fetchMock.mockImplementation(cdnAwareFetch);
   vi.stubGlobal("fetch", fetchMock);
   federationMocks.loadUiComposeModule.mockImplementation(() =>
@@ -193,6 +219,19 @@ beforeEach(async () => {
   federationMocks.loadCoreUiRouteConfig.mockImplementation(() => Effect.succeed(CORE_ROUTE_CONFIG));
   federationMocks.loadUiRouteConfig.mockImplementation(() => Effect.succeed(AUTH_ROUTE_CONFIG));
   federationMocks.loadRouterModule.mockImplementation(() => Effect.succeed(ROUTER_MODULE));
+  federationMocks.localUiRemoteEntry.mockImplementation(
+    ({ name, localRoot }: { name: string; localRoot: string }) =>
+      Effect.try({
+        try: () => {
+          const containerPath = path.join(localRoot, "dist", "ssr", "remoteEntry.server.js");
+          const containerVersion = existsSync(containerPath)
+            ? String(statSync(containerPath).mtimeMs)
+            : "pending";
+          return { name, localPath: localRoot, ssrUrl: "http://127.0.0.1:1/ssr", containerVersion };
+        },
+        catch: (cause) => new Error(`localUiRemoteEntry stub failed: ${String(cause)}`),
+      }),
+  );
 });
 
 afterEach(async () => {

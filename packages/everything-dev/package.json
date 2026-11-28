@@ -189,6 +189,15 @@
       "import": "./dist/contract.meta.mjs",
       "require": "./dist/contract.meta.cjs"
     },
+    "./dev-log-pipeline": {
+      "development": {
+        "types": "./src/services/dev/logs.ts",
+        "import": "./src/services/dev/logs.ts"
+      },
+      "types": "./dist/services/dev/logs.d.mts",
+      "import": "./dist/services/dev/logs.mjs",
+      "require": "./dist/services/dev/logs.cjs"
+    },
     "./federation": {
       "development": {
         "types": "./src/services/federation/service.ts",

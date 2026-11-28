@@ -14,6 +14,7 @@ import { preflightLocalInfra } from "../../infra/preflight";
 import type { InfraPlan } from "../../infra/types";
 import type { BosConfig, SourceMode } from "../../types";
 import { run } from "../../utils/run";
+import { mergeGeneratedOverFileEnv } from "../boot/process";
 import { generateCodeArtifacts } from "../codegen/artifacts";
 import { openResolution, type ResolutionSession } from "../resolution/session";
 import { runSeedPhase } from "../seed/runner";
@@ -21,7 +22,6 @@ import { detectLocalPackages } from "../workspace/linked-packages";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { ensureFreshDeps, findWorkspaceRoot } from "../workspace/workspace";
 import { isDebug } from "./logs";
-import { mergeGeneratedOverFileEnv } from "./orchestrator";
 import { timedPhase } from "./progress";
 import { buildDescription, buildServiceDescriptorMapFromPlan } from "./service-descriptor";
 import type { DevSessionData } from "./session";
@@ -222,7 +222,6 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
           uiSource,
           apiSource,
           authSource,
-          interactive: input.interactive,
         },
       }),
     );
@@ -258,7 +257,7 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
       );
     }
     yield* Effect.sync(() => {
-      for (const [key, value] of Object.entries(mergedEnv)) {
+      for (const [key, value] of Object.entries(mergedEnv) as [string, string][]) {
         if (key === "BASE_URL" || key === "CORS_ORIGIN") setProcessEnv(key, value);
       }
     });

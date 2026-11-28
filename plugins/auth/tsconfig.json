@@ -32,6 +32,6 @@
     }
   },
   "files": ["tests/types.d.ts"],
-  "include": ["src/**/*", "tests/**/*", "plugin.dev.ts"],
+  "include": ["src/**/*", "tests/**/*", "bos.dev.ts"],
   "exclude": ["node_modules", "dist", "src/routeTree.gen.ts"]
 }

@@ -22,10 +22,10 @@ const REPO_ROOT = join(import.meta.dirname, "../../../../");
 const ROOT_CONFIG = (await loadParentConfigFixture()) as {
   plugins?: Record<string, { routes?: string[] }>;
 };
-const TEMPLATE_PATH = join(REPO_ROOT, ".github/templates/api/plugin.dev.ts");
-const DEV_DEST = "api/plugin.dev.ts";
+const TEMPLATE_PATH = join(REPO_ROOT, ".github/templates/api/bos.dev.ts");
+const DEV_DEST = "api/bos.dev.ts";
 
-describe("syncTemplate — api/plugin.dev.ts child-owned variables (#538)", () => {
+describe("syncTemplate — api/bos.dev.ts child-owned variables (#538)", () => {
   let projectDir: string | null = null;
 
   beforeEach(() => {
