@@ -11,6 +11,15 @@ import {
 } from "../../src/services/resolution/merge";
 import type { BosConfigInput } from "../../src/types";
 
+// CI-run property tests pin a recorded seed (#959): a random seed per CI run
+// flakes clean main whenever the seed draws a conflict case (#948 presented
+// exactly that way). This seed passed a local run of every law below at the
+// pinned run counts. Exploratory random-seed runs are a deliberate local
+// action, never the CI default; a counterexample any seed uncovers becomes a
+// pinned deterministic regression test in this file. Convention:
+// docs/agents/testing.md ("Test value rules").
+const PROPERTY_SEED = 20261127;
+
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
 const KEY_ALPHA = [
@@ -245,7 +254,7 @@ describe("mergeBosConfigWithExtends laws", () => {
       const right = mergeExtends(mergeExtends(a, b), c);
       return canon(left) === canon(right);
     });
-    expect(fc.assert(law, { numRuns: 300 })).toBeUndefined();
+    expect(fc.assert(law, { numRuns: 300, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("associativity with nulls fails by design: parent null absorbs, child null is transparent (documented)", () => {
@@ -303,7 +312,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return getPath(mergeExtends(parent, child), path) === childLeaf;
       },
     );
-    expect(fc.assert(prop, { numRuns: 300 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 300, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("parent null wins: a null in the parent shadows any child value", () => {
@@ -318,7 +327,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return getPath(mergeExtends(parent, child), path) === null;
       },
     );
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("child null is transparent: the parent value stands", () => {
@@ -333,7 +342,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return getPath(mergeExtends(parent, child), path) === parentLeaf;
       },
     );
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("child null over a key the parent lacks stays absent", () => {
@@ -341,14 +350,14 @@ describe("mergeBosConfigWithExtends laws", () => {
       const merged = mergeExtends(parent, { app: null });
       return canon(merged) === canon(parent);
     });
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("idempotence on resolved configs: merging a resolved config with itself is a fixpoint", () => {
     const prop = fc.property(resolvedConfig, (config) => {
       return canon(mergeExtends(config, config)) === canon(config);
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("empty child over plugin-less parent preserves the parent", () => {
@@ -358,7 +367,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(mergeExtends(parent, {})) === canon(parent);
       },
     );
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("child digest is atomic: parent fields never half-mix in", () => {
@@ -373,7 +382,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(digest) === canon(child.digest) && !("extra" in digest) && !("pin" in digest);
       },
     );
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("app secrets/connectSrc union across extends: parent-first, complete, deduplicated", () => {
@@ -388,7 +397,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(mergedList) === canon(dedupParentFirst(parentList, childList));
       },
     );
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("union of two empty arrays stays an empty array, not a deleted key", () => {
@@ -411,7 +420,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(mergedList) === canon([...new Set(childList)] as Json[]);
       },
     );
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("plugins: child declaration replaces wholesale; parent never leaks into the cleaned list", () => {
@@ -426,7 +435,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon(mergedPlugins) === canon(cleanPluginsSection(childPlugins));
       },
     );
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("empty plugin attachment objects are dropped by the sentinel cleaner (documented edge)", () => {
@@ -450,7 +459,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon((merged as Record<string, Json>).plugins) === canon({});
       },
     );
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("plugins: child without plugins inherits the parent list verbatim", () => {
@@ -463,7 +472,7 @@ describe("mergeBosConfigWithExtends laws", () => {
         return canon((merged as Record<string, Json>).plugins) === canon(parentPlugins);
       },
     );
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("canonical key ordering for arbitrary merged configs", () => {
@@ -474,7 +483,7 @@ describe("mergeBosConfigWithExtends laws", () => {
       const unknownKeys = keys.filter((key) => !BOS_CONFIG_ORDER.includes(key as never));
       return canon(keys) === canon([...orderedKeys, ...unknownKeys]);
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("rebuildOrderedConfig is idempotent", () => {
@@ -482,7 +491,7 @@ describe("mergeBosConfigWithExtends laws", () => {
       const once = rebuildOrderedConfig(config);
       return canon(rebuildOrderedConfig(once)) === canon(once);
     });
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 });
 
@@ -501,7 +510,7 @@ describe("resolveExtendsRef laws", () => {
     const prop = fc.property(WORD, envArb, (ref, env) => {
       return resolveExtendsRef(ref, env as "development") === ref;
     });
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("staging falls back through production", () => {
@@ -509,7 +518,7 @@ describe("resolveExtendsRef laws", () => {
       const expected = ref.staging ?? resolveExtendsRef(ref, "production");
       return resolveExtendsRef(ref, "staging") === expected;
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("precedence: env key, then production, then first defined value", () => {
@@ -521,7 +530,7 @@ describe("resolveExtendsRef laws", () => {
         undefined;
       return resolveExtendsRef(ref, env as "development") === expected;
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 });
 
@@ -589,7 +598,7 @@ describe("publish canonicalization laws (#584, #865)", () => {
       const values = collectDevelopmentValues(stripped as unknown as Json);
       return values.every((value) => !(typeof value === "string" && value.startsWith("local:")));
     });
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("stripping is idempotent", () => {
@@ -598,7 +607,7 @@ describe("publish canonicalization laws (#584, #865)", () => {
       const twice = stripLocalDevelopmentTargets(once);
       return canon(once) === canon(twice);
     });
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("seed block never survives canonicalization", () => {
@@ -606,7 +615,7 @@ describe("publish canonicalization laws (#584, #865)", () => {
       const stripped = stripSeedConfig(config as unknown as BosConfigInput);
       return !("seed" in (stripped as Record<string, Json>));
     });
-    expect(fc.assert(prop, { numRuns: 100 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 100, seed: PROPERTY_SEED })).toBeUndefined();
   });
 });
 
@@ -624,7 +633,7 @@ describe("mergeAuthoredOverPublished laws", () => {
         return getPath(overlayAuthored(pub, auth), path) === authoredLeaf;
       },
     );
-    expect(fc.assert(prop, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("published-only top-level keys survive the overlay", () => {
@@ -636,7 +645,7 @@ describe("mergeAuthoredOverPublished laws", () => {
       }
       return true;
     });
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("associativity under repeated overlays", () => {
@@ -657,7 +666,7 @@ describe("mergeAuthoredOverPublished laws", () => {
       const right = overlayAuthored(p, overlayAuthored(a1, a2));
       return canon(left) === canon(right);
     });
-    expect(fc.assert(law, { numRuns: 200 })).toBeUndefined();
+    expect(fc.assert(law, { numRuns: 200, seed: PROPERTY_SEED })).toBeUndefined();
   });
 
   it("associativity with shape conflicts fails by design: authored non-object wins, grouping decides which shape survives (documented, #948)", () => {
@@ -700,6 +709,6 @@ describe("mergeAuthoredOverPublished laws", () => {
     const prop = fc.property(nullFreeConfig, (config) => {
       return canon(overlayAuthored(config, config)) === canon(config);
     });
-    expect(fc.assert(prop, { numRuns: 150 })).toBeUndefined();
+    expect(fc.assert(prop, { numRuns: 150, seed: PROPERTY_SEED })).toBeUndefined();
   });
 });

@@ -80,6 +80,19 @@ modules with zero React imports (ADR 0050 §3) — that is what makes the bottom
 layer possible. Don't mass-delete existing `*.test.tsx` files; migrate them
 opportunistically as their features are touched.
 
+## Test value rules — property tests run on recorded seeds
+
+Property-based tests (`fast-check`) never rely on a random seed in CI: every
+`fc.assert` call in a CI-run path passes a pinned `seed` constant, so a given
+commit always tests the same cases (`merge-properties.test.ts` is the model —
+a random seed per run flaked clean `main` on #948 by drawing a conflict case).
+Any counterexample a seed uncovers becomes a pinned deterministic regression
+test in the same file: it must survive every later run, not hide behind a seed
+bump. Exploratory random-seed runs are a deliberate local action, never the CI
+default; an intentional exception carries a `fc-random: allow` comment on the
+call site. The `property-seed-pin.test.ts` drift guard fails any CI-run
+`fc.assert` without a `seed` option (see that file for the exact rule).
+
 ## What to assume the parent covers — and what to cover here
 
 ### The born-healthy contract (init scaffold)
