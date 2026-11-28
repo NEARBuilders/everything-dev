@@ -1,5 +1,5 @@
-import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { pgliteDefaultUrlForSlug } from "./binding";
@@ -226,6 +226,48 @@ function pgliteDoubleOpenError(dataDir: string): Error {
   );
 }
 
+/** `PG_VERSION` is the first file initdb writes and names the Postgres major
+ * that owns the data dir; another major cannot open it — the server refuses
+ * at startup. Undefined for a dir this build has not initialized yet. */
+function pgliteDataDirPostgresMajor(dataDir: string): string | undefined {
+  try {
+    const version = readFileSync(join(dataDir, "PG_VERSION"), "utf-8").trim();
+    return /^\d+$/.test(version) ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function thisBuildsPostgresMajor(
+  PGlite: typeof import("@electric-sql/pglite").PGlite,
+): Promise<string | undefined> {
+  const probe = new PGlite();
+  try {
+    await probe.waitReady;
+    const row = (await probe.query("SHOW server_version")).rows[0] as
+      | { server_version?: unknown }
+      | undefined;
+    return typeof row?.server_version === "string" ? row.server_version.split(".")[0] : undefined;
+  } finally {
+    await probe.close().catch(() => {});
+  }
+}
+
+function pgliteIncompatibleDataDirError(
+  dataDir: string,
+  writtenBy: string,
+  running: string,
+  cause: unknown,
+): Error {
+  return new Error(
+    `[db] PGlite data dir "${dataDir}" was initialized by PostgreSQL ${writtenBy}, and this build's ` +
+      `PGlite runs PostgreSQL ${running} — a data dir opens only on its own Postgres major (ADR 0044 ` +
+      "dirs are persistent). Back the directory up, then either restore a dump taken with the old " +
+      "version into a fresh data dir, or remove it to re-initialize (its data is not recovered).",
+    { cause },
+  );
+}
+
 /**
  * Create a drizzle database driver for a plugin, choosing the engine by URL
  * scheme: `pglite:` / `:memory:` → embedded PGlite, anything else → postgres
@@ -265,9 +307,15 @@ export async function createDatabaseDriver<TSchema extends Record<string, unknow
         mkdirSync(guardKey, { recursive: true });
       }
       pglite = new PGlite(dataDir);
+      // KEEP: the constructor returns before init finishes — without this the
+      // first query (or migration) surfaces the wasm failure instead.
+      await pglite.waitReady;
     } catch (error) {
       if (guardKey) openPgliteDirs.delete(guardKey);
-      throw error;
+      const writtenBy = guardKey ? pgliteDataDirPostgresMajor(guardKey) : undefined;
+      const running = writtenBy ? await thisBuildsPostgresMajor(PGlite) : undefined;
+      if (!writtenBy || !running || running === writtenBy) throw error;
+      throw pgliteIncompatibleDataDirError(dataDir, writtenBy, running, error);
     }
 
     try {
