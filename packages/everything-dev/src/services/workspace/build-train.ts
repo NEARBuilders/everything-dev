@@ -1,5 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import os from "node:os";
+import { resolve } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer, Option } from "effect";
 import { resolveLocalDevelopmentPath } from "../../config";
@@ -8,7 +9,16 @@ import type { BosConfig, BosPluginRef, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { readInstalledFrameworkVersion } from "../framework-version";
 import { syncResolvedSharedDeps } from "./shared-deps";
-import { contentHashStalenessOracle, ensureFreshDeps, findWorkspaceRoot } from "./workspace";
+import {
+  contentHashStalenessOracle,
+  ensureFreshDeps,
+  findWorkspaceRoot,
+  judgeStaleness,
+  localDepsOf,
+  mtimeStalenessOracle,
+  type StalenessOracleKind,
+  type StalenessReason,
+} from "./workspace";
 
 const buildCommands: Record<string, { cmd: string; args: string[] }> = {
   host: { cmd: "pnpm", args: ["run", "build"] },
@@ -116,6 +126,15 @@ export type WorkspaceBuildOutcome = {
   warnings: string[];
 };
 
+/** One prerequisite's dry-run staleness verdict (#483) — the row the
+ * `verdicts` render event receives, in closure (build) order. */
+export interface WorkspaceStalenessRow {
+  member: string;
+  verdict: "fresh" | "stale" | "forced";
+  reason: StalenessReason | null;
+  oracle: StalenessOracleKind;
+}
+
 /** Render events the build train emits (#424) — the ✓/✗ table, the deploy
  * banner, and the prerequisite line are presentation: the service only
  * decides WHEN, `cli/render/workspace-build` decides HOW. */
@@ -123,6 +142,9 @@ export interface WorkspaceBuildRender {
   banner?(total: number): void;
   prerequisites?(names: readonly string[]): void;
   outcome?(outcome: WorkspaceBuildOutcome): void;
+  /** Dry-run staleness report (#483): one row per closure member. Fires
+   * instead of any build — the train runs nothing else on a dry run. */
+  verdicts?(rows: readonly WorkspaceStalenessRow[]): void;
   end?(): void;
 }
 
@@ -139,6 +161,9 @@ export interface BuildTargetsInput {
   /** Escape hatch for the content-hash oracle (#430): force every prerequisite
    * rebuild (the pre-#430 deploy behavior). */
   forceBuild?: boolean;
+  /** Report staleness verdicts without building (#483) — no prerequisite
+   * builds, no target builds, no catalog install; built stays empty. */
+  dryRun?: boolean;
 }
 
 export interface BuildTargetsDeps {
@@ -291,6 +316,54 @@ export async function buildWorkspaceTargets(
     return { built: [], skipped };
   }
 
+  const root = findWorkspaceRoot(input.configDir);
+  const force = input.deploy && (input.forceBuild === true || process.env.BOS_FORCE_BUILD === "1");
+
+  // Dry run (#483): judge the prerequisite closure and hand the rows to the
+  // render seam — no pnpm install, no prerequisite builds, no target builds,
+  // exit 0 regardless of verdicts. The oracle matches what a real run would
+  // use: the hash oracle for deploy trains, mtime otherwise.
+  if (input.dryRun) {
+    const useHashOracle = input.deploy && !force;
+    const oracle =
+      useHashOracle && root
+        ? contentHashStalenessOracle(root.dir, root.members)
+        : mtimeStalenessOracle;
+    if (root) {
+      const closure = localDepsOf(
+        root,
+        existing.map((entry) => entry.path),
+      );
+      const byDir = new Map(root.members.map((member) => [member.dir, member]));
+      const seen = new Set(closure.map((member) => member.name));
+      const targets = existing.flatMap((entry) => {
+        const member = byDir.get(resolve(entry.path));
+        return member && !seen.has(member.name) ? [member] : [];
+      });
+      const rows: WorkspaceStalenessRow[] = await Promise.all(
+        [...closure, ...targets].map(async (member): Promise<WorkspaceStalenessRow> => {
+          if (force) {
+            return {
+              member: member.name,
+              verdict: "forced",
+              reason: null,
+              oracle: input.deploy ? "content-hash" : "mtime",
+            };
+          }
+          const judged = await judgeStaleness(oracle, member);
+          return {
+            member: member.name,
+            verdict: judged.stale ? "stale" : "fresh",
+            reason: judged.reason,
+            oracle: judged.oracle,
+          };
+        }),
+      );
+      render?.verdicts?.(rows);
+    }
+    return { built: [], skipped };
+  }
+
   const sharedSync = await syncResolvedSharedDeps({
     configDir: input.configDir,
     hostMode: "local",
@@ -311,12 +384,10 @@ export async function buildWorkspaceTargets(
   // contract for every deploy build child.
   const env = trainBuildEnv({ configDir: input.configDir, deploy: input.deploy }, process.env);
 
-  const root = findWorkspaceRoot(input.configDir);
   // Deploy prerequisite freshness (#430): the content-hash oracle replaces the
   // blanket force-rebuild — unknown hash or missing dist errs toward building.
   // The force flag (input or BOS_FORCE_BUILD=1) keeps the old behavior as an
   // escape hatch: a forced build never judges.
-  const force = input.deploy && (input.forceBuild === true || process.env.BOS_FORCE_BUILD === "1");
   const depsReport = await (deps.freshDeps ?? ensureFreshDeps)(
     input.configDir,
     existing.map((entry) => entry.path),

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import {
   trainBuildEnv,
   type WorkspaceBuildOutcome,
   type WorkspaceBuildRender,
+  type WorkspaceStalenessRow,
 } from "../../src/services/workspace/build-train";
 import type { BosConfig } from "../../src/types";
 
@@ -495,5 +496,165 @@ describe("BuildTrainService", () => {
 
     expect(result.built).toEqual(["ui"]);
     expect(result.renderedOk).toBe(true);
+  });
+});
+
+function makeStalenessFixture(): string {
+  const root = mkdtempSync(join(tmpdir(), "bos-train-dry-"));
+  tmpRoots.push(root);
+  writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - ui\n");
+  mkdirSync(join(root, "ui", "src"), { recursive: true });
+  writeFileSync(
+    join(root, "ui", "package.json"),
+    `${JSON.stringify({ name: "ui", module: "dist/index.mjs" })}\n`,
+  );
+  writeFileSync(join(root, "ui", "src", "index.ts"), "export {};\n");
+  mkdirSync(join(root, "ui", "dist"), { recursive: true });
+  writeFileSync(join(root, "ui", "dist", "index.mjs"), "export {};\n");
+  return root;
+}
+
+describe("dry run (#483)", () => {
+  it("judges the closure through the mtime oracle on a dev build without building", async () => {
+    const root = makeStalenessFixture();
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(join(root, "ui", "dist", "index.mjs"), future, future);
+
+    const rows: WorkspaceStalenessRow[] = [];
+    const buildCalls: string[] = [];
+    const freshDepsCalls: number[] = [];
+
+    const { built } = await buildWorkspaceTargets(
+      {
+        configDir: root,
+        bosConfig,
+        runtimeConfig: null,
+        targets: ["ui"],
+        deploy: false,
+        verbose: false,
+        dryRun: true,
+      },
+      makeDeps({
+        run: async (_cmd, _args, opts) => {
+          buildCalls.push(opts.cwd ?? "?");
+          return { stdout: "", stderr: "", exitCode: 0 };
+        },
+        freshDeps: async () => {
+          freshDepsCalls.push(1);
+          return { rebuilt: [], fresh: [] };
+        },
+        render: { verdicts: (rendered) => rows.push(...rendered) },
+      }),
+    );
+
+    expect(built).toEqual([]);
+    expect(buildCalls).toEqual([]);
+    expect(freshDepsCalls).toEqual([]);
+    expect(rows).toEqual([{ member: "ui", verdict: "fresh", reason: null, oracle: "mtime" }]);
+  });
+
+  it("deploy dry runs judge through the content-hash oracle", async () => {
+    const root = makeStalenessFixture();
+
+    const rows: WorkspaceStalenessRow[] = [];
+    const buildCalls: string[] = [];
+
+    await buildWorkspaceTargets(
+      {
+        configDir: root,
+        bosConfig,
+        runtimeConfig: null,
+        targets: ["ui"],
+        deploy: true,
+        verbose: false,
+        dryRun: true,
+      },
+      makeDeps({
+        run: async (_cmd, _args, opts) => {
+          buildCalls.push(opts.cwd ?? "?");
+          return { stdout: "", stderr: "", exitCode: 0 };
+        },
+        render: { verdicts: (rendered) => rows.push(...rendered) },
+      }),
+    );
+
+    expect(buildCalls).toEqual([]);
+    expect(rows).toEqual([
+      { member: "ui", verdict: "stale", reason: "no-cache-entry", oracle: "content-hash" },
+    ]);
+  });
+
+  it("forceBuild turns every deploy dry-run row forced with reason null", async () => {
+    const root = makeStalenessFixture();
+
+    const rows: WorkspaceStalenessRow[] = [];
+    const buildCalls: string[] = [];
+
+    await buildWorkspaceTargets(
+      {
+        configDir: root,
+        bosConfig,
+        runtimeConfig: null,
+        targets: ["ui"],
+        deploy: true,
+        verbose: false,
+        dryRun: true,
+        forceBuild: true,
+      },
+      makeDeps({
+        run: async (_cmd, _args, opts) => {
+          buildCalls.push(opts.cwd ?? "?");
+          return { stdout: "", stderr: "", exitCode: 0 };
+        },
+        render: { verdicts: (rendered) => rows.push(...rendered) },
+      }),
+    );
+
+    expect(buildCalls).toEqual([]);
+    expect(rows).toEqual([
+      { member: "ui", verdict: "forced", reason: null, oracle: "content-hash" },
+    ]);
+  });
+
+  it("reports dependency attribution in closure order without building", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bos-train-dry-dep-"));
+    tmpRoots.push(root);
+    writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - dep\n  - app\n");
+    for (const [name, deps] of [
+      ["dep", {}],
+      ["app", { dep: "*" }],
+    ] as const) {
+      mkdirSync(join(root, name, "src"), { recursive: true });
+      writeFileSync(
+        join(root, name, "package.json"),
+        `${JSON.stringify({ name, module: "dist/index.mjs", ...(Object.keys(deps).length > 0 ? { dependencies: deps } : {}) })}\n`,
+      );
+      writeFileSync(join(root, name, "src", "index.ts"), "export {};\n");
+      mkdirSync(join(root, name, "dist"), { recursive: true });
+      writeFileSync(join(root, name, "dist", "index.mjs"), "export {};\n");
+    }
+
+    const scopedConfig = {
+      ...bosConfig,
+      app: { ...bosConfig.app, ui: { development: "local:app" } },
+    } as unknown as BosConfig;
+
+    const rows: WorkspaceStalenessRow[] = [];
+    await buildWorkspaceTargets(
+      {
+        configDir: root,
+        bosConfig: scopedConfig,
+        runtimeConfig: null,
+        targets: ["ui"],
+        deploy: true,
+        verbose: false,
+        dryRun: true,
+      },
+      makeDeps({ render: { verdicts: (rendered) => rows.push(...rendered) } }),
+    );
+
+    expect(rows.map((row) => row.member)).toEqual(["dep", "app"]);
+    expect(rows.every((row) => row.reason === "no-cache-entry")).toBe(true);
+    expect(rows.every((row) => row.oracle === "content-hash")).toBe(true);
   });
 });
