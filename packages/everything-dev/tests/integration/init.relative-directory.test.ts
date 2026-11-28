@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Effect } from "effect";
@@ -7,6 +7,7 @@ import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../s
 import { makeProjectEnv } from "../../src/env/project-env";
 import { InfraMaterializer, InfraMaterializerLive } from "../../src/infra/materializer";
 import { openResolution } from "../../src/services/resolution/session";
+import { convertChildConfigToAppForm } from "../../src/services/scaffold/init";
 import type { RuntimeConfig } from "../../src/types";
 import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
@@ -77,6 +78,14 @@ describe("bos init - relative directory", () => {
       overrides: ["ui", "api", "plugins"],
       workspaceOpts: { sourceDir: REPO_ROOT },
     });
+    await convertChildConfigToAppForm(targetDir);
+    const converted = readFileSync(join(targetDir, "bos.app.ts"), "utf-8");
+    writeFileSync(
+      join(targetDir, "bos.app.ts"),
+      converted
+        .replace('import { App } from "everything-dev/descriptor";\n\n', "")
+        .replace("export default App(", "export default ("),
+    );
 
     const session = await openResolution({ cwd: targetDir });
     expect(session?.config.account).toBe("testing.near");
@@ -89,7 +98,7 @@ describe("bos init - relative directory", () => {
     await materialize(targetDir, session.runtime);
     await Effect.runPromise(makeProjectEnv().ensureFile(targetDir));
 
-    expect(existsSync(join(targetDir, "bos.config.json"))).toBe(true);
+    expect(existsSync(join(targetDir, "bos.app.ts"))).toBe(true);
     expect(existsSync(join(targetDir, ".env.example"))).toBe(true);
     expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false);
 

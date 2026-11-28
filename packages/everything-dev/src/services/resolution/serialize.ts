@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type BosConfig, BosConfigSchema } from "../../types";
-import { readLocalAuthoredConfigInput } from "./load";
+import { LEGACY_JSON_CONFIG_MESSAGE, readLocalAuthoredConfigInput } from "./load";
 import { type BosEnv, isPlainObject, type ResolvedConfigMeta, rebuildOrderedConfig } from "./merge";
 
 const RESOLVED_CONFIG_FILENAME = "bos.resolved-config.json";
@@ -88,6 +88,8 @@ export async function readBosConfigForBuild(configDir: string): Promise<Record<s
   // a TS-form child has no committed bos.config.json to parse.
   const authored = await readLocalAuthoredConfigInput(configDir);
   if (authored) return authored as unknown as Record<string, unknown>;
-  const bosConfigPath = join(configDir, "bos.config.json");
-  return JSON.parse(readFileSync(bosConfigPath, "utf-8")) as Record<string, unknown>;
+  if (existsSync(join(configDir, "bos.config.json"))) {
+    throw new Error(LEGACY_JSON_CONFIG_MESSAGE);
+  }
+  throw new Error(`No authored configuration found in ${configDir} — create bos.app.ts`);
 }

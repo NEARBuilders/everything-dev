@@ -95,7 +95,7 @@ export class DevFlowService extends Context.Service<
               StartConfigMissing: () =>
                 Effect.succeed({
                   failed:
-                    "No configuration found. Provide --account and --gateway flags, or create a local authored config (bos.app.ts or bos.config.json).",
+                    "No configuration found. Provide --account and --gateway flags, or create a local authored config (bos.app.ts).",
                 }),
               InfraError: (error) => Effect.succeed({ failed: `${error.phase}: ${error.message}` }),
               DevStepError: (error) =>
