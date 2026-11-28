@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManifestTagSchema } from "../../src/services/platform/manifest-schema";
+import { RegistryError } from "../../src/services/registry/client";
+import { fetchRegistryKeyOrNull } from "../../src/services/registry/fastkv";
 import { readManifestTag, readVersionRecord } from "../../src/services/registry/pointer";
 import { clearHttpCache } from "../../src/utils/http-client";
 
@@ -103,5 +105,81 @@ describe("the thin tag decodes through ManifestTagSchema as served over the wire
     const decoded = bytes ? ManifestTagSchema.safeParse(bytes) : null;
 
     expect(decoded?.success).toBe(false);
+  });
+});
+
+describe("unreachable is not absent", () => {
+  const failureOf = async (run: () => Promise<unknown>): Promise<RegistryError> => {
+    const error = await run().then(
+      () => undefined,
+      (cause: unknown) => cause,
+    );
+    expect(error).toBeInstanceOf(RegistryError);
+    return error as RegistryError;
+  };
+
+  it("a network failure rejects as unreachable — never as a null pointer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNRESET");
+      }),
+    );
+
+    const error = await failureOf(() => readManifestTag(ACCOUNT, GATEWAY));
+    expect(error.kind).toBe("unreachable");
+    expect(error.key).toBe(`apps/${ACCOUNT}/${GATEWAY}/manifest.json`);
+    const transport = error.cause as { cause?: unknown };
+    expect(transport.cause).toBeInstanceOf(Error);
+    expect((transport.cause as Error).message).toBe("ECONNRESET");
+  });
+
+  it("a non-404 error response rejects as unreachable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("denied", { status: 403 })),
+    );
+
+    const error = await failureOf(() => readVersionRecord(ACCOUNT, GATEWAY, "2.0.0-rc.40"));
+    expect(error.kind).toBe("unreachable");
+  });
+
+  it("the tolerant variant still collapses the same failure to null", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNRESET");
+      }),
+    );
+
+    await expect(fetchRegistryKeyOrNull(ACCOUNT, GATEWAY, "manifest.json")).resolves.toBeNull();
+  });
+
+  it("an entry list without a value reads as absent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ entries: [null] }), { status: 200 })),
+    );
+
+    await expect(readManifestTag(ACCOUNT, GATEWAY)).resolves.toBeNull();
+  });
+
+  it("a pointer read is never served from the GET cache — the confirm leg sees post-publish bytes", async () => {
+    let served = JSON.stringify({
+      schemaVersion: 1,
+      version: "2.0.0-rc.37",
+      digest: "a".repeat(64),
+    });
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ entries: [{ value: served }] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await readManifestTag(ACCOUNT, GATEWAY);
+    served = JSON.stringify({ schemaVersion: 1, version: "2.0.0-rc.38", digest: "a".repeat(64) });
+    const afterPublish = await readManifestTag<{ version: string }>(ACCOUNT, GATEWAY);
+
+    expect(afterPublish?.version).toBe("2.0.0-rc.38");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

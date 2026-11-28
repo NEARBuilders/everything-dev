@@ -1,4 +1,4 @@
-import { Context, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 
 export type NetworkId = "mainnet" | "testnet";
 
@@ -10,7 +10,12 @@ interface FastKvListResponse {
   entries?: Array<FastKvEntry | null>;
 }
 
-import { fetchJsonOrNull, fetchRaw } from "../../utils/http-client";
+import {
+  FetchHttpError,
+  fetchJsonOrNull,
+  fetchRaw,
+  fetchWithRetryEff,
+} from "../../utils/http-client";
 import {
   networkIdForAccount,
   RegistryError,
@@ -83,9 +88,13 @@ export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: str
  * Read an arbitrary registry key under `apps/<account>/<gateway>/` — the
  * well-known-key seam (the release manifest's thin tag at `manifest.json`
  * lives beside the config).
- * Absent key (404) → null; a network failure throws so callers can distinguish
- * "the key is empty" from "the key is unreachable" (a swallowed error here
- * would silently tighten a compat floor).
+ *
+ * Absent (404, or an entry list without a value) resolves `null`. A registry
+ * that cannot be read — network failure, timeout, a non-404 error response
+ * after the retry policy, an unreadable body — rejects with `RegistryError`
+ * kind `unreachable`, so no caller can mistake "cannot read" for "nothing
+ * published". Reads bypass the shared GET cache: a pointer read after a
+ * publish must see the bytes on the wire, not a pre-publish copy.
  */
 export async function fetchRegistryKey<T>(
   accountId: string,
@@ -93,10 +102,23 @@ export async function fetchRegistryKey<T>(
   keyPath: string,
   registry?: string,
 ): Promise<T | null> {
-  const key = encodeURIComponent(`apps/${accountId}/${gatewayId}/${keyPath}`);
-  const payload = await fetchJson<FastKvListResponse>(
-    `${registryBaseUrlForNetwork(networkIdForAccount(accountId))}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${key}`,
-  );
+  const key = `apps/${accountId}/${gatewayId}/${keyPath}`;
+  const url = `${registryBaseUrlForNetwork(networkIdForAccount(accountId))}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${encodeURIComponent(key)}`;
+  let payload: FastKvListResponse;
+  try {
+    const response = await Effect.runPromise(
+      fetchWithRetryEff(url, {
+        headers: { accept: "application/json", "content-type": "application/json" },
+        retries: 3,
+      }),
+    );
+    payload = (await response.json()) as FastKvListResponse;
+  } catch (error) {
+    // KEEP: 404 is a real answer ("nothing published"); everything else is
+    // the registry being unreachable, which callers must hear as a throw.
+    if (error instanceof FetchHttpError && error.status === 404) return null;
+    throw new RegistryError({ key, kind: "unreachable", cause: error });
+  }
   const value = payload?.entries?.find(Boolean)?.value;
   if (!value) return null;
   if (typeof value === "string") return JSON.parse(value) as T;
