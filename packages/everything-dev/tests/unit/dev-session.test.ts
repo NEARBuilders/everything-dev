@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Deferred, Effect, Exit, Layer } from "effect";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellEnvLive } from "../../src/env/project-env";
+import { BootFailure } from "../../src/services/boot/types";
 import type { ProcessCallbacks, ProcessHandle } from "../../src/services/dev/orchestrator";
 import { DevRenderer } from "../../src/services/dev/render";
 import {
@@ -13,7 +14,7 @@ import {
   ServiceDescriptorMapLive,
 } from "../../src/services/dev/service-descriptor";
 import type { DevSessionDeps, DevSessionHandle } from "../../src/services/dev/session";
-import { DevStartFailure, runDevSession } from "../../src/services/dev/session";
+import { runDevSession } from "../../src/services/dev/session";
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -323,16 +324,16 @@ describe("runDevSession quit correctness", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("a production boot fails with DevStartFailure when a service fails to start, killing the healthy siblings", async () => {
+  it("a production boot fails with BootFailure when a service fails to start, killing the healthy siblings", async () => {
     mocks.failStarts = ["host"];
     const { program } = runSession({}, { ...fakeRuntimeConfig, env: "production" });
     const resultPromise = Effect.runPromise(
-      program.pipe(Effect.catchTag("DevStartFailure", (error) => Effect.succeed(error))),
+      program.pipe(Effect.catchTag("BootFailure", (error) => Effect.succeed(error))),
     );
     await makeAllReady(1);
     const result = await resultPromise;
-    expect(result).toBeInstanceOf(DevStartFailure);
-    expect((result as DevStartFailure).services).toEqual(["host"]);
+    expect(result).toBeInstanceOf(BootFailure);
+    expect((result as BootFailure).failed).toEqual(["host"]);
     expect(mocks.kills).toContain("api");
     expect(mocks.view.unmount).toHaveBeenCalled();
   });

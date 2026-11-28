@@ -1,9 +1,10 @@
-import { Clock, Data, DateTime, Deferred, Effect, Exit, Fiber, Layer } from "effect";
+import { Clock, DateTime, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { getProcessEnv } from "../../env/process-env";
 import { ShellEnvLive } from "../../env/project-env";
 import { ownerOfPort } from "../../infra/port-ownership";
 import { probePortBindable } from "../../infra/ports";
 import type { RuntimeConfig } from "../../types";
+import { BootFailure } from "../boot/types";
 import { reapGroup } from "../processes/kill";
 import {
   isPidAlive,
@@ -91,18 +92,6 @@ const sortByOrder = (packages: string[]): string[] => {
 
 export interface DevSessionHandle {
   shutdown: (mode: "graceful" | "force") => void;
-}
-
-/** A service failed to start in a production-like boot. The session fails
- * with this (non-zero exit) so the boot container dies and the deploy smoke's
- * exit watch resolves within seconds instead of the deadline. Development
- * sessions deliberately tolerate a partial start and keep running. */
-export class DevStartFailure extends Data.TaggedError("DevStartFailure")<{
-  readonly services: readonly string[];
-}> {
-  override get message() {
-    return `boot failed — services did not start: ${this.services.join(", ")}`;
-  }
 }
 
 export interface DevSessionDeps {
@@ -475,7 +464,7 @@ export const runDevSession = (
     // full 240s smoke deadline on a boot that had died in the first second.
     const strictBoot = runtimeConfig.env !== "development";
     if (strictBoot && startFailures.length > 0) {
-      const failure = new DevStartFailure({ services: [...startFailures] });
+      const failure = new BootFailure({ failed: [...startFailures] });
       yield* Effect.logError(`[Dev] ${failure.message}`);
       return yield* failure;
     }

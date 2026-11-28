@@ -1,5 +1,7 @@
 import * as p from "@clack/prompts";
 import type { DevOptions, DevResult, StartOptions, StartResult } from "../../contract";
+import { bootRuntime } from "../../services/boot/boot";
+import type { BootMode } from "../../services/boot/types";
 import { type ProgressEvent, pluginEvents } from "../../services/dev/progress";
 import type { DevSessionData } from "../../services/dev/session";
 import { exitCodeFor } from "../exit-codes";
@@ -24,14 +26,12 @@ const _runWithProgress = async <T>(
 };
 
 const mountSession = async (
+  mode: BootMode,
   projectDir: string | undefined,
   session: DevSessionData,
 ): Promise<void> => {
-  const [{ devApp }, { DevRendererCliLive }] = await Promise.all([
-    import("../../services/dev/session"),
-    import("../render/dev-render"),
-  ]);
-  devApp(projectDir ?? process.cwd(), session, DevRendererCliLive);
+  const { DevRendererCliLive } = await import("../render/dev-render");
+  return bootRuntime({ mode, dir: projectDir ?? process.cwd(), data: session }, DevRendererCliLive);
 };
 
 export const runDev = async (ctx: CommandContext): Promise<void> => {
@@ -80,7 +80,7 @@ export const runDev = async (ctx: CommandContext): Promise<void> => {
   const session = result.session;
   void outdatedWarning;
   if (session) {
-    await mountSession(projectDir, session);
+    await mountSession("dev", projectDir, session);
   }
   return;
 };
@@ -129,7 +129,7 @@ export const runStart = async (ctx: CommandContext): Promise<void> => {
     if (summary) {
       printStartSummary(summary);
     }
-    await mountSession(projectDir, session);
+    await mountSession("start", projectDir, session);
   }
   return;
 };
