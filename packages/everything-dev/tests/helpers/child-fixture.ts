@@ -228,7 +228,7 @@ export const typecheckChild = (child: Typed): Effect.Effect<GateReport, GateErro
         catch: gateError(`typecheck:${workspace}`, `pnpm ${command.join(" ")}`),
       });
       if (result.code !== 0) {
-        yield* new GateError({
+        return yield* new GateError({
           gate: `typecheck:${workspace}`,
           command: `pnpm ${command.join(" ")}`,
           output: result.stdout + result.stderr,
@@ -253,14 +253,14 @@ export const buildChild = (child: Installed): Effect.Effect<GateReport, GateErro
     });
     const output = result.stdout + result.stderr;
     if (result.code !== 0) {
-      yield* new GateError({ gate: "build", command: `bos ${command.join(" ")}`, output });
+      return yield* new GateError({ gate: "build", command: `bos ${command.join(" ")}`, output });
     }
     const warnings = output
       .split("\n")
       .filter((line) => /warning/i.test(line))
       .filter((line) => !WARNING_BUDGET.some((pattern) => pattern.test(line)));
     if (warnings.length > 0) {
-      yield* new GateError({
+      return yield* new GateError({
         gate: "build-warnings",
         command: `bos ${command.join(" ")}`,
         output: warnings.join("\n"),
@@ -278,7 +278,7 @@ export const upgradeCheckChild = (child: Installed): Effect.Effect<GateReport, G
       catch: gateError("upgrade-check", `bos ${command.join(" ")}`),
     });
     if (![0, 1].includes(result.code)) {
-      yield* new GateError({
+      return yield* new GateError({
         gate: "upgrade-check",
         command: `bos ${command.join(" ")}`,
         output: result.stdout + result.stderr,
