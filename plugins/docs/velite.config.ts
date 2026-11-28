@@ -1,6 +1,9 @@
 import { relative } from "node:path";
 import { context, defineCollection, defineConfig, s, z } from "velite";
 
+/** Content globs relative to the repository root. */
+export const contentPatterns = ["docs/**/*.md", "GLOSSARY.md", "plugins/*/docs/**/*.md"] as const;
+
 const prettify = (filePath: string): string =>
   filePath
     .replace(/\.(md|mdx)$/i, "")
@@ -40,7 +43,7 @@ export default defineConfig({
   collections: {
     docs: defineCollection({
       name: "Doc",
-      pattern: ["docs/**/*.md", "GLOSSARY.md", "plugins/*/docs/**/*.md"],
+      pattern: [...contentPatterns],
       schema: s.object({
         source: s.custom<string>().transform(() => {
           const path = relative(context().config.root, context().file.path).replace(/\\/g, "/");

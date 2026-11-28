@@ -22,6 +22,11 @@ const webServerEnv = Object.fromEntries(
   Object.entries(derivedEnv).filter(([key]) => process.env[key] === undefined),
 );
 
+// The stack's first cold boot (8 rspack compiles + host SSR compose) can
+// outlive the 5-minute default on loaded machines; the env override is a
+// local-run convenience — CI stays on the default.
+const webServerTimeoutMs = Number(process.env.BOS_WEBSERVER_TIMEOUT_MS ?? 300_000);
+
 export default defineConfig({
   testDir: "./specs",
   timeout: 60000,
@@ -53,7 +58,7 @@ export default defineConfig({
     reuseExistingServer: true,
     // The pnpm-based image build + container boot outgrew the bun-era 2m
     // budget; 5m keeps headroom (an early exit still fails the webServer).
-    timeout: 300_000,
+    timeout: webServerTimeoutMs,
     stdout: "pipe",
     stderr: "pipe",
     env: webServerEnv,
