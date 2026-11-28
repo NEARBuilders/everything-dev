@@ -38,6 +38,18 @@ bos init your-app.everything.dev \
   --no-interactive
 ```
 
+## Local development
+
+```bash
+pnpm run setup   # install + toolchain prepare + generated types + a fast verify (idempotent)
+pnpm run dev     # UI on http://localhost:3003, API on http://localhost:3001, Auth on http://localhost:3002
+pnpm run test
+```
+
+No `.env`, Postgres or Docker: every local database is a persistent PGlite data dir under `.bos/db`. Start with `pnpm run setup` rather than a bare `pnpm install` — it also prepares the Effect toolchain (the patched `tsc` and `oxlint`) that `pnpm run typecheck` and `pnpm run lint` need, and it is a fast no-op on a healthy checkout.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution workflow and [AGENTS.md](./AGENTS.md) for the full operational guide.
+
 ## Deploy
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/everything-dev-template?referralCode=MuB_vg&utm_medium=integration&utm_source=template&utm_campaign=generic)
