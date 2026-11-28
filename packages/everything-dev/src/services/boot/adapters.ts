@@ -59,7 +59,7 @@ export const SupervisorLive = (inputs: SupervisorInputs): Layer.Layer<Supervisor
                 command: payload.command,
                 args: payload.args,
                 cwd: payload.cwd,
-                env: {},
+                env: payload.env ?? {},
                 port: payload.port,
                 generatedEnv: inputs.generatedEnv,
                 shellTier: inputs.shellTier,

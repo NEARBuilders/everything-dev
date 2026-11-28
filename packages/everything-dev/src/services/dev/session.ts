@@ -462,6 +462,7 @@ export const runDevSession = (
           args: descriptor.args ?? ["run", "dev"],
           cwd: descriptor.localPath,
           port,
+          env: descriptor.env,
         },
         readiness: {
           urls: [`http://127.0.0.1:${port}${descriptor.readinessPath}`],
