@@ -29,6 +29,7 @@ import { selectWorkspaceTargets } from "../services/workspace/build-train";
 import { readWorkspaceCatalog } from "../services/workspace/catalog";
 import { findWorkspaceRoot } from "../services/workspace/workspace";
 import type { BosConfig } from "../types";
+import { regenerationRemedy } from "../utils/checkout-bootstrap";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
 
@@ -154,7 +155,24 @@ export function registerUpgrade(builder: BosBuilder) {
           }
 
           const projectDir = resolve(dirname(configPath));
-          const refreshed = await openResolution({ cwd: projectDir });
+          const failWithRemedy = (error: unknown) => {
+            const remedy = regenerationRemedy(projectDir, error);
+            if (remedy === null) throw error;
+            return {
+              status: "error" as const,
+              checked: [],
+              skipped: [],
+              results: [],
+              error: remedy,
+            };
+          };
+
+          let refreshed: Awaited<ReturnType<typeof openResolution>>;
+          try {
+            refreshed = await openResolution({ cwd: projectDir });
+          } catch (error) {
+            return failWithRemedy(error);
+          }
           if (!refreshed?.config || !refreshed.runtime) {
             return {
               status: "error" as const,
@@ -168,11 +186,15 @@ export function registerUpgrade(builder: BosBuilder) {
           const runtime = refreshed.runtime;
           const resolvedConfig = refreshed.config;
 
-          await generateCodeArtifacts(projectDir, resolvedConfig, {
-            env: nodeEnvProduction() ? "production" : "development",
-            extendsChain: [...refreshed.chain],
-            runtimeConfig: runtime,
-          });
+          try {
+            await generateCodeArtifacts(projectDir, resolvedConfig, {
+              env: nodeEnvProduction() ? "production" : "development",
+              extendsChain: [...refreshed.chain],
+              runtimeConfig: runtime,
+            });
+          } catch (error) {
+            return failWithRemedy(error);
+          }
           type AppTarget = { source?: string; localPath?: string };
           const workspaceEntries: Array<{
             key: string;
