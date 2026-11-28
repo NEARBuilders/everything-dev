@@ -3,10 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  composePlatformReleaseManifest,
+  composePlatformManifest,
   computeTemplateInventory,
   ManifestSchema,
-  serializePlatformReleaseManifest,
+  serializePlatformManifest,
 } from "../../src/services/platform/manifest";
 import {
   CHILD_OWNED_BLOCK_END,
@@ -337,7 +337,7 @@ describe("platform release manifest guardrail (ADR 0034)", () => {
   });
 
   it("a composed manifest parses back through the published schema with that inventory", () => {
-    const manifest = composePlatformReleaseManifest({
+    const manifest = composePlatformManifest({
       frameworkVersion: "0.0.0-test",
       everyPluginVersion: "0.0.0-test",
       imageRef: "ghcr.io/nearbuilders/everything-dev",
@@ -345,7 +345,7 @@ describe("platform release manifest guardrail (ADR 0034)", () => {
       templateInventory: computeTemplateInventory(REPO_ROOT),
       compatMinChild: "0.0.0-test",
     });
-    const parsed = ManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(manifest)));
+    const parsed = ManifestSchema.parse(JSON.parse(serializePlatformManifest(manifest)));
     expect(parsed.templateInventory.length).toBeGreaterThan(0);
   });
 });

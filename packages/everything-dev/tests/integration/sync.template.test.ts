@@ -120,7 +120,7 @@ describe("syncTemplate", () => {
     // (ADR 0034) has its own unit coverage (platform-sync-release.test.ts),
     // so a stable manifest is injected and templates sync verbatim here.
     vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue({
-      manifest: platformManifestModule.composePlatformReleaseManifest({
+      manifest: platformManifestModule.composePlatformManifest({
         frameworkVersion: "9.9.9-test",
         everyPluginVersion: "9.9.9-test",
         imageRef: "ghcr.io/nearbuilders/everything-dev",

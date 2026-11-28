@@ -35,7 +35,7 @@ https://kv.main.fastnear.com/v0/latest/dev.everything.near/<account>/apps%2F<acc
 https://kv.test.fastnear.com/...                                            # testnet
 ```
 
-Or in code: `fetchBosConfigFromFastKv("bos://<account>/<gateway>")` from `everything-dev/fastkv`.
+Or in code: `registryClientShape.read({ kind: "runtimeConfig", ref: "bos://<account>/<gateway>" })` from `everything-dev/registry`.
 
 The thin tag names `versions/<v>.json`, which carries the platform release manifest (ADR 0034): framework/every-plugin versions, the release catalog, exact shared-dep versions, the hashed template inventory, and the compat floor — image `ref` + tags, never the digest. The record is immutable: a divergent republish of the same version is refused, loud (ADR 0040). It is written by the deploy train on the **same atomic transaction** as the config and the audit manifest (the tag and record ride the same atomic transaction as the config and the audit trail — all land or none do), rides only framework-rooted production trains (children and config-only publishes write nothing), and its compat floor derives from the previous release: a registry failure reading that release skips the manifest for that deploy rather than publishing a wrong window. Children resolve it through the extends chain like the catalog — the root runtime owns it.
 

@@ -7,7 +7,7 @@
  *   the fresh 24h cache) → stale fail-loud (cache deleted / TTL expired, pin
  *   unresolvable) → C2 upgrade ignores the pin, re-pins the latest release →
  *   #546 replay (drifted-react republish: the composition gate names the
- *   skewed remotes, `bos platform manifest --check` flags the drift) → the
+ *   skewed remotes, `bos manifest --check` flags the drift) → the
  *   mixed-tree replay (a caret-authored root publishes exact catalog rows,
  *   the child upgrade consumes them verbatim, a drifted install fails loud).
  *
@@ -43,7 +43,7 @@ import {
   type Manifest,
   ManifestSchema,
   resolvePlatformManifest,
-  serializePlatformReleaseManifest,
+  serializePlatformManifest,
 } from "../../src/services/platform/manifest";
 import { manifestTagOf } from "../../src/services/platform/manifest-schema";
 import { parseRuntimeRef } from "../../src/services/registry/keys";
@@ -560,7 +560,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
       templateInventory: [],
       compat: { minChild: "2.0.0-rc.37" },
     });
-    const serialized = serializePlatformReleaseManifest(release);
+    const serialized = serializePlatformManifest(release);
     registry.set(PLATFORM_KEY, manifestTagOf(release, serialized));
     registry.set(
       `apps/${ROOT_ACCOUNT}/${ROOT_GATEWAY}/versions/2.0.0-rc.3.json`,

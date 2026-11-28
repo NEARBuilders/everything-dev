@@ -14,9 +14,9 @@ import {
   resolveExactCatalog,
 } from "../packages/everything-dev/src/services/deploy/platform-manifest";
 import {
-  composePlatformReleaseManifest,
+  composePlatformManifest,
   computeTemplateInventory,
-  serializePlatformReleaseManifest,
+  serializePlatformManifest,
 } from "../packages/everything-dev/src/services/platform/manifest";
 
 const configDir = process.cwd();
@@ -28,7 +28,7 @@ if (!frameworkVersion || !everyPluginVersion) {
   );
 }
 
-const manifest = composePlatformReleaseManifest({
+const manifest = composePlatformManifest({
   frameworkVersion,
   everyPluginVersion,
   gitSha: process.env.BOS_GIT_SHA || undefined,
@@ -45,7 +45,7 @@ mkdirSync(distDir, { recursive: true });
 // input divergence is the compat floor: the publisher-side window
 // (previous release → current) is unknowable inside the image build, so the
 // in-image copy stamps its own version — a floor that only ever fails closed.
-writeFileSync(join(distDir, "platform-manifest.json"), serializePlatformReleaseManifest(manifest));
+writeFileSync(join(distDir, "platform-manifest.json"), serializePlatformManifest(manifest));
 console.log(
   `platform release manifest generated: ${manifest.frameworkVersion} (${manifest.templateInventory.length} inventory files)`,
 );
