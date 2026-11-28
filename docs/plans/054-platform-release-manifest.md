@@ -56,12 +56,6 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
         `.bos/platform-manifest.json` cache, all I/O injectable); `upgradeTemplate` switches the
         catalog source to `manifest.catalog` when a manifest resolves, surfaces
         `platform` + `updatesAvailable` on the result
-- [x] T4 (closed as a recorded decision) — `ci.image` derivation: the seam is landed and tested
-        (`deriveImageRefFromPlatformManifest` → `ref@v<version>`); wiring it into deploy preflight
-        has **no real caller today** — the child tier skips the image leg by design (ADR 0021) and
-        root/pre-pushed deploys pin via `BOS_IMAGE_DIGEST` — so the consumer lands with the
-        self-deploy flow that actually hand-pins an image (plan 042-adjacent). One adapter means a
-        hypothetical seam; the seam ships when the second adapter arrives.
 - [x] T4 (consumer landed, 2026-10-21) — the second adapter arrived: #493. `ci.image` is removed
         entirely (deploy fails fast on it via the session's `unknownAuthoredKeys`); the child pin
         resolves manifest → `ref@v<version>` → registry digest, the Railway leg repoints the
@@ -73,12 +67,9 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
         content-build time (hash-compare and written bytes stay consistent; third-party
         `@main` actions are never repointed); sync snapshot gains `release` provenance;
         manifest-absent → today's flow (existing sync tests pass unchanged)
-- [ ] T5 (open seam) — consume `templateInventory` hashes at sync time to skip the tarball
-        download when nothing changed (today the release tarball is downloaded and the existing
-        three-way hash compare does the touching-only-changed work — same outcome, one download).
-        The cheap correct delta test is snapshot provenance: `snapshot.release ===
-        manifest.frameworkVersion` → nothing to pull; wiring it means restructuring syncTemplate's
-        single download-and-compare block — schedule with the next sync-touching change.
+- [x] T5 (open seam, closed moot) — consume `templateInventory` hashes at sync time to skip the
+        tarball download when nothing changed. Dead: `bos sync` retired by the RC path
+        consolidation (#541, superseding #589) — there is no sync download left to skip.
 
 ## Verification checklist (T6–T7)
 

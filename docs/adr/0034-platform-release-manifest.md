@@ -1,9 +1,9 @@
 # ADR 0034: The platform release manifest — one pin, everything derived
 
 Date: 2026-10-20
-Status: Accepted (amended 2026-10-23, #546)
+Status: Accepted (amended 2026-10-23, #546; 2026-10-24, #573/#574; 2026-10-28; 2026-11-11, #874)
 
-Depends on: ADR 0001 (FastKV registry — namespace=signer, action-indexed writes), ADR 0020/0021 (universal runtime image, identity-driven boot), ADR 0031 (package shape), ADR 0032 (framework-owned files inventory), ADR 0033 (database seam).
+Depends on: ADR 0001 (FastKV registry — namespace=signer, action-indexed writes), ADR 0020/0021 (universal runtime image, identity-driven boot), ADR 0031 (package shape), ADR 0032 (framework-owned files inventory), ADR 0033 (database seam), ADR 0040 (the registry wire cutover — the thin tag + immutable version records this decision now publishes through).
 
 Implements [docs/plans/054-platform-release-manifest.md](../plans/054-platform-release-manifest.md).
 
@@ -18,7 +18,7 @@ Considered and rejected: **full runtime shared-scope** (children stop bundling s
 ## Decision
 
 1. **One manifest per framework release, one composer, two homes.** The deploy train composes a `PlatformReleaseManifest` from release inputs (framework version, release catalog, resolved shared deps, template inventory, compat floor) and publishes it to:
-   - **FastKV** — the pointer slot `apps/<root-account>/<root-gateway>/platform.json`, riding the same atomic `__fastdata_kv` write as the config and the per-deploy audit manifest (third `registryEntries` key), carrying the manifest's own SRI. Resolved through the extends chain like the catalog — the root runtime owns it, children read it.
+   - **FastKV** — the pointer slot `apps/<root-account>/<root-gateway>/manifest.json` (composed originally as `platform.json`; the registry wire cutover, ADR 0040, renamed the key and split it into the thin tag + the immutable `versions/<v>.json` record), riding the same atomic `__fastdata_kv` write as the config and the per-deploy audit manifest (third `registryEntries` key), carrying the manifest's own SRI. Resolved through the extends chain like the catalog — the root runtime owns it, children read it.
    - **In-image** — generated *inside the docker build* (a `RUN` step after the workspace builds, not a host `COPY`) at the deterministic path `packages/everything-dev/dist/platform-manifest.json`, which the runtime stage copies wholesale. This is a deliberate, tiny exception to ADR 0020/0021's "the image stages no dists": one JSON file, generated in-build so local and CI images are byte-identical by construction. The booted host self-describes (`bos platform manifest`).
 
    ```jsonc
@@ -27,7 +27,7 @@ Considered and rejected: **full runtime shared-scope** (children stop bundling s
      "kind": "everything-dev/platform-manifest",
      "frameworkVersion": "2.0.0-rc.14",      // readFrameworkVersion — the single version source
      "everyPluginVersion": "3.0.0-rc.9",
-     "image": { "ref": "ghcr.io/nearbuilders/everything-dev", "tags": ["v2.0.0-rc.14", "sha-32723626"] },
+     "image": { "ref": "ghcr.io/nearbuilders/everything-dev", "tags": ["v2.0.0-rc.14"] },  // derivable tags only — a sha tag is a git fact an image build cannot see
      "catalog": { /* the release catalog — upgrade's existing source, relocated */ },
      "sharedDeps": { /* exact versions + singleton/strictVersion flags — the shared-deps.json shape */ },
      "templateInventory": [ { "path": "…", "sha256": "…" } ],  // ADR 0032's ownership inventory, per-release and hashed
@@ -35,15 +35,15 @@ Considered and rejected: **full runtime shared-scope** (children stop bundling s
    }
    ```
 
-2. **The digest derives — it is never embedded.** The manifest carries `ref` + tags; deploy preflight resolves `ref@digest` from the registry by the version tag (the image/bundles same-SHA invariant makes this sound, and the tags derive from the version alone — no git fact an image build cannot see). One writer, one write; `ci.image` is removed entirely (amended 2026-10-21, #493 — a deploy fails fast when an authored config sets it). The one publisher-side divergence between the homes is the compat floor: the FastKV copy's floor is the previous release (a fetch *failure* skips the manifest for that deploy rather than publishing a silently wrong window), while the in-image copy — which cannot read the registry inside the build — stamps its own version, a floor that only ever fails closed.
+2. **The digest derives — it is never embedded.** The manifest carries `ref` + tags; deploy preflight resolves `ref@digest` from the registry by the version tag (the image/bundles same-SHA invariant makes this sound, and the tags derive from the version alone — no git fact an image build cannot see). One writer, one write; `ci.image` is removed entirely (amended 2026-10-21, #493 — a deploy fails fast when an authored config sets it). The one publisher-side divergence between the homes is the compat floor: the FastKV copy's floor is the previous release (amended 2026-10-24, #573 — the pointer read that names it is a hard gate: a registry failure throws and nothing publishes, the old "a fetch failure skips the manifest for this deploy" path is deleted; an absent pointer — a first release — floors at the release's own version), while the in-image copy — which cannot read the registry inside the build — stamps its own version, a floor that only ever fails closed.
 
-3. **Children record one exact pin** — `platform: "2.0.0-rc.14"` in `bos.app.ts`. Default (field absent): latest via extends, resolved explicitly inside sync/upgrade (they read the authored config; defu inheritance alone cannot surface it). Offline dev caches the resolved manifest at `.bos/platform-manifest.json` — gitignored local memo; trust lives in the authored pin plus the published manifest. Everything derives from the resolved manifest: catalog entries, the deploy-time image ref `ref@v<version>` + registry digest (the `ci.image` slot is gone — amended 2026-10-21, #493), and the release-scoped template-sync delta. Invariant, recorded: **the pin is exact in v1 — no ranges; resolution picks one manifest.**
+3. **Children record one exact pin** — `release: "2.0.0-rc.14"` in `bos.app.ts` (the original `platform` authored key was renamed at the RC-path consolidation; `bos upgrade` rewrites it surgically and the old key still parses). Default (field absent): latest via extends, resolved explicitly inside upgrade (it reads the authored config; defu inheritance alone cannot surface it). Offline dev caches the resolved manifest at `.bos/manifest.json` (relocated from the original `.bos/platform-manifest.json` by the registry-primitive sprint) — gitignored local memo; trust lives in the authored pin plus the published manifest. Everything derives from the resolved manifest: catalog entries, the deploy-time image ref `ref@v<version>` + registry digest (the `ci.image` slot is gone — amended 2026-10-21, #493), and the release-scoped template-sync delta. Invariant, recorded: **the pin is exact in v1 — no ranges; resolution picks one manifest.**
 
 4. **Template sync pulls the release, not `main`.** The manifest names the release; sync threads the release tag through the existing tarball resolver (it already accepts a `ref` and returns the resolved sha), compares local file hashes against `templateInventory`, and touches only changed files. The sync snapshot gains a release-provenance field beside `parentRef`. Child workflow wrappers' reusable-workflow refs (`consumer-deploy.yml@main`) rewrite to `@v<version>` under the same rule. Authority shift, recorded: **at sync time the file-list authority is the release manifest's `templateInventory`; the installed package's inventory remains the fallback when no manifest resolves.** `bos sync` keeps its explicit-drift-pull role, now release-scoped too.
 
 5. **Compatibility is verified, additively.** A new platform check — child slot-pin `requiredVersion` ranges against the manifest's `sharedDeps`, plus the global `compat.minChild` floor, via the existing caret/prerelease-aware range checker — runs at three sites sharing one implementation: `bos platform manifest`, the deploy smoke gate (an in-image read, beside the existing federation exec), and `bos mf check`. The federation check's exact pluginVersion equality is untouched — this check is a sibling, not a relaxation, so previously-green deploys stay green.
 
-6. **Drift alarm and CI wiring.** `bos upgrade --check` diffs the recorded pin against the latest published manifest and exits nonzero on drift (dry-run's existing comparison, mf-check's renderer exit pattern); the child CI workflow template gains a drift job. `config`-only publishes (`bos publish`, no build) skip the manifest leg — it rides the full deploy train only, after the npm-publish preflight gate has confirmed the framework version is actually published.
+6. **Drift alarm.** `bos upgrade --check` diffs the recorded release against the latest published manifest and exits nonzero on drift (dry-run's existing comparison, mf-check's renderer exit pattern). Amended 2026-10-24, #573: the promised child CI drift job never shipped and the promise is withdrawn — the drift alarm is the manual `bos upgrade --check` (ADR 0032 records the `platform-drift` job's removal from the child template), and the release classification itself moved in-train as owed-work detection from live state, so a drifted child still fails loud at its next deploy's composition gate rather than silently aging. Manifest keys move on the **release leg** only (amended 2026-10-24, #573): a production build deploy whose framework version moved past the published pointer writes the immutable `versions/<v>.json` record and flips the `manifest.json` thin tag, after the npm-publish preflight gate has confirmed the framework version is actually published; non-release deploys — including `config`-only publishes (`bos publish`, no build) and staging — write no manifest keys at all, and the pointer read that classifies the leg must succeed (an unknown state is never silently classified as non-release).
 
 7. **Additive, not breaking.** Manifest absent → today's behavior (parent-catalog tarball walk against `main` HEAD). Old children upgrade into this world on their next `bos upgrade`; the `platform` field is a new root config key wired through the authored-config schema, serialization order, and sync's managed-key list so it survives personalization.
 
@@ -80,18 +80,14 @@ and the composition died with the federation runtime's negotiation error
    stamps `MF_BUILD_VERSION` from the installed framework version, so a
    bundle's provenance is a fact, not a guess.
 
-**Stale-pin semantics, decided empirically:** a root republish overwrites the
-`platform.json` pointer slot; a child pinning a version the chain no longer
-serves resolves only while the fresh `.bos/platform-manifest.json` cache (24h
-TTL) still stands in — past that, resolution fails loud with
-`platform pin <version> not found in the extends chain`. This is accepted
-as-is (the upgrade is the pathway that clears it); the versioned manifest
-history that would make old pins resolvable indefinitely stays a recorded
-future seam below.
+**Stale-pin semantics — decided empirically 2026-10-23, superseded 2026-10-24 (#574):** the day-one arrangement accepted that a root republish overwrites the pointer slot, so a child pinning a version the chain no longer served resolved only while the fresh `.bos/manifest.json` cache (24h TTL) still stood in — past that, resolution failed loud with `platform pin <version> not found in the extends chain`, and the upgrade was the pathway that cleared it. That acceptance lasted exactly one release cycle: the registry wire cutover (ADR 0040) split the pointer in two, and pinned resolution is now **slot-first** — the chain is scanned for the immutable `apps/<account>/<gateway>/versions/<v>.json` record, and a record that once published resolves forever. A root republish flips the thin tag but cannot touch old records, so old pins stay resolvable indefinitely (`provenance: "record"`, `fromCache: false`). The offline cache is an offline-dev aid only — it stands in solely when a record *read fails* (unreachable), never to satisfy an absent record, and the upgrade-of-record never picks a release from it. A pin whose record never published fails loud with the actionable error: `platform pin <release>: no version record in the extends chain — the release's manifest leg never published it; re-run the release deploy (or \`bos upgrade\` to re-pin)`.
 
 The pin lifecycle is exercised end-to-end by
 `packages/everything-dev/tests/integration/platform-upgrade-e2e.test.ts`
-(publish → pin → deploy derivation → stale fail-loud → re-pin → skew replay).
+(release 1 publishes → child pins → deploy derives the image pin → release 2
+publishes and the pointer flips — the old pin still resolves from the
+immutable record → a never-published pin fails loud → re-pin → the #546
+skew replay → the mixed-tree replay → the #874 boot replay).
 
 ## Amendment (2026-10-28 — release-scoped extends inheritance)
 
@@ -108,7 +104,8 @@ pointer-live, not release-scoped.
 Two changes, shipped together, make a pinned child's runtime a deterministic
 function of (child code, pinned release):
 
-1. **The release manifest records its own slot-pin map** (the `slots` field —
+1. **The release manifest records its own slot-pin map** (the `remotes`
+   field in the schema — the slot-pin map this amendment calls `slots`;
    additive, optional; old readers strip it). The release leg composes it from
    the release's publish payload: every pinned slot, keyed by dotted config
    path (`app.auth`, `app.auth.ui`, `plugins.votes.ui`, …), each carrying the
@@ -176,7 +173,8 @@ release-scoping effective.
 - Framework releases gain a machine-readable contract; `upgradeTemplate`'s catalog source moves from "walk the parent repo tarball" to one registry read.
 - The citynode correlator-commit class of error is caught at deploy time by the platform check instead of at runtime by a federation failure.
 - With release-scoped extends inheritance, a root publish can no longer skew or break an un-upgraded platform-pinned child's runtime; child deploys stay green between `bos upgrade`s.
-- Future seams, recorded not built: caret-tolerant `platform` pins (auto-minor within compat) once range resolution proves out; per-dep compat granularity; a versioned manifest history beside the pointer slot (the registry's history API covers this for now — and per the #546 amendment, it is also the fix for stale pins outliving a republish); boot-time release scoping for children pinned to pre-`slots` releases that cannot redeploy.
+- Shipped since the #546 stale-pin lesson (moved up from the seams below): the **versioned manifest history** — each release lands once at the immutable `versions/<v>.json` record beside the pointer slot (ADR 0040; one derivation per wire key in `services/registry/pointer.ts`), which is what makes old pins resolvable forever, what the release-scoped `remotes` map hangs from, and what the deploy-record audit trail references.
+- Future seams, recorded not built: caret-tolerant release pins (auto-minor within compat) once range resolution proves out; per-dep compat granularity; boot-time release scoping for children pinned to pre-`slots` releases that cannot redeploy.
 
 ## Amendment (2026-11-11 — the booted host rides the pin (#874))
 
