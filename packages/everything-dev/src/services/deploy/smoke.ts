@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { pgliteDefaultUrlForSlug } from "../../db/binding";
+import { DEFAULT_HOST_PORT } from "../../infra/ports";
 import { formatElapsed, stepFail, stepOk } from "./output";
 
 /**
@@ -241,7 +242,7 @@ function captureContainerLogs(
 }
 
 export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
-  const port = options.port ?? 3000;
+  const port = options.port ?? DEFAULT_HOST_PORT;
   const keep = options.keep ?? false;
   const baseUrl = `http://localhost:${port}`;
   const container = `everything-dev-smoke-${process.pid}`;

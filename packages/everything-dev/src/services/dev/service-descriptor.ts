@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Context, Layer } from "effect";
+import { DEFAULT_HOST_PORT } from "../../infra/ports";
 import type { JsonObject, RuntimeConfig, SourceMode } from "../../types";
 
 export interface AuthRemoteShape {
@@ -91,7 +92,7 @@ const SERVICE_CONFIGS = {
     // their .mjs config evaluation resolves dist (freshness is the
     // prerequisite train's job, ADR 0022).
     env: { NODE_OPTIONS: "--conditions=development" },
-    defaultPort: 3000,
+    defaultPort: DEFAULT_HOST_PORT,
     readinessPath: "/health",
   },
   auth: {

@@ -10,7 +10,7 @@ import { loadPortState, savePortState } from "../services/infra";
 import type { RuntimeConfig } from "../types";
 import { shouldPersistPortState } from "./materializer";
 import { ownerOfPort } from "./port-ownership";
-import { PortAllocator, type PortBlockEntry } from "./ports";
+import { DEFAULT_HOST_PORT, PortAllocator, type PortBlockEntry } from "./ports";
 import type {
   ClaimRecord,
   CliPorts,
@@ -21,8 +21,6 @@ import type {
   ServiceDescriptorPlan,
 } from "./types";
 import { InfraError } from "./types";
-
-const DEFAULT_HOST_PORT = 3000;
 
 export function workspaceKey(configDir: string): string {
   const hash = createHash("sha256").update(resolve(configDir)).digest("hex");
@@ -324,7 +322,9 @@ export function buildLaunchSpec(
 ): RuntimeLaunchSpec {
   const hostPort =
     runtimeConfig.host?.source === "local" ? resolvedPorts.host : runtimeConfig.host?.port;
-  const corsOrigin = hostPort ? `http://localhost:${hostPort}` : `http://localhost:3000`;
+  const corsOrigin = hostPort
+    ? `http://localhost:${hostPort}`
+    : `http://localhost:${DEFAULT_HOST_PORT}`;
 
   return {
     port: resolvedPorts.host,

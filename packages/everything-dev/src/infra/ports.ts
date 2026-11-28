@@ -7,6 +7,8 @@ const MAX_PORT_SCAN_STEPS = 1000;
 const PARALLEL_PROBE_WINDOW = 8;
 const BLOCK_STEP = 100;
 
+export const DEFAULT_HOST_PORT = 3000;
+
 export type PortBudget = { min: number; max: number };
 
 export class PortAllocationError extends Data.TaggedError("PortAllocationError")<{
