@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
-import { invalidateThingAfterDelete, invalidateThingAfterProposal } from "./-thing-cache";
+import { invalidateThingAfterDelete, invalidateThingAfterProposal } from "./things";
 
 function seed(client: QueryClient, keys: readonly (readonly string[])[]) {
   for (const key of keys) client.setQueryData(key, []);

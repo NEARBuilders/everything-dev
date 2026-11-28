@@ -577,6 +577,7 @@ this repo must cover: [`docs/agents/testing.md`](docs/agents/testing.md).
 - **Never write tautology tests.** Don't assert a mock returns what it was configured to return, don't spy on trivial wrappers/loaders to assert call arguments, and don't render mocked data to assert it appears.
 - **Prefer E2E for user-observable behavior.** Add browser regression specs under `tests/regression/browser/` (data-testid selectors per the conventions above; end specs with a verifiable, repeatable artifact — a Playwright trace).
 - **Unit tests are reserved for what E2E can't reach:** crypto/protocol verification, pure state machines and calculation logic, fault injection, DB/migration behavior, CLI contracts. Before writing one, write down the failure modes first, then test exactly those.
+- **Keep assertions in the layers a renderer swap can't delete.** Node tests of extracted logic and behavioral browser specs survive a UI-renderer change; jsdom component tests don't (ADR 0050) — add one only with a stated React-specific reason.
 
 ## Effect DevTools
 
@@ -654,6 +655,11 @@ function MyComponent() {
   const { data } = await apiClient.registry.listRegistryApps({ limit: 24 });
 }
 ```
+
+Query options are built only in `ui/src/lib/queries/*` modules (one per domain, keys on a
+domain query-keys object) — routes and components consume factories
+(`useQuery(thingsListQueryOptions(apiClient))`), never inline `useQuery({...})` literals.
+One-off `useMutation` calls may stay inline; shared ones get factories beside their queries.
 
 ### App Name in UI
 ```typescript

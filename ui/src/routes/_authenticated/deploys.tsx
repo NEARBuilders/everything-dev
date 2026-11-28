@@ -17,6 +17,7 @@ import {
   Skeleton,
 } from "@/components";
 import { pageTitle } from "@/lib/page-title";
+import { deployQueryKeys, deploysQueryOptions } from "@/lib/queries/deploys";
 
 export const Route = createFileRoute("/_authenticated/deploys")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -46,11 +47,7 @@ function DeploysPage() {
   const ownGateway = getGatewayId(runtimeConfig) ?? "";
   const canRollback = Boolean(ownGateway) && account === ownAccount && gateway === ownGateway;
 
-  const deploys = useQuery({
-    queryKey: ["deploys", account, gateway],
-    queryFn: () => apiClient.hosting.listDeploys({ account, gateway, limit: 50 }),
-    staleTime: 30 * 1000,
-  });
+  const deploys = useQuery(deploysQueryOptions(apiClient, account, gateway));
 
   const rollback = useMutation({
     mutationFn: (blockHeight: number) =>
@@ -61,7 +58,9 @@ function DeploysPage() {
         toast.success(
           `Rolled back to the snapshot at block height ${result.blockHeight}${result.txHash ? ` — tx ${result.txHash}` : ""}`,
         );
-        void queryClient.invalidateQueries({ queryKey: ["deploys", account, gateway] });
+        void queryClient.invalidateQueries({
+          queryKey: deployQueryKeys.byNamespace(account, gateway),
+        });
       } else {
         toast.error(result.reason ?? "Rollback refused");
       }
